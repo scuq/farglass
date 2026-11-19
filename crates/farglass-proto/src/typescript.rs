@@ -9,8 +9,9 @@ use ts_rs::{Config, TS};
 
 use crate::login::{LocalSession, LoginEvent, LoginReply};
 use crate::message::{
-    Bus, Close, CloseReason, ConnectionMessage, DbusEvent, DbusRequest, Open, PolkitEvent,
-    PolkitReply, PtyEvent, PtyRequest, Ready, StateEvent, StateRequest,
+    Bus, Close, CloseReason, ConnectionMessage, DbusEvent, DbusRequest, Notification, NotifyAction,
+    NotifyEvent, NotifyReply, Open, PolkitEvent, PolkitReply, PtyEvent, PtyRequest, Ready,
+    StateEvent, StateRequest, Urgency,
 };
 use crate::{
     ChannelId, FrameError, FrameType, HEADER_LEN, MAX_PAYLOAD_LEN, PROTOCOL_VERSION,
@@ -90,6 +91,11 @@ fn messages() -> String {
     declare::<Bus>(&cfg, &mut out);
     declare::<DbusRequest>(&cfg, &mut out);
     declare::<DbusEvent>(&cfg, &mut out);
+    declare::<Urgency>(&cfg, &mut out);
+    declare::<NotifyAction>(&cfg, &mut out);
+    declare::<Notification>(&cfg, &mut out);
+    declare::<NotifyEvent>(&cfg, &mut out);
+    declare::<NotifyReply>(&cfg, &mut out);
     declare::<PolkitEvent>(&cfg, &mut out);
     declare::<PolkitReply>(&cfg, &mut out);
     declare::<PtyRequest>(&cfg, &mut out);

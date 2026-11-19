@@ -12,6 +12,7 @@
 #      A login through the shell must give a logind session of type web, with
 #      the agent as farglass-test. A second login must attach to the same session.
 #      pkexec in a terminal must show the polkit dialog, and Cancel must end it.
+#      notify-send in a terminal must show a notification, and its action must go back.
 #      The Log out button must end the web session and the agent.
 #   2. If the user who runs sudo has a local graphical session, a login as that
 #      user must show the confirm step. The script clicks Cancel only, and the
@@ -143,6 +144,12 @@ if browser "$TEST_USER" success; then
         fail "the polkit prompt of pkexec did not work"
         journalctl _UID="$TEST_UID" --since "-2 min" --no-pager -o cat 2>/dev/null | grep -i polkit | tail -5
         journalctl -u polkit --since "-2 min" --no-pager -o cat | tail -5
+    fi
+    if browser "$TEST_USER" notify; then
+        pass "the agent is the notification service of the web session"
+    else
+        fail "the notification of notify-send did not work"
+        journalctl _UID="$TEST_UID" --since "-2 min" --no-pager -o cat 2>/dev/null | grep -i notif | tail -5
     fi
     if browser "$TEST_USER" logout; then
         gone=no

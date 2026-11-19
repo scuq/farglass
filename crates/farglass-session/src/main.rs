@@ -48,6 +48,27 @@ async fn main() {
             }
         });
     }
+    // The desktop notifications of the session. FARGLASS_NOTIFICATIONS_NAME changes the bus name, for tests.
+    {
+        let notifications = session.notifications.clone();
+        let buses = session.buses.clone();
+        let name = std::env::var("FARGLASS_NOTIFICATIONS_NAME")
+            .unwrap_or_else(|_| farglass_session::notify::NOTIFY_NAME.to_owned());
+        tokio::spawn(async move {
+            let result = match buses
+                .connection(farglass_proto::message::Bus::Session)
+                .await
+            {
+                Ok(connection) => {
+                    farglass_session::notify::serve(notifications, &connection, &name).await
+                }
+                Err(error) => Err(error),
+            };
+            if let Err(error) = result {
+                tracing::warn!(%error, "the agent does not serve the desktop notifications");
+            }
+        });
+    }
     let mut wait = RETRY_MIN;
     loop {
         match link::connect(&path, &mut session).await {

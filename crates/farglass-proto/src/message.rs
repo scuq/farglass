@@ -80,6 +80,10 @@ pub enum Open {
         /// The bus.
         bus: Bus,
     },
+    /// The desktop notifications of the session. The shell keeps one open while the desktop is open.
+    ///
+    /// The agent sends [`NotifyEvent`] and gets [`NotifyReply`], as control messages.
+    Notify,
     /// The polkit prompts of the session. The shell keeps one open while the desktop shows.
     ///
     /// The agent sends [`PolkitEvent`] and gets [`PolkitReply`], as control messages.
@@ -199,6 +203,87 @@ pub enum DbusEvent {
         /// The values, in the JSON form.
         #[ts(type = "unknown[]")]
         values: Vec<serde_json::Value>,
+    },
+}
+
+/// The urgency of a notification.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "kebab-case")]
+pub enum Urgency {
+    /// For example "the download is complete".
+    Low,
+    /// The usual urgency.
+    Normal,
+    /// For example "the battery is almost empty". The shell shows it until the user closes it.
+    Critical,
+}
+
+/// An action button of a notification.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct NotifyAction {
+    /// The key that goes back to the program.
+    pub key: String,
+    /// The label of the button.
+    pub label: String,
+}
+
+/// One desktop notification.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct Notification {
+    /// The id that the program got from Notify.
+    pub id: u32,
+    /// The name of the program.
+    pub app: String,
+    /// The summary, one line.
+    pub summary: String,
+    /// The body, plain text.
+    pub body: String,
+    /// The action buttons. The key `default` is the action of a click on the notification.
+    pub actions: Vec<NotifyAction>,
+    /// The urgency.
+    pub urgency: Urgency,
+    /// The time to show the notification in milliseconds. `None` shows it until the user closes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub timeout_ms: Option<u32>,
+}
+
+/// A message of the agent on a notify channel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum NotifyEvent {
+    /// Shows a new notification, or replaces the one with the same id.
+    Show {
+        /// The notification.
+        notification: Notification,
+    },
+    /// Removes a notification.
+    Close {
+        /// The id of the notification.
+        id: u32,
+    },
+}
+
+/// A message of the shell on a notify channel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum NotifyReply {
+    /// The user closed the notification.
+    Dismiss {
+        /// The id of the notification.
+        id: u32,
+    },
+    /// The time of the notification ended.
+    Expire {
+        /// The id of the notification.
+        id: u32,
+    },
+    /// The user selected an action.
+    Action {
+        /// The id of the notification.
+        id: u32,
+        /// The key of the action.
+        key: String,
     },
 }
 

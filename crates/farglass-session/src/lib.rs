@@ -9,6 +9,7 @@
 
 pub mod dbus;
 pub mod link;
+pub mod notify;
 pub mod polkit;
 pub mod state;
 pub mod terminal;

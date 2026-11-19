@@ -1,0 +1,116 @@
+/* The desktop notifications: a column at the top right, under the panel, over the windows. */
+.notifications {
+  position: fixed;
+  top: 2.75rem;
+  right: 0.75rem;
+  z-index: 50;
+  display: grid;
+  gap: 0.5rem;
+  width: min(22rem, calc(100vw - 1.5rem));
+  pointer-events: none;
+}
+.notification {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.6rem 0.75rem;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--focus);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+  pointer-events: auto;
+  animation: notification-in 160ms ease-out;
+}
+.notification[data-urgency="low"] {
+  border-left-color: var(--line);
+}
+.notification[data-urgency="critical"] {
+  border-left-color: var(--bad);
+}
+.notification header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.notification-app {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notification-close {
+  padding: 0 0.35rem;
+  color: var(--muted);
+  font-size: 1.1rem;
+  line-height: 1.2;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.notification-close:hover {
+  color: var(--fg);
+  background: var(--bar);
+}
+.notification-text {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  background: none;
+  border: 0;
+  overflow-wrap: anywhere;
+}
+button.notification-text {
+  cursor: pointer;
+}
+.notification-text p {
+  margin: 0;
+  /* The body is plain text. Its line breaks stay. */
+  white-space: pre-line;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.notification-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: flex-end;
+}
+.notification-actions button {
+  padding: 0.25rem 0.7rem;
+  font: inherit;
+  font-size: 0.9rem;
+}
+.notification :focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.notification-more {
+  margin: 0;
+  justify-self: end;
+  padding: 0.15rem 0.5rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  background: var(--bg);
+  border-radius: 6px;
+  pointer-events: auto;
+}
+@keyframes notification-in {
+  from {
+    opacity: 0;
+    transform: translateX(1rem);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .notification {
+    animation: none;
+  }
+}

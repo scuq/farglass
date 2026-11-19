@@ -34,7 +34,7 @@ rows: number, } | { "kind": "dbus",
 /**
  * The bus.
  */
-bus: Bus, } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" };
+bus: Bus, } | { "kind": "notify" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" };
 
 /**
  * The payload of a ready frame. The receiver of the open frame accepts the channel.
@@ -173,6 +173,91 @@ member: string,
  * The values, in the JSON form.
  */
 values: unknown[], };
+
+/**
+ * The urgency of a notification.
+ */
+export type Urgency = "low" | "normal" | "critical";
+
+/**
+ * An action button of a notification.
+ */
+export type NotifyAction = { 
+/**
+ * The key that goes back to the program.
+ */
+key: string, 
+/**
+ * The label of the button.
+ */
+label: string, };
+
+/**
+ * One desktop notification.
+ */
+export type Notification = { 
+/**
+ * The id that the program got from Notify.
+ */
+id: number, 
+/**
+ * The name of the program.
+ */
+app: string, 
+/**
+ * The summary, one line.
+ */
+summary: string, 
+/**
+ * The body, plain text.
+ */
+body: string, 
+/**
+ * The action buttons. The key `default` is the action of a click on the notification.
+ */
+actions: Array<NotifyAction>, 
+/**
+ * The urgency.
+ */
+urgency: Urgency, 
+/**
+ * The time to show the notification in milliseconds. `None` shows it until the user closes it.
+ */
+timeout_ms?: number, };
+
+/**
+ * A message of the agent on a notify channel.
+ */
+export type NotifyEvent = { "type": "show", 
+/**
+ * The notification.
+ */
+notification: Notification, } | { "type": "close", 
+/**
+ * The id of the notification.
+ */
+id: number, };
+
+/**
+ * A message of the shell on a notify channel.
+ */
+export type NotifyReply = { "type": "dismiss", 
+/**
+ * The id of the notification.
+ */
+id: number, } | { "type": "expire", 
+/**
+ * The id of the notification.
+ */
+id: number, } | { "type": "action", 
+/**
+ * The id of the notification.
+ */
+id: number, 
+/**
+ * The key of the action.
+ */
+key: string, };
 
 /**
  * A message of the agent on a polkit channel.

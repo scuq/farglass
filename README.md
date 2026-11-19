@@ -208,6 +208,16 @@ The dialog shows the message of polkit and asks for the password of a permitted 
 Cancel or Escape stops the action.
 With no open tab, polkit gets no answer, and the action fails.
 
+## Notifications
+
+farglass is the notification service of the web session.
+A notification from a program, for example `notify-send` in a terminal, shows at the top right of the shell.
+A notification waits in the agent while no tab is open.
+A click on the notification or on one of its buttons sends the action to the program.
+The pointer on a notification stops its time. A critical notification stays until you close it.
+
+`npm --prefix spikes/e2e run notify` tests the notifications in Chromium through gdbus.
+
 ## Write an app
 
 Each app is a folder in `web/src/apps/`.

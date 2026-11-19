@@ -9,8 +9,8 @@ use std::time::Duration;
 use bytes::Bytes;
 use farglass_proto::codec::{CodecError, FrameCodec};
 use farglass_proto::message::{
-    Bus, Close, CloseReason, DbusEvent, DbusRequest, LinkMessage, Open, PolkitReply, PtyEvent,
-    PtyRequest, Ready, StateEvent, StateRequest,
+    Bus, Close, CloseReason, DbusEvent, DbusRequest, LinkMessage, NotifyReply, Open, PolkitReply,
+    PtyEvent, PtyRequest, Ready, StateEvent, StateRequest,
 };
 use farglass_proto::{ChannelId, Frame, FrameError, FrameType, PROTOCOL_VERSION, Side};
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -20,6 +20,7 @@ use tokio::sync::mpsc;
 use tokio_util::codec::Framed;
 
 use crate::dbus::{self, Buses, DbusOptions, Filter, Subscriptions};
+use crate::notify::{self, Notifications};
 use crate::polkit::{HELPER, Polkit, ViewerGuard};
 use crate::state::StateStore;
 use crate::terminal::{
@@ -64,6 +65,8 @@ pub struct Session {
     pub buses: Arc<Buses>,
     /// The polkit authentication agent.
     pub polkit: Arc<Polkit>,
+    /// The desktop notifications.
+    pub notifications: Arc<Notifications>,
 }
 
 impl Default for Session {
@@ -73,6 +76,7 @@ impl Default for Session {
             terminals: Terminals::new(TerminalOptions::from_env()),
             buses: Buses::new(DbusOptions::default()),
             polkit: Polkit::new(HELPER),
+            notifications: Notifications::new(),
         }
     }
 }
@@ -268,6 +272,19 @@ where
                         }
                     }
                     Kind::Polkit { .. } => None,
+                    Kind::Notify { .. } if frame.frame_type() == FrameType::Control => {
+                        match frame.parse::<NotifyReply>() {
+                            Ok(reply) => {
+                                session.notifications.reply(reply);
+                                None
+                            }
+                            Err(error) => Some((
+                                CloseReason::ProtocolError,
+                                format!("The notification reply is not valid: {error}"),
+                            )),
+                        }
+                    }
+                    Kind::Notify { .. } => None,
                     Kind::State if frame.frame_type() == FrameType::Control => {
                         state_request(
                             &mut link,
@@ -510,6 +527,11 @@ enum Kind {
         /// Dropping the guard removes the channel from the agent.
         _viewer: ViewerGuard,
     },
+    /// Gets the desktop notifications. Dropping the channel removes it.
+    Notify {
+        /// Dropping the guard removes the channel from the agent.
+        _viewer: notify::ViewerGuard,
+    },
     /// Calls methods and gets signals on a D-Bus bus.
     Dbus {
         bus: Bus,
@@ -570,6 +592,15 @@ fn open(
                 }
             });
             accept(Kind::Polkit { _viewer: guard })
+        }
+        Ok(Open::Notify) => {
+            let events = events.clone();
+            let guard = session.notifications.add_viewer(move |event| {
+                if let Ok(frame) = Frame::json(channel, FrameType::Control, &event) {
+                    let _ = events.send(frame);
+                }
+            });
+            accept(Kind::Notify { _viewer: guard })
         }
         Ok(Open::Dbus { bus }) => accept(Kind::Dbus {
             bus,

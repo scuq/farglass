@@ -2,11 +2,12 @@
 //
 // Usage: node session-browser.mjs URL USER EXPECT
 //
-// EXPECT is "success", "logout", "polkit", or "decline".
+// EXPECT is "success", "logout", "polkit", "notify", or "decline".
 // With "success", the login must succeed with no confirm step, and the echo
 // channel must work. With "logout", the login must succeed, and then the Log out
 // button must give the login screen. With "polkit", pkexec in a terminal must
-// show the polkit dialog, and Cancel must end pkexec. With "decline", the login must show the confirm step for
+// show the polkit dialog, and Cancel must end pkexec. With "notify", notify-send in a terminal must show a
+// notification, and its action must go back to notify-send. With "decline", the login must show the confirm step for
 // a local session. The script clicks Cancel, never the other button, and
 // expects the message that the local session continues.
 //
@@ -80,6 +81,31 @@ try {
       }
       console.log("PASS: Cancel in the dialog ends pkexec with 126");
       // The desktop keeps its windows for the next login. The terminal must not cover the next test.
+      await page.locator(".wm-window").filter({ has: term }).getByRole("button", { name: "Close" }).click();
+    }
+    if (expect === "notify") {
+      // notify-send -A waits for the action and prints its key.
+      await launch(page, "Terminal");
+      const term = page.locator('.term-app[data-status="running"]').last();
+      await term.waitFor({ timeout: TIMEOUT_MS });
+      await term.click();
+      await page.keyboard.type("notify-send -a check -A ok=Okay 'Hello from check' 'The web session shows it.'; echo notify-done");
+      await page.keyboard.press("Enter");
+      const toast = page.locator('.notification[aria-label="Hello from check"]');
+      await toast.waitFor({ timeout: 30_000 });
+      console.log("PASS: notify-send in the web session shows a notification in the shell");
+      await toast.getByRole("button", { name: "Okay" }).click();
+      const end = Date.now() + TIMEOUT_MS;
+      let text = "";
+      while (Date.now() < end) {
+        text = await term.evaluate((el) => el.farglassTerminal.text());
+        if (/^notify-done$/m.test(text)) break;
+        await page.waitForTimeout(100);
+      }
+      if (!/^ok$/m.test(text)) {
+        throw new Error(`notify-send did not get the action:\n${text.split("\n").slice(-6).join("\n")}`);
+      }
+      console.log("PASS: the action of the notification goes back to notify-send");
       await page.locator(".wm-window").filter({ has: term }).getByRole("button", { name: "Close" }).click();
     }
     if (expect === "logout") {

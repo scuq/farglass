@@ -245,6 +245,40 @@ The agent runs `polkit-agent-helper-1` for each attempt, which tells polkit the 
 The agent cancels a request if no polkit channel is open, if the last one closes, after 5 minutes, or when polkit cancels it.
 The agent accepts `BeginAuthentication` only from the owner of `org.freedesktop.PolicyKit1`, thus a different program cannot give a false prompt.
 
+## Notify channel
+
+The agent is the notification service of its session bus: it owns `org.freedesktop.Notifications` and serves the object `/org/freedesktop/Notifications` (Desktop Notifications Specification 1.2).
+If a different program owns the name, for example the notification service of a local desktop, the agent waits in the queue of the bus and gets the name when the other program gives it up.
+The environment variable `FARGLASS_NOTIFICATIONS_NAME` changes the bus name, for tests.
+
+The agent keeps each notification until it closes, at most 100.
+Thus a notification waits while no tab is open.
+The shell keeps a channel `{"kind":"notify"}` open while the desktop is open.
+At the open, the agent sends each open notification, then each change:
+
+| Event | Meaning |
+|---|---|
+| `{"type":"show","notification":{"id":7,"app":"mail","summary":"New mail","body":"…","actions":[{"key":"default","label":"Open"}],"urgency":"normal","timeout_ms":6000}}` | A new notification, or a new version of notification 7. |
+| `{"type":"close","id":7}` | The notification closed. |
+
+`urgency` is `low`, `normal`, or `critical`.
+With no `timeout_ms`, the notification stays until the user closes it.
+The agent sets the time from `expire_timeout` of Notify. With -1, the time is 4 s for low and 6 s for normal urgency. A critical notification has no time.
+The time starts when the shell shows the notification.
+The shell pauses it while the pointer is on the notifications, while one of them has the focus, and while the tab is hidden.
+
+The shell answers with these messages:
+
+| Reply | Meaning | Signal to the program |
+|---|---|---|
+| `{"type":"dismiss","id":7}` | The user closed the notification. | `NotificationClosed(7, 2)` |
+| `{"type":"expire","id":7}` | The time ended. | `NotificationClosed(7, 1)` |
+| `{"type":"action","id":7,"key":"default"}` | The user clicked an action. | `ActionInvoked(7, "default")`, then `NotificationClosed(7, 2)` |
+
+After an action, the notification closes, unless the program set the hint `resident`.
+CloseNotification gives `NotificationClosed` with reason 3.
+The shell shows the body as plain text: the capabilities do not include `body-markup`.
+
 ## Session cookie
 
 A WebSocket message cannot set a cookie.
