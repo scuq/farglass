@@ -1,0 +1,176 @@
+{
+  "valid": [
+    {
+      "name": "hello on the connection channel",
+      "frame": "00000000041c00007b2274797065223a2268656c6c6f222c2276657273696f6e223a317d",
+      "channel": 0,
+      "type": 4,
+      "payload": "7b2274797065223a2268656c6c6f222c2276657273696f6e223a317d",
+      "json": {
+        "type": "hello",
+        "version": 1
+      }
+    },
+    {
+      "name": "open an echo channel",
+      "frame": "01000000010f00007b226b696e64223a226563686f227d",
+      "channel": 1,
+      "type": 1,
+      "payload": "7b226b696e64223a226563686f227d",
+      "json": {
+        "kind": "echo"
+      }
+    },
+    {
+      "name": "ready",
+      "frame": "01000000020200007b7d",
+      "channel": 1,
+      "type": 2,
+      "payload": "7b7d",
+      "json": {}
+    },
+    {
+      "name": "data",
+      "frame": "01000000030200006869",
+      "channel": 1,
+      "type": 3,
+      "payload": "6869"
+    },
+    {
+      "name": "data with no payload",
+      "frame": "0100000003000000",
+      "channel": 1,
+      "type": 3,
+      "payload": ""
+    },
+    {
+      "name": "data with all byte values",
+      "frame": "0300000003000100000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+      "channel": 3,
+      "type": 3,
+      "payload": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"
+    },
+    {
+      "name": "data with a payload length of more than one byte",
+      "frame": "0500000003020100000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fa00010203040506",
+      "channel": 5,
+      "type": 3,
+      "payload": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fa00010203040506"
+    },
+    {
+      "name": "channel number in little-endian order",
+      "frame": "010203040301000000",
+      "channel": 67305985,
+      "type": 3,
+      "payload": "00"
+    },
+    {
+      "name": "largest channel number",
+      "frame": "ffffffff03010000ff",
+      "channel": 4294967295,
+      "type": 3,
+      "payload": "ff"
+    },
+    {
+      "name": "channel that the host opens",
+      "frame": "0200000003040000686f7374",
+      "channel": 2,
+      "type": 3,
+      "payload": "686f7374"
+    },
+    {
+      "name": "control message of a channel",
+      "frame": "01000000041500007b22636f6c73223a38302c22726f7773223a32347d",
+      "channel": 1,
+      "type": 4,
+      "payload": "7b22636f6c73223a38302c22726f7773223a32347d",
+      "json": {
+        "cols": 80,
+        "rows": 24
+      }
+    },
+    {
+      "name": "close",
+      "frame": "01000000051100007b22726561736f6e223a22646f6e65227d",
+      "channel": 1,
+      "type": 5,
+      "payload": "7b22726561736f6e223a22646f6e65227d",
+      "json": {
+        "reason": "done"
+      }
+    },
+    {
+      "name": "close with a message",
+      "frame": "07000000055400007b22726561736f6e223a226e6f742d737570706f72746564222c226d657373616765223a22546865206368616e6e656c206b696e64205c7530306262776172705c753030616220697320756e6b6e6f776e2e227d",
+      "channel": 7,
+      "type": 5,
+      "payload": "7b22726561736f6e223a226e6f742d737570706f72746564222c226d657373616765223a22546865206368616e6e656c206b696e64205c7530306262776172705c753030616220697320756e6b6e6f776e2e227d",
+      "json": {
+        "reason": "not-supported",
+        "message": "The channel kind »warp« is unknown."
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "empty message",
+      "frame": "",
+      "error": "truncated"
+    },
+    {
+      "name": "header is not complete",
+      "frame": "010000",
+      "error": "truncated"
+    },
+    {
+      "name": "payload is not complete",
+      "frame": "01000000030300006869",
+      "error": "truncated"
+    },
+    {
+      "name": "bytes after the frame",
+      "frame": "0100000003020000686900",
+      "error": "trailing-bytes"
+    },
+    {
+      "name": "frame type 0",
+      "frame": "0100000000000000",
+      "error": "unknown-frame-type"
+    },
+    {
+      "name": "frame type 6",
+      "frame": "0100000006000000",
+      "error": "unknown-frame-type"
+    },
+    {
+      "name": "frame type 255",
+      "frame": "01000000ff000000",
+      "error": "unknown-frame-type"
+    },
+    {
+      "name": "payload length one above the limit",
+      "frame": "0100000003010010",
+      "error": "payload-too-large"
+    },
+    {
+      "name": "largest payload length of the header",
+      "frame": "0100000003ffffff",
+      "error": "payload-too-large"
+    },
+    {
+      "name": "open on the connection channel",
+      "frame": "00000000010f00007b226b696e64223a226563686f227d",
+      "error": "invalid-connection-frame"
+    },
+    {
+      "name": "data on the connection channel",
+      "frame": "00000000030200006869",
+      "error": "invalid-connection-frame"
+    },
+    {
+      "name": "close on the connection channel",
+      "frame": "00000000051100007b22726561736f6e223a22646f6e65227d",
+      "error": "invalid-connection-frame"
+    }
+  ]
+}

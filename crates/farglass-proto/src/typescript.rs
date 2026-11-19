@@ -1,0 +1,90 @@
+//! Generates the TypeScript side of the protocol from the Rust definitions.
+//!
+//! `cargo run -p farglass-proto --example gen-ts` writes the files.
+//! The test `tests/typescript.rs` fails when the files in the repository are old.
+
+use std::fmt::Write as _;
+
+use ts_rs::{Config, TS};
+
+use crate::message::{Close, CloseReason, ConnectionMessage, Open, Ready};
+use crate::{ChannelId, FrameError, FrameType, HEADER_LEN, MAX_PAYLOAD_LEN, PROTOCOL_VERSION};
+
+/// The directory of the generated files, relative to the root of the repository.
+pub const OUTPUT_DIR: &str = "web/src/proto/generated";
+
+const BANNER: &str = "\
+// Generated from crates/farglass-proto. Do not edit.
+// To generate this file again: cargo run -p farglass-proto --example gen-ts
+";
+
+/// Returns each generated file as a filename and its contents.
+#[must_use]
+pub fn files() -> Vec<(&'static str, String)> {
+    vec![("wire.ts", wire()), ("messages.ts", messages())]
+}
+
+/// Returns `wire.ts`: the constants of the binary frame format.
+fn wire() -> String {
+    let mut out = String::from(BANNER);
+    // A write to a String cannot fail.
+    let _ = write!(
+        out,
+        "
+/** The version of the channel protocol. */
+export const PROTOCOL_VERSION = {PROTOCOL_VERSION};
+
+/** The length of a frame header in bytes. */
+export const HEADER_LEN = {HEADER_LEN};
+
+/** The largest payload of one frame in bytes. */
+export const MAX_PAYLOAD_LEN = {MAX_PAYLOAD_LEN};
+
+/** The number of the connection channel. */
+export const CONNECTION_CHANNEL = {connection};
+
+/** The type of a frame, as the number in the header. */
+export const FrameType = {{
+",
+        connection = ChannelId::CONNECTION.get(),
+    );
+    for frame_type in FrameType::ALL {
+        let _ = writeln!(out, "  {}: {},", frame_type.name(), frame_type as u8);
+    }
+    out.push_str(
+        "} as const;
+export type FrameType = (typeof FrameType)[keyof typeof FrameType];
+
+/** The code of a frame error. The Rust side uses the same codes. */
+export type FrameErrorCode =",
+    );
+    for code in FrameError::CODES {
+        let _ = write!(out, "\n  | \"{code}\"");
+    }
+    out.push_str(";\n");
+    out
+}
+
+/// Returns `messages.ts`: the types of the JSON messages.
+fn messages() -> String {
+    let cfg = Config::new();
+    let mut out = String::from(BANNER);
+    declare::<ConnectionMessage>(&cfg, &mut out);
+    declare::<Open>(&cfg, &mut out);
+    declare::<Ready>(&cfg, &mut out);
+    declare::<Close>(&cfg, &mut out);
+    declare::<CloseReason>(&cfg, &mut out);
+    out
+}
+
+/// Appends the exported declaration of `T` with its documentation.
+fn declare<T: TS>(cfg: &Config, out: &mut String) {
+    out.push('\n');
+    if let Some(docs) = T::docs() {
+        out.push_str(docs.trim_end());
+        out.push('\n');
+    }
+    out.push_str("export ");
+    out.push_str(T::decl(cfg).trim_end());
+    out.push('\n');
+}

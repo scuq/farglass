@@ -13,6 +13,14 @@ shell. Programs on the host supply the data.
 | farglass-session | `crates/farglass-session/` | The agent in the logind session of a user. |
 | shell | `web/` | The shell in the browser: TypeScript, SolidJS, and Vite. |
 
+`docs/protocol.md` is the reference for the channel protocol.
+The TypeScript protocol files in `web/src/proto/generated/` come from `farglass-proto`.
+After a change to the protocol, generate them again:
+
+```sh
+cargo run -p farglass-proto --example gen-ts
+```
+
 ## Requirements
 
 - Rust stable. `rust-toolchain.toml` selects the version.
