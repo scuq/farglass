@@ -243,7 +243,7 @@ The shell answers with these messages:
 
 The agent runs `polkit-agent-helper-1` for each attempt, which tells polkit the result.
 The agent cancels a request if no polkit channel is open, if the last one closes, after 5 minutes, or when polkit cancels it.
-The agent accepts `BeginAuthentication` only from the owner of `org.freedesktop.PolicyKit1`, thus a different program cannot show a false prompt.
+The agent accepts `BeginAuthentication` only from the owner of `org.freedesktop.PolicyKit1`, thus a different program cannot give a false prompt.
 
 ## Session cookie
 
