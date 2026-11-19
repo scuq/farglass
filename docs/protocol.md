@@ -222,7 +222,7 @@ The agent is the polkit authentication agent of its logind session.
 At its start, it registers with polkit for the session in `XDG_SESSION_ID`.
 logind elects the web session as the display session of the user, thus polkit also finds the agent for programs in the terminals.
 
-The shell keeps a channel `{"kind":"polkit"}` open while the desktop shows.
+The shell keeps a channel `{"kind":"polkit"}` open while the desktop is open.
 When a program asks for an action that needs an authentication, the agent sends the request to each polkit channel of the user:
 
 | Event | Meaning |
