@@ -242,6 +242,22 @@ impl Frame {
         Self::json(ChannelId::CONNECTION, FrameType::Control, message)
     }
 
+    /// Returns the same frame on the channel `channel`. The payload is not copied.
+    ///
+    /// farglassd uses this function to give the frames of a browser connection
+    /// other channel numbers on the agent link.
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`FrameHeader::new`].
+    pub fn with_channel(&self, channel: ChannelId) -> Result<Self, FrameError> {
+        let header = FrameHeader::new(channel, self.frame_type(), self.payload.len())?;
+        Ok(Self {
+            header,
+            payload: self.payload.clone(),
+        })
+    }
+
     /// Returns the header of the frame.
     #[must_use]
     pub const fn header(&self) -> FrameHeader {
@@ -438,6 +454,16 @@ mod tests {
             .to_bytes();
         let frame = Frame::from_message(message.clone()).unwrap();
         assert_eq!(frame.payload().as_ptr(), message[HEADER_LEN..].as_ptr());
+    }
+
+    #[test]
+    fn with_channel_keeps_the_type_and_the_payload() {
+        let frame = Frame::data(ChannelId::new(1), &b"abc"[..]).unwrap();
+        let moved = frame.with_channel(ChannelId::new(9)).unwrap();
+        assert_eq!(moved.channel(), ChannelId::new(9));
+        assert_eq!(moved.frame_type(), FrameType::Data);
+        assert_eq!(moved.payload().as_ptr(), frame.payload().as_ptr());
+        assert!(frame.with_channel(ChannelId::CONNECTION).is_err());
     }
 
     #[test]

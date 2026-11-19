@@ -53,6 +53,7 @@ impl TestServer {
             listen: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
             web_root,
             state_dir: dir.path().join("state"),
+            agent_socket: dir.path().join("agent.sock"),
             ..Config::default()
         };
         Self::start_with(config, dir).await
@@ -222,6 +223,7 @@ async fn certificate_files_of_the_administrator_serve_requests() {
         listen: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
         web_root,
         state_dir: dir.path().join("state"),
+        agent_socket: dir.path().join("agent.sock"),
         ..Config::default()
     };
     config.tls.cert = Some(pair.join("self-signed-cert.pem"));
@@ -274,6 +276,7 @@ where
     let channel = ChannelId::new(1);
     send_frame(ws, Frame::open(channel, &Open::Echo).unwrap()).await;
     // The opener can send data before the answer. The server drops it.
+    // The connection has no login, thus the server refuses the channel.
     send_frame(ws, Frame::data(channel, &b"early"[..]).unwrap()).await;
 
     let answer = next_frame(ws).await;
@@ -281,7 +284,7 @@ where
     assert_eq!(answer.frame_type(), FrameType::Close);
     assert_eq!(
         answer.parse::<Close>().unwrap().reason,
-        CloseReason::NotSupported
+        CloseReason::AccessDenied
     );
 
     ws.close(None).await.unwrap();

@@ -56,6 +56,8 @@ pub struct Config {
     pub web_root: PathBuf,
     /// The directory for the files that farglassd writes.
     pub state_dir: PathBuf,
+    /// The Unix socket that the agents connect to.
+    pub agent_socket: PathBuf,
     /// The TLS configuration.
     pub tls: TlsConfig,
 }
@@ -78,6 +80,7 @@ impl Default for Config {
             listen: SocketAddr::from((Ipv6Addr::UNSPECIFIED, 8443)),
             web_root: PathBuf::from("/usr/share/farglass/web"),
             state_dir: PathBuf::from("/var/lib/farglass"),
+            agent_socket: PathBuf::from("/run/farglass/agent.sock"),
             tls: TlsConfig::default(),
         }
     }

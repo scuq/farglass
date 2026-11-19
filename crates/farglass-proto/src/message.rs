@@ -19,6 +19,31 @@ pub enum ConnectionMessage {
     },
 }
 
+/// A message on channel 0 of the agent link, between farglassd and an agent.
+///
+/// The shell never sees these messages.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum LinkMessage {
+    /// The first message of each side, as in [`ConnectionMessage::Hello`].
+    Hello {
+        /// The protocol version of the sender.
+        version: u16,
+    },
+    /// farglassd to the agent: a browser connection of the user uses the agent from now on.
+    Attach {
+        /// The number of the browser connection. farglassd uses each number one time only.
+        connection: u64,
+    },
+    /// farglassd to the agent: the browser connection stopped.
+    ///
+    /// farglassd sent a close frame for each open channel of the connection first.
+    Detach {
+        /// The number of the browser connection.
+        connection: u64,
+    },
+}
+
 /// The payload of an open frame. It selects the kind of the channel.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
@@ -103,6 +128,17 @@ mod tests {
         let close: Close =
             serde_json::from_value(json!({"reason": "done", "added-later": 1})).unwrap();
         assert_eq!(close, Close::new(CloseReason::Done));
+    }
+
+    #[test]
+    fn link_messages_use_the_type_tag() {
+        assert_eq!(
+            serde_json::to_value(LinkMessage::Attach { connection: 7 }).unwrap(),
+            json!({"type": "attach", "connection": 7})
+        );
+        let hello: LinkMessage =
+            serde_json::from_value(json!({"type": "hello", "version": 1})).unwrap();
+        assert_eq!(hello, LinkMessage::Hello { version: 1 });
     }
 
     #[test]

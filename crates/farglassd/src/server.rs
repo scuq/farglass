@@ -11,11 +11,12 @@ use axum::Router;
 use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
 use hyper_util::server::conn::auto;
 use hyper_util::service::TowerToHyperService;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpStream, UnixListener};
 use tokio_rustls::TlsAcceptor;
 
+use crate::agents::{self, BindError, Registry};
 use crate::config::{Config, ConfigError};
-use crate::http;
+use crate::http::{self, AppState};
 use crate::tls::{CertStore, TlsError};
 
 /// A client must complete the TLS handshake in this time.
@@ -35,6 +36,10 @@ pub enum ServerError {
     #[error(transparent)]
     Tls(#[from] TlsError),
 
+    /// The agent socket did not start.
+    #[error(transparent)]
+    AgentSocket(#[from] BindError),
+
     /// The listener did not start.
     #[error("The listener on {addr} did not start: {source}.")]
     Bind {
@@ -52,6 +57,8 @@ pub struct Server {
     certs: Arc<CertStore>,
     acceptor: TlsAcceptor,
     router: Router,
+    agent_listener: UnixListener,
+    registry: Arc<Registry>,
 }
 
 impl fmt::Debug for Server {
@@ -59,12 +66,13 @@ impl fmt::Debug for Server {
         f.debug_struct("Server")
             .field("local_addr", &self.local_addr)
             .field("certs", &self.certs)
+            .field("registry", &self.registry)
             .finish_non_exhaustive()
     }
 }
 
 impl Server {
-    /// Loads the certificate and starts the listener.
+    /// Loads the certificate, creates the agent socket, and starts the listener.
     ///
     /// # Errors
     ///
@@ -78,12 +86,20 @@ impl Server {
         };
         let listener = TcpListener::bind(config.listen).await.map_err(bind_error)?;
         let local_addr = listener.local_addr().map_err(bind_error)?;
+        let agent_listener = agents::bind(&config.agent_socket)?;
+        let registry = Registry::new();
+        let state = Arc::new(AppState {
+            registry: registry.clone(),
+            user: None,
+        });
         Ok(Self {
             listener,
             local_addr,
             certs,
             acceptor,
-            router: http::router(&config.web_root),
+            router: http::router(&config.web_root, state),
+            agent_listener,
+            registry,
         })
     }
 
@@ -97,6 +113,12 @@ impl Server {
     #[must_use]
     pub fn certs(&self) -> Arc<CertStore> {
         self.certs.clone()
+    }
+
+    /// Returns the registry of the connected agents.
+    #[must_use]
+    pub fn registry(&self) -> Arc<Registry> {
+        self.registry.clone()
     }
 
     /// Accepts connections until `shutdown` completes.
@@ -114,11 +136,18 @@ impl Server {
             // WebSocket through HTTP/2 uses the extended CONNECT method (RFC 8441).
             .enable_connect_protocol();
         let builder = Arc::new(builder);
+        let agent_loop = tokio::spawn(agents::accept_loop(
+            self.agent_listener,
+            self.registry.clone(),
+        ));
 
         tokio::pin!(shutdown);
         loop {
             let accepted = tokio::select! {
-                () = &mut shutdown => return,
+                () = &mut shutdown => {
+                    agent_loop.abort();
+                    return;
+                }
                 accepted = self.listener.accept() => accepted,
             };
             let (stream, peer) = match accepted {

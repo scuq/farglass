@@ -57,8 +57,18 @@ Build the shell, then start farglassd with the shell files and a directory that 
 
 ```sh
 npm --prefix web run build
-cargo run -p farglassd -- --web-root web/dist --state-dir target/farglass
+cargo run -p farglassd -- --web-root web/dist --state-dir target/farglass \
+    --agent-socket target/farglass/agent.sock
 ```
+
+In a second terminal, start the agent as your own user:
+
+```sh
+FARGLASS_AGENT_SOCKET=target/farglass/agent.sock cargo run -p farglass-session
+```
+
+The agent connects to farglassd, and farglassd writes the uid of the agent to the log.
+If farglassd stops, the agent connects again when farglassd starts.
 
 Open `https://localhost:8443` in the browser.
 farglassd serves HTTP/2 and HTTP/1.1 through TLS.

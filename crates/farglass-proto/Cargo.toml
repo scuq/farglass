@@ -12,6 +12,11 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 ts-rs.workspace = true
+tokio-util = { workspace = true, optional = true }
+
+[features]
+# A tokio-util codec for frames on a byte stream, for example the agent link.
+codec = ["dep:tokio-util"]
 
 [dev-dependencies]
 proptest.workspace = true

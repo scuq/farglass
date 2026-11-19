@@ -6,7 +6,9 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod agents;
 pub mod config;
+pub mod connection;
 mod http;
 pub mod server;
 pub mod tls;

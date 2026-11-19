@@ -14,6 +14,8 @@
 #![warn(missing_docs)]
 
 mod channel;
+#[cfg(feature = "codec")]
+pub mod codec;
 mod error;
 mod frame;
 pub mod message;

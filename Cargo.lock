@@ -604,6 +604,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "tokio-util",
  "ts-rs",
 ]
 
@@ -612,6 +613,13 @@ name = "farglass-session"
 version = "0.1.0"
 dependencies = [
  "farglass-proto",
+ "futures-util",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -623,6 +631,7 @@ dependencies = [
  "bytes",
  "clap",
  "farglass-proto",
+ "farglass-session",
  "futures-util",
  "http-body-util",
  "hyper",
@@ -637,6 +646,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tokio-tungstenite 0.30.0",
+ "tokio-util",
  "toml",
  "tower",
  "tower-http",

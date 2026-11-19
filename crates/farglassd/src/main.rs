@@ -6,7 +6,7 @@
 //! Usage:
 //!
 //!     farglassd [--config FILE] [--listen ADDR] [--web-root DIR] [--state-dir DIR]
-//!               [--tls-cert FILE --tls-key FILE]
+//!               [--agent-socket FILE] [--tls-cert FILE --tls-key FILE]
 //!
 //! SIGHUP loads the certificate files again. SIGTERM and SIGINT stop the server.
 
@@ -45,6 +45,10 @@ struct Args {
     #[arg(long, value_name = "DIR", env = "FARGLASSD_STATE_DIR")]
     state_dir: Option<PathBuf>,
 
+    /// The Unix socket that the agents connect to
+    #[arg(long, value_name = "FILE", env = "FARGLASSD_AGENT_SOCKET")]
+    agent_socket: Option<PathBuf>,
+
     /// The PEM file with the certificate chain. Use it together with --tls-key
     #[arg(
         long,
@@ -76,6 +80,9 @@ impl Args {
         }
         if let Some(state_dir) = self.state_dir {
             config.state_dir = state_dir;
+        }
+        if let Some(agent_socket) = self.agent_socket {
+            config.agent_socket = agent_socket;
         }
         if self.tls_cert.is_some() {
             config.tls.cert = self.tls_cert;

@@ -51,6 +51,7 @@ All other numbers are not valid in version 1.
 - The shell opens channels with odd numbers.
 - The host opens channels with even numbers.
 - A connection uses each number one time only.
+- The numbers that one side opens increase.
 
 Each side can open a channel at all times, and the two sides cannot select the same number.
 
@@ -77,6 +78,35 @@ Each side sends a hello message as its first frame:
 ```
 
 If the versions are different, the receiver closes the connection.
+
+## Agent link
+
+farglass-session, the agent, connects to the Unix socket of farglassd, by default `/run/farglass/agent.sock`.
+The link uses the same frames.
+On a byte stream, the frames follow one after the other.
+
+The kernel gives farglassd the uid of the agent (`SO_PEERCRED`).
+farglassd gives an agent only the browser connections of its user.
+Each user has one agent.
+A new agent of a user replaces the old agent, for example after a restart.
+
+One agent link carries the channels of all browser connections of its user.
+Each shell numbers its channels from 1.
+Thus farglassd gives each channel a new odd number on the agent link.
+The agent sees only that number.
+
+Channel 0 of the agent link carries other messages than channel 0 of the browser connection.
+Each side sends a hello message first, as on the browser connection.
+farglassd also sends these messages to the agent:
+
+| Message | Meaning |
+|---|---|
+| `{"type":"attach","connection":7}` | Browser connection 7 of the user starts to use the agent. |
+| `{"type":"detach","connection":7}` | Browser connection 7 stopped. farglassd sent a close frame for each of its open channels first. |
+
+If a browser connection stops, the agent gets a close frame with the reason `cancelled` for each open channel.
+If the agent stops, each browser connection gets a close frame with the reason `internal-error` for each open channel.
+In version 1, only farglassd opens channels on the agent link.
 
 ## JSON messages
 
