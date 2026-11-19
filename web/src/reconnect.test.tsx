@@ -123,18 +123,23 @@ describe("StateClient", () => {
     const desktopChannel = server
       .take()
       .find((frame) => frame.type === FrameType.Open && parseJson<{ kind: string }>(frame).kind === "state")!.channel;
+    server.push(readyFrame(desktopChannel));
     server.push(encodeJsonFrame(desktopChannel, FrameType.Control, { type: "value", key: "desktop", value: null }));
-    await settle();
-    const frames = server.take();
-    const stateChannel = frames.find((frame) => frame.type === FrameType.Open && parseJson<{ kind: string }>(frame).kind === "state")!.channel;
+    // The echo module loads on first use. Its get request goes on the state channel of the desktop.
+    const get = await vi.waitFor(() => {
+      const found = server.received
+        .filter((frame) => frame.channel === desktopChannel && frame.type === FrameType.Control)
+        .map((frame) => parseJson<{ type: string; key: string }>(frame))
+        .find((message) => message.type === "get" && message.key.startsWith("echo.log."));
+      if (!found) throw new Error("no get request of the echo app yet");
+      return found;
+    });
+    expect(get.key).toMatch(/^echo\.log\.[0-9a-f-]+$/);
     const saved = [
       { id: 0, text: "hello", kind: "sent" },
       { id: 1, text: "hello (1.0 ms)", kind: "echo" },
     ];
-    const get = frames.find((frame) => frame.channel === stateChannel && frame.type === FrameType.Control)!;
-    const { key } = parseJson<{ key: string }>(get);
-    expect(key).toMatch(/^echo\.log\.[0-9a-f-]+$/);
-    server.push(encodeJsonFrame(stateChannel, FrameType.Control, { type: "value", key, value: saved }));
+    server.push(encodeJsonFrame(desktopChannel, FrameType.Control, { type: "value", key: get.key, value: saved }));
     await settle();
     expect([...host.querySelectorAll(".echo-log li")].map((li) => li.textContent)).toEqual(["hello", "hello (1.0 ms)"]);
   });

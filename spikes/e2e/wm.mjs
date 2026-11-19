@@ -55,6 +55,10 @@ try {
     if (message.text().includes("Content Security Policy")) cspViolations.push(message.text());
   });
   const page = await context.newPage();
+  const scripts = [];
+  page.on("request", (request) => {
+    if (request.resourceType() === "script") scripts.push(new URL(request.url()).pathname);
+  });
   await page.goto(url);
   const first = page.locator(".wm-window").first();
   await first.waitFor({ timeout: TIMEOUT_MS });
@@ -157,9 +161,12 @@ try {
   );
   check(await launcher.getByRole("combobox").evaluate((el) => el === document.activeElement), "the search field has the keyboard focus");
   if (SHOTS) await page.screenshot({ path: join(SHOTS, "launcher.png") });
+  const aboutChunk = () => scripts.some((path) => /\/assets\/About-[\w-]+\.js$/.test(path));
+  check(!aboutChunk() && scripts.some((path) => /\/assets\/Echo-[\w-]+\.js$/.test(path)), "the module of an app loads only when its first window opens");
   await page.keyboard.type("abou");
   await page.keyboard.press("Enter");
-  await page.locator('.wm-window[aria-label="About farglass"]').waitFor({ timeout: TIMEOUT_MS });
+  await page.locator('.wm-window[aria-label="About farglass"]').getByRole("heading", { name: "farglass" }).waitFor({ timeout: TIMEOUT_MS });
+  check(aboutChunk(), "the launcher loads the module of the About app and shows its window");
   check(!(await launcher.evaluate((el) => el.matches(":popover-open"))), "Enter opens the app and closes the launcher");
 
   await page.keyboard.press("Alt+F1");

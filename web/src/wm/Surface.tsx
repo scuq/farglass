@@ -1,5 +1,6 @@
 import { For, Show, untrack } from "solid-js";
-import { APPS } from "../apps";
+import { AppHost } from "../apps/AppHost";
+import { APPS } from "../apps/registry";
 import type { DesktopController } from "./controller";
 import { snapRect } from "./geometry";
 import { type Win, windowById } from "./model";
@@ -27,12 +28,10 @@ export function Surface(props: { controller: DesktopController }) {
           // changes `win`, but must not start the app again.
           const appId = untrack(() => win().app);
           const windowId = untrack(() => win().id);
-          const content =
-            untrack(() => APPS[appId]?.render({ connection: c.connection, windowId })) ?? (
-              <p>The app {appId} is not available.</p>
-            );
+          const content = untrack(() => <AppHost controller={c} app={APPS[appId]} windowId={windowId} appId={appId} />);
           return (
             <WindowFrame
+              icon={APPS[appId]?.icon}
               win={win}
               area={c.area}
               z={() => order(win().id) + 1}

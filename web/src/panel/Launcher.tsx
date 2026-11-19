@@ -1,5 +1,5 @@
 import { createSignal, createUniqueId, For } from "solid-js";
-import { APPS } from "../apps";
+import { APPS } from "../apps/registry";
 import { search } from "./search";
 
 /**
@@ -61,10 +61,15 @@ export function Launcher(props: { onopen: (appId: string) => void }) {
               role="option"
               aria-selected={String(index() === active()) as "true" | "false"}
               onPointerMove={() => setActive(index())}
+              // The module of the app starts to load before the click.
+              onPointerEnter={() => void app.component.preload()}
               onClick={() => open(app.id)}
             >
-              <span class="launcher-title">{app.title}</span>
-              {app.description ? <span class="launcher-description">{app.description}</span> : null}
+              <img class="launcher-icon" src={app.icon} alt="" />
+              <span class="launcher-text">
+                <span class="launcher-title">{app.title}</span>
+                {app.description ? <span class="launcher-description">{app.description}</span> : null}
+              </span>
             </li>
           )}
         </For>

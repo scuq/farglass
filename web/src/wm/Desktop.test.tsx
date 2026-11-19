@@ -1,5 +1,5 @@
 import { render } from "@solidjs/web";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { encodeJsonFrame, type Frame, FrameType, parseJson, readyFrame } from "../proto";
 import { type FakeServer, fakeConnection } from "../proto/testing";
 import { Desktop } from "./Desktop";
@@ -161,4 +161,31 @@ test("two echo windows have different element ids and different state keys", asy
     .filter((message) => message.type === "get" && message.key?.startsWith("echo.log."))
     .map((message) => message.key);
   expect(keys.sort()).toEqual(["echo.log.a", "echo.log.b"]);
+});
+
+describe("state keys of a window", () => {
+  test("closing a window removes its state keys, and the end of the desktop does not", async () => {
+    const { host, server, channel } = await mountDesktop(twoWindows());
+    await vi.waitFor(() => expect(host.querySelectorAll(".echo").length).toBe(2));
+    server.take();
+    button(win(host, "a"), "Close").click();
+    await settle();
+    const removed = server
+      .take()
+      .filter((frame) => frame.channel === channel)
+      .map((frame) => parseJson<{ type: string; key: string; value: unknown }>(frame))
+      .filter((message) => message.type === "set" && message.value === null)
+      .map((message) => message.key);
+    expect(removed).toEqual(["echo.log.a"]);
+
+    // A reconnect ends the desktop. The windows come back, thus their keys stay.
+    dispose?.();
+    dispose = undefined;
+    const after = server
+      .take()
+      .filter((frame) => frame.channel === channel && frame.type === FrameType.Control)
+      .map((frame) => parseJson<{ type: string; value?: unknown }>(frame))
+      .filter((message) => message.type === "set" && message.value === null);
+    expect(after).toEqual([]);
+  });
 });

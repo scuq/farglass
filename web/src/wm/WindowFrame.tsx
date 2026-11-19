@@ -25,6 +25,7 @@ const EDGES: readonly Edge[] = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
  * one time, at the end of the gesture.
  */
 export function WindowFrame(props: {
+  icon: string | undefined;
   win: Accessor<Win>;
   area: Accessor<Rect>;
   focused: Accessor<boolean>;
@@ -176,6 +177,7 @@ export function WindowFrame(props: {
           }
         }}
       >
+        {props.icon ? <img class="wm-icon" src={props.icon} alt="" draggable={false} /> : null}
         <span class="wm-title">{props.win().title}</span>
         <button type="button" aria-label="Minimize" title="Minimize" onClick={() => props.actions.minimize(props.win().id)}>
           ▁

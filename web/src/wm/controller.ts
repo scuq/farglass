@@ -4,7 +4,7 @@
  */
 
 import { type Accessor, createMemo, createSignal, onCleanup } from "solid-js";
-import { APPS } from "../apps";
+import { APPS } from "../apps/registry";
 import type { Connection } from "../proto";
 import { StateClient } from "../state";
 import { clampRect, type Rect, type SnapZone } from "./geometry";
@@ -20,6 +20,7 @@ import {
   openWindow,
   parseDesktop,
   placeWindow,
+  retitleWindow,
   snapWindow,
   switchable,
   switchWorkspace,
@@ -41,6 +42,12 @@ const DEFAULT_AREA: Rect = { x: 0, y: 0, w: 1280, h: 720 };
 /** The state and the actions of the desktop. */
 export interface DesktopController {
   readonly connection: Connection;
+  /** The state channel of the desktop. The apps share it. */
+  readonly state: StateClient;
+  /** Records that the window `id` uses the state key `key`. Closing the window removes the key. */
+  trackKey(id: string, key: string): void;
+  /** Changes the title of a window. */
+  setTitle(id: string, title: string): void;
   readonly desktop: Accessor<Desktop>;
   readonly area: Accessor<Rect>;
   readonly preview: Accessor<SnapZone | null>;
@@ -76,6 +83,8 @@ export function createDesktopController(connection: Connection): DesktopControll
   let loaded = false;
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let surface: HTMLElement | undefined;
+  /** The state keys of each window. */
+  const windowKeys = new Map<string, Set<string>>();
 
   /** Applies an action, and saves the result after a short wait. */
   const apply = (change: (state: Desktop) => Desktop) => {
@@ -128,6 +137,16 @@ export function createDesktopController(connection: Connection): DesktopControll
 
   const controller: DesktopController = {
     connection,
+    state: store,
+    trackKey(id, key) {
+      let keys = windowKeys.get(id);
+      if (!keys) {
+        keys = new Set();
+        windowKeys.set(id, keys);
+      }
+      keys.add(key);
+    },
+    setTitle: (id, title) => apply((state) => retitleWindow(state, id, title)),
     desktop,
     area,
     preview,
@@ -148,7 +167,14 @@ export function createDesktopController(connection: Connection): DesktopControll
       apply((state) => focusWindow(state, id));
       queueMicrotask(() => focusElement(id));
     },
-    close: (id) => apply((state) => closeWindow(state, id)),
+    close(id) {
+      apply((state) => closeWindow(state, id));
+      // A closed window does not come back, thus its state goes. A reconnect does not close windows.
+      for (const key of windowKeys.get(id) ?? []) {
+        store.set(key, null);
+      }
+      windowKeys.delete(id);
+    },
     minimize: (id) => apply((state) => minimizeWindow(state, id)),
     // A keyboard activation of the button gives no pointer event, thus the action also focuses.
     toggleMaximize: (id) => apply((state) => focusWindow(toggleMaximize(state, id), id)),

@@ -163,6 +163,47 @@ Press Escape during a drag to stop it.
 NOTE: The operating system of the client keeps Alt+Tab and the Super key, unless the shell is in fullscreen mode with Keyboard Lock.
 Alt+` and the Ctrl+Alt keys reach the shell on each client.
 
+## Write an app
+
+Each app is a folder in `web/src/apps/`.
+The name of the folder is the id of the app.
+The shell finds each app from its `manifest.ts`, thus no list of apps needs a change.
+
+`manifest.ts` gives the name, the icon, and the start function:
+
+```ts
+import { defineApp } from "../types";
+import icon from "./icon.svg";
+
+export const manifest = defineApp({
+  id: "clock",
+  title: "Clock",
+  description: "The time on the host",
+  keywords: ["time"],
+  icon,
+  size: { w: 320, h: 200 },
+  start: () => import("./Clock"),
+});
+```
+
+The module of `start` has the component of the window as its default export.
+Vite puts each app module in its own file.
+The browser loads that file when the first window of the app opens, or when the pointer is on the app in the launcher.
+
+The component gets an `AppContext` (`web/src/apps/types.ts`):
+
+| Member | Use |
+|---|---|
+| `openChannel(open, handlers)` | Opens a channel to the agent. Closing the window closes the channel. |
+| `state.watch(key, onvalue)`, `state.set(key, value)` | Read and write the state store of the session |
+| `state.key(name)` | A key for the state of this window. A reload keeps it, and closing the window removes it. |
+| `setTitle(title)` | Changes the title of the window |
+| `openApp(id)` | Opens a window of a different app |
+| `windowId`, `user` | The id of the window and the user of the session |
+
+After a reload or a break of the connection, the shell opens the windows again.
+Each app then gets its state back through its keys.
+
 ## Connect again and log out
 
 If the connection to the host breaks, the shell connects again after 1, 2, 4, 8, and then each 15 seconds.

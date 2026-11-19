@@ -99,6 +99,12 @@ export function closeWindow(desktop: Desktop, id: string): Desktop {
   };
 }
 
+/** Changes the title of a window. */
+export function retitleWindow(desktop: Desktop, id: string, title: string): Desktop {
+  const win = windowById(desktop, id);
+  return !win || win.title === title ? desktop : update(desktop, id, (other) => ({ ...other, title }));
+}
+
 /** Gives a window the focus: on top, not minimized, and its workspace shows. */
 export function focusWindow(desktop: Desktop, id: string): Desktop {
   const win = windowById(desktop, id);

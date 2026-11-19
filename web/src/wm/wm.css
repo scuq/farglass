@@ -51,6 +51,12 @@
 .wm-focused .wm-titlebar {
   background: var(--title-focused);
 }
+.wm-icon {
+  width: 18px;
+  height: 18px;
+  margin-right: 0.25rem;
+  pointer-events: none;
+}
 .wm-title {
   flex: 1;
   overflow: hidden;
@@ -148,4 +154,8 @@
 .wm-switcher-item[aria-selected="true"] {
   background: var(--focus);
   color: var(--bg);
+}
+
+.app-message {
+  color: var(--muted);
 }

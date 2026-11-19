@@ -13,6 +13,7 @@ import {
   openWindow,
   parseDesktop,
   placeWindow,
+  retitleWindow,
   shownRect,
   snapWindow,
   switchable,
@@ -153,6 +154,15 @@ describe("model", () => {
     expect(shown.every((rect) => inside(rect, AREA))).toBe(true);
     expect(overlap(shown[0]!, shown[1]!) || overlap(shown[1]!, shown[2]!) || overlap(shown[0]!, shown[2]!)).toBe(false);
     expect(windowById(desktop, "w3")!.minimized).toBe(true);
+  });
+
+  test("retitle changes only the title, and the same title changes nothing", () => {
+    const desktop = desktopWith(2);
+    const renamed = retitleWindow(desktop, "w0", "bash: ~");
+    expect(windowById(renamed, "w0")!.title).toBe("bash: ~");
+    expect(windowById(renamed, "w1")).toBe(windowById(desktop, "w1"));
+    expect(retitleWindow(renamed, "w0", "bash: ~")).toBe(renamed);
+    expect(retitleWindow(desktop, "missing", "x")).toBe(desktop);
   });
 
   test("close removes the window from the order of use", () => {

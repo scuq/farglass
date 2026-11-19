@@ -1,6 +1,6 @@
 import { createSignal, createUniqueId, For, onCleanup, Show } from "solid-js";
-import type { Channel, Close, Connection } from "./proto";
-import { StateClient } from "./state";
+import type { Channel, Close } from "../../proto";
+import type { AppContext } from "../types";
 
 /** One line of the log of the echo panel. */
 interface Line {
@@ -24,7 +24,7 @@ const LINK_LABEL: Record<LinkState, string> = {
  *
  * The panel proves the path from the shell to the agent and back (milestone M0).
  */
-export function Echo(props: { connection: Connection; stateKey: string }) {
+export default function Echo(props: { context: AppContext }) {
   const [state, setState] = createSignal<LinkState>("connecting");
   const [lines, setLines] = createSignal<readonly Line[]>([]);
   const [text, setText] = createSignal("");
@@ -33,8 +33,8 @@ export function Echo(props: { connection: Connection; stateKey: string }) {
   const sentAt: number[] = [];
 
   // The log is in the state store of the agent under the key of the window: a reload shows the same lines.
-  const store = new StateClient(props.connection);
-  const logKey = props.stateKey;
+  const store = props.context.state;
+  const logKey = store.key("log");
   // Each window has its own panel, thus the ids of the elements must differ.
   const inputId = createUniqueId();
   const titleId = createUniqueId();
@@ -62,7 +62,7 @@ export function Echo(props: { connection: Connection; stateKey: string }) {
     log("error", `Channel closed: ${close.reason}${close.message ? `. ${close.message}` : ""}`);
   };
 
-  channel = props.connection.openChannel(
+  channel = props.context.openChannel(
     { kind: "echo" },
     {
       ondata: (bytes) => {
@@ -83,10 +83,7 @@ export function Echo(props: { connection: Connection; stateKey: string }) {
     () => {},
   );
 
-  onCleanup(() => {
-    channel?.close();
-    store.close();
-  });
+  onCleanup(() => channel?.close());
 
   const send = (event: SubmitEvent) => {
     event.preventDefault();
