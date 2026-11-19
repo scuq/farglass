@@ -59,6 +59,8 @@ pub struct Server {
     router: Router,
     agent_listener: UnixListener,
     registry: Arc<Registry>,
+    /// Reports whether `dev_user` is active. Then each connection must come from loopback.
+    dev_mode: bool,
 }
 
 impl fmt::Debug for Server {
@@ -67,6 +69,7 @@ impl fmt::Debug for Server {
             .field("local_addr", &self.local_addr)
             .field("certs", &self.certs)
             .field("registry", &self.registry)
+            .field("dev_mode", &self.dev_mode)
             .finish_non_exhaustive()
     }
 }
@@ -78,6 +81,7 @@ impl Server {
     ///
     /// [`ServerError`] if the configuration, the certificate, or the listener is not usable.
     pub async fn bind(config: &Config) -> Result<Self, ServerError> {
+        let dev_uid = config.dev_uid()?;
         let certs = CertStore::open(config.tls_source()?)?;
         let acceptor = TlsAcceptor::from(Arc::new(certs.server_config()?));
         let bind_error = |source| ServerError::Bind {
@@ -90,7 +94,7 @@ impl Server {
         let registry = Registry::new();
         let state = Arc::new(AppState {
             registry: registry.clone(),
-            user: None,
+            user: dev_uid,
         });
         Ok(Self {
             listener,
@@ -100,6 +104,7 @@ impl Server {
             router: http::router(&config.web_root, state),
             agent_listener,
             registry,
+            dev_mode: dev_uid.is_some(),
         })
     }
 
@@ -159,6 +164,10 @@ impl Server {
                     continue;
                 }
             };
+            if self.dev_mode && !peer.ip().to_canonical().is_loopback() {
+                tracing::warn!(%peer, "dev_user mode refused a connection that is not from loopback");
+                continue;
+            }
             let acceptor = self.acceptor.clone();
             let router = self.router.clone();
             let builder = builder.clone();

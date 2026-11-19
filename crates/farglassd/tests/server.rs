@@ -206,6 +206,20 @@ async fn missing_file_and_a_path_outside_the_web_root_give_404() {
 }
 
 #[tokio::test]
+async fn dev_user_refuses_an_address_that_is_not_loopback() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = Config {
+        listen: "0.0.0.0:0".parse().unwrap(),
+        state_dir: dir.path().join("state"),
+        agent_socket: dir.path().join("agent.sock"),
+        dev_user: Some("1000".to_owned()),
+        ..Config::default()
+    };
+    let error = Server::bind(&config).await.unwrap_err();
+    assert!(error.to_string().contains("loopback"), "{error}");
+}
+
+#[tokio::test]
 async fn certificate_files_of_the_administrator_serve_requests() {
     // Make a pair in a separate directory and give it to the server as external files.
     let dir = tempfile::tempdir().unwrap();

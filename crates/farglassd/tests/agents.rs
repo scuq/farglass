@@ -200,13 +200,22 @@ async fn real_agent_connects_and_farglassd_knows_its_uid_from_the_kernel() {
     .await
     .unwrap();
 
-    // A browser connection of the user reaches the agent and gets its answer.
-    // This version of the agent refuses each channel kind.
+    // A browser connection of the user reaches the echo channel of the agent.
     let mut browser = Browser::connect(&registry, Some(uid)).await;
     browser.open(1).await;
-    let answer = browser.recv().await;
-    assert_eq!(answer.channel(), ch(1));
-    assert_eq!(reason(&answer), CloseReason::NotSupported);
+    let ready = browser.recv().await;
+    assert_eq!(
+        (ready.channel(), ready.frame_type()),
+        (ch(1), FrameType::Ready)
+    );
+    browser.send(data(1, b"ping")).await;
+    let echo = browser.recv().await;
+    assert_eq!(
+        (echo.channel(), echo.payload().as_ref()),
+        (ch(1), &b"ping"[..])
+    );
+    browser.send(close(1, CloseReason::Done)).await;
+    assert_eq!(reason(&browser.recv().await), CloseReason::Done);
 
     // A browser connection of a different user does not reach the agent.
     let mut other = Browser::connect(&registry, Some(uid + 1)).await;

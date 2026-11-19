@@ -1,4 +1,10 @@
-/** The root of the shell. It is empty in M0. */
+import { Echo } from "./Echo";
+
+/** The root of the shell. In M0, it has only the echo panel. */
 export function App() {
-  return <main class="shell">farglass</main>;
+  return (
+    <main class="shell">
+      <Echo />
+    </main>
+  );
 }

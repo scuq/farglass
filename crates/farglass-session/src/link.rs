@@ -1,12 +1,12 @@
 //! The link from the agent to farglassd.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 use std::time::Duration;
 
 use farglass_proto::codec::{CodecError, FrameCodec};
-use farglass_proto::message::{Close, CloseReason, LinkMessage, Open};
+use farglass_proto::message::{Close, CloseReason, LinkMessage, Open, Ready};
 use farglass_proto::{ChannelId, Frame, FrameError, FrameType, PROTOCOL_VERSION, Side};
 use futures_util::{SinkExt as _, StreamExt as _};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -90,8 +90,7 @@ where
     }
     tracing::info!("connected to farglassd");
 
-    // The channels that the agent refused and that wait for the close frame of farglassd.
-    let mut refused: HashSet<ChannelId> = HashSet::new();
+    let mut channels: HashMap<ChannelId, Channel> = HashMap::new();
     while let Some(frame) = link.next().await {
         let frame = frame?;
         let channel = frame.channel();
@@ -110,33 +109,81 @@ where
             continue;
         }
 
+        if frame.frame_type() == FrameType::Open {
+            if channel.opener() != Some(Side::Shell) || channels.contains_key(&channel) {
+                return Err(LinkError::Protocol(format!(
+                    "farglassd cannot open channel {channel}"
+                )));
+            }
+            let (state, answer) = open(channel, &frame)?;
+            channels.insert(channel, state);
+            link.send(answer).await?;
+            continue;
+        }
+
+        let Some(state) = channels.get_mut(&channel) else {
+            // A frame of a channel that is closed on the two sides.
+            continue;
+        };
         match frame.frame_type() {
-            FrameType::Open => {
-                if channel.opener() != Some(Side::Shell) || !refused.insert(channel) {
-                    return Err(LinkError::Protocol(format!(
-                        "farglassd cannot open channel {channel}"
-                    )));
-                }
-                // This version of the agent has no channel kinds. F005 adds the echo channel.
-                let message = match frame.parse::<Open>() {
-                    Ok(open) => format!("The agent does not support the channel kind {open:?}."),
-                    Err(_) => "The agent does not know this channel kind.".to_owned(),
-                };
-                let close = Close {
-                    reason: CloseReason::NotSupported,
-                    message: Some(message),
-                };
-                link.send(Frame::close(channel, &close)?).await?;
-            }
-            // The answer of farglassd to the refusal. The channel number is free again.
             FrameType::Close => {
-                refused.remove(&channel);
+                // The agent answers a close frame of the shell with its own close frame.
+                // If the agent closed the channel first, this is the answer.
+                if !state.closed_by_agent {
+                    link.send(Frame::close(channel, &Close::new(CloseReason::Done))?)
+                        .await?;
+                }
+                channels.remove(&channel);
             }
-            // Frames that the opener sent before it got the refusal.
-            FrameType::Ready | FrameType::Data | FrameType::Control => {}
+            FrameType::Data | FrameType::Control if !state.closed_by_agent => match state.kind {
+                Kind::Echo => link.send(frame).await?,
+            },
+            // Frames that the opener sent before it got the refusal, or a ready frame
+            // that farglassd does not send on a channel of the shell.
+            FrameType::Data | FrameType::Control | FrameType::Ready | FrameType::Open => {}
         }
     }
     Ok(())
+}
+
+/// The kind of an open channel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Kind {
+    /// Sends each data frame and each control frame back.
+    Echo,
+}
+
+/// One channel of the link.
+#[derive(Debug)]
+struct Channel {
+    kind: Kind,
+    /// Reports whether the agent sent a close frame.
+    closed_by_agent: bool,
+}
+
+/// Accepts or refuses a new channel. Returns its state and the answer to the open frame.
+fn open(channel: ChannelId, frame: &Frame) -> Result<(Channel, Frame), LinkError> {
+    match frame.parse::<Open>() {
+        Ok(Open::Echo) => {
+            tracing::debug!(%channel, "opened an echo channel");
+            let state = Channel {
+                kind: Kind::Echo,
+                closed_by_agent: false,
+            };
+            Ok((state, Frame::ready(channel, &Ready {})?))
+        }
+        Err(_) => {
+            let close = Close {
+                reason: CloseReason::NotSupported,
+                message: Some("The agent does not know this channel kind.".to_owned()),
+            };
+            let state = Channel {
+                kind: Kind::Echo,
+                closed_by_agent: true,
+            };
+            Ok((state, Frame::close(channel, &close)?))
+        }
+    }
 }
 
 fn link_message(frame: &Frame) -> Result<LinkMessage, LinkError> {

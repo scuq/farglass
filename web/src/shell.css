@@ -1,0 +1,85 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f6f6f4;
+  --fg: #1d1d1b;
+  --muted: #5f5f5a;
+  --line: #d4d4cf;
+  --ok: #1d6b38;
+  --bad: #a3261b;
+  font-family: system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1a1a19;
+    --fg: #ececea;
+    --muted: #a3a39d;
+    --line: #3a3a37;
+    --ok: #6fcf8e;
+    --bad: #ff8a7a;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.shell {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+.echo h1 {
+  font-size: 1.25rem;
+  margin: 0 0 0.5rem;
+}
+
+/* The state has a text label. The color only repeats it. */
+.echo-state {
+  margin: 0 0 1rem;
+  color: var(--muted);
+}
+.echo-state[data-state="ready"] {
+  color: var(--ok);
+}
+.echo-state[data-state="refused"],
+.echo-state[data-state="closed"] {
+  color: var(--bad);
+}
+
+.echo form {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.echo input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.4rem;
+  font: inherit;
+}
+
+.echo-log {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  font-family: ui-monospace, monospace;
+  font-size: 0.875rem;
+  border-top: 1px solid var(--line);
+}
+.echo-log li {
+  padding: 0.25rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.echo-log li[data-kind="sent"]::before {
+  content: "→ ";
+}
+.echo-log li[data-kind="echo"]::before {
+  content: "← ";
+}
+.echo-log li[data-kind="error"] {
+  color: var(--bad);
+}

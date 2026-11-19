@@ -70,6 +70,46 @@ FARGLASS_AGENT_SOCKET=target/farglass/agent.sock cargo run -p farglass-session
 The agent connects to farglassd, and farglassd writes the uid of the agent to the log.
 If farglassd stops, the agent connects again when farglassd starts.
 
+## Development mode with no login
+
+Until the login is ready, `--dev-user` gives each browser connection a user with no login:
+
+```sh
+cargo run -p farglassd -- --listen 127.0.0.1:8443 --web-root web/dist \
+    --state-dir target/farglass --agent-socket target/farglass/agent.sock --dev-user "$USER"
+```
+
+CAUTION: Do not use `--dev-user` on a host that other persons can use.
+Each connection from the host itself becomes that user.
+
+farglassd accepts `--dev-user` only on a loopback address, and refuses connections from other addresses.
+Start the agent as the same user, as in the previous section.
+Then open `https://localhost:8443`.
+The shell opens an echo channel to the agent.
+Each message comes back with its round-trip time.
+
+To change the shell with live reload, start farglassd as before and then start the Vite server:
+
+```sh
+npm --prefix web run dev
+```
+
+The Vite server sends `/ws` to `https://localhost:8443`.
+To use a different farglassd, set `FARGLASSD_URL`.
+
+## End-to-end test
+
+The end-to-end test builds all parts, starts farglassd in development mode and the agent, and uses Chromium through Playwright:
+
+```sh
+npm --prefix spikes/e2e ci
+npx --prefix spikes/e2e playwright install chromium
+npm --prefix spikes/e2e run echo
+```
+
+The test opens the shell in two tabs and sends a message on the echo channel of each tab.
+It passes if each tab gets only its own echo.
+
 Open `https://localhost:8443` in the browser.
 farglassd serves HTTP/2 and HTTP/1.1 through TLS.
 The channel protocol uses the WebSocket endpoint `/ws`.

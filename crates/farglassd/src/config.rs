@@ -33,6 +33,20 @@ pub enum ConfigError {
         source: Box<toml::de::Error>,
     },
 
+    /// `dev_user` is set, but the listen address is not a loopback address.
+    #[error(
+        "The option dev_user works only on a loopback address, but farglassd listens on {listen}. \
+         Set listen to 127.0.0.1 or [::1], or remove dev_user."
+    )]
+    DevUserNotLoopback {
+        /// The listen address.
+        listen: SocketAddr,
+    },
+
+    /// The user of `dev_user` does not exist.
+    #[error("The user {0} of the option dev_user does not exist.")]
+    DevUserUnknown(String),
+
     /// Only one of the certificate file and the key file is set.
     #[error(
         "The TLS configuration has {present} but not {missing}. \
@@ -58,6 +72,11 @@ pub struct Config {
     pub state_dir: PathBuf,
     /// The Unix socket that the agents connect to.
     pub agent_socket: PathBuf,
+    /// The user of each browser connection, with no login. Only for development.
+    ///
+    /// A username or a numeric uid. farglassd refuses this option if it does
+    /// not listen on a loopback address.
+    pub dev_user: Option<String>,
     /// The TLS configuration.
     pub tls: TlsConfig,
 }
@@ -81,6 +100,7 @@ impl Default for Config {
             web_root: PathBuf::from("/usr/share/farglass/web"),
             state_dir: PathBuf::from("/var/lib/farglass"),
             agent_socket: PathBuf::from("/run/farglass/agent.sock"),
+            dev_user: None,
             tls: TlsConfig::default(),
         }
     }
@@ -124,6 +144,30 @@ impl Config {
             path: path.to_owned(),
             source: Box::new(source),
         })
+    }
+
+    /// Returns the uid of `dev_user`, or `None` if the option is not set.
+    ///
+    /// # Errors
+    ///
+    /// - [`ConfigError::DevUserNotLoopback`] if the listen address is not a loopback address.
+    /// - [`ConfigError::DevUserUnknown`] if the user does not exist.
+    pub fn dev_uid(&self) -> Result<Option<u32>, ConfigError> {
+        let Some(name) = &self.dev_user else {
+            return Ok(None);
+        };
+        if !self.listen.ip().is_loopback() {
+            return Err(ConfigError::DevUserNotLoopback {
+                listen: self.listen,
+            });
+        }
+        if let Ok(uid) = name.parse::<u32>() {
+            return Ok(Some(uid));
+        }
+        match nix::unistd::User::from_name(name) {
+            Ok(Some(user)) => Ok(Some(user.uid.as_raw())),
+            _ => Err(ConfigError::DevUserUnknown(name.clone())),
+        }
     }
 
     /// Returns where the TLS certificate comes from.
@@ -201,6 +245,32 @@ mod tests {
     fn unknown_key_is_refused() {
         let error = Config::parse("lisen = \"[::]:443\"", Path::new("test.conf")).unwrap_err();
         assert!(error.to_string().contains("lisen"), "{error}");
+    }
+
+    #[test]
+    fn dev_user_works_only_on_loopback() {
+        let mut config = Config::parse("dev_user = \"1000\"", Path::new("t")).unwrap();
+        assert!(matches!(
+            config.dev_uid(),
+            Err(ConfigError::DevUserNotLoopback { .. })
+        ));
+        for listen in ["127.0.0.1:8443", "[::1]:8443"] {
+            config.listen = listen.parse().unwrap();
+            assert_eq!(config.dev_uid().unwrap(), Some(1000), "{listen}");
+        }
+    }
+
+    #[test]
+    fn dev_user_resolves_a_username() {
+        let mut config = Config::parse("listen = \"127.0.0.1:8443\"", Path::new("t")).unwrap();
+        assert_eq!(config.dev_uid().unwrap(), None);
+        config.dev_user = Some("root".to_owned());
+        assert_eq!(config.dev_uid().unwrap(), Some(0));
+        config.dev_user = Some("no-such-user-farglass".to_owned());
+        assert!(matches!(
+            config.dev_uid(),
+            Err(ConfigError::DevUserUnknown(_))
+        ));
     }
 
     #[test]

@@ -6,7 +6,7 @@
 //! Usage:
 //!
 //!     farglassd [--config FILE] [--listen ADDR] [--web-root DIR] [--state-dir DIR]
-//!               [--agent-socket FILE] [--tls-cert FILE --tls-key FILE]
+//!               [--agent-socket FILE] [--dev-user USER] [--tls-cert FILE --tls-key FILE]
 //!
 //! SIGHUP loads the certificate files again. SIGTERM and SIGINT stop the server.
 
@@ -49,6 +49,11 @@ struct Args {
     #[arg(long, value_name = "FILE", env = "FARGLASSD_AGENT_SOCKET")]
     agent_socket: Option<PathBuf>,
 
+    /// Development only: each browser connection becomes this user with no login.
+    /// Works only on a loopback address
+    #[arg(long, value_name = "USER", env = "FARGLASSD_DEV_USER")]
+    dev_user: Option<String>,
+
     /// The PEM file with the certificate chain. Use it together with --tls-key
     #[arg(
         long,
@@ -84,6 +89,9 @@ impl Args {
         if let Some(agent_socket) = self.agent_socket {
             config.agent_socket = agent_socket;
         }
+        if self.dev_user.is_some() {
+            config.dev_user = self.dev_user;
+        }
         if self.tls_cert.is_some() {
             config.tls.cert = self.tls_cert;
             config.tls.key = self.tls_key;
@@ -118,6 +126,12 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         tracing::warn!(
             web_root = %config.web_root.display(),
             "the web root has no index.html, build the shell with: npm --prefix web run build"
+        );
+    }
+    if let Some(user) = &config.dev_user {
+        tracing::warn!(
+            user,
+            "dev_user mode: each browser connection from loopback becomes this user with no login"
         );
     }
     tracing::info!("listening on https://{}", server.local_addr());

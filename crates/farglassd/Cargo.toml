@@ -15,6 +15,7 @@ clap.workspace = true
 futures-util.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
+nix.workspace = true
 rcgen.workspace = true
 rustls.workspace = true
 serde.workspace = true
