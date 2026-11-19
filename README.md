@@ -213,7 +213,9 @@ With no open tab, polkit gets no answer, and the action fails.
 Each session runs a Wayland compositor with no screen.
 A Wayland app that starts in a farglass terminal, for example `gnome-calculator`, connects to it through `WAYLAND_DISPLAY`.
 The compositor gives each window, its title, and the changed parts of each frame to the shell.
-The windows show in the shell with the tile codec (F025). Input to them comes with F029.
+Each window shows in the shell as a window of the window manager: a worker draws its tiles on a canvas.
+The size, the focus, and the close of the window go to the app. Keyboard and pointer input come with F029.
+`npm --prefix spikes/e2e run surface` starts gnome-calculator, and the shell must show its window.
 
 To look at the events of a real app:
 

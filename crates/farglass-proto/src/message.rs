@@ -110,6 +110,14 @@ pub enum Open {
     /// The windows of the Wayland compositor of the session: the top-level windows, the popups,
     /// and the commits. The shell gives the size, the focus, and the close of each window.
     Surfaces,
+    /// The pixels of one surface of the Wayland compositor: a window or a popup.
+    ///
+    /// The agent sends the binary tile stream of farglass-surface in data frames.
+    /// The message boundaries do not follow the data frames.
+    Surface {
+        /// The id of the surface from the surfaces channel.
+        id: u32,
+    },
     /// The polkit prompts of the session. The shell keeps one open while the desktop shows.
     ///
     /// The agent sends [`PolkitEvent`] and gets [`PolkitReply`], as control messages.
@@ -356,6 +364,8 @@ pub enum SurfaceEvent {
         /// The window.
         id: u32,
     },
+    /// The channel has each window and popup that was open at its start. The shell can close the windows of surfaces that are gone.
+    Synced,
 }
 
 /// A message of the shell on a surfaces channel.

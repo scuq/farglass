@@ -82,6 +82,8 @@ export interface AppManifest {
   readonly icon: string;
   /** The size of a new window. */
   readonly size: { readonly w: number; readonly h: number };
+  /** Reports whether the launcher and the menus leave the app out, for example the windows of Wayland apps. */
+  readonly hidden?: boolean;
   /** Loads the app module. Use `() => import("./Module")`. */
   readonly start: () => Promise<{ default: AppComponent }>;
 }

@@ -30,6 +30,20 @@ pub fn socket_path() -> Option<PathBuf> {
 }
 
 type EventSink = Arc<dyn Fn(SurfaceEvent) + Send + Sync>;
+type FrameSink = Arc<dyn Fn(FrameUpdate) + Send + Sync>;
+
+/// The new pixels of a surface for a surface channel.
+#[derive(Clone, Debug)]
+pub struct FrameUpdate {
+    /// The width in pixels.
+    pub width: usize,
+    /// The height in pixels.
+    pub height: usize,
+    /// The BGRA pixels of the whole buffer.
+    pub pixels: Arc<Vec<u8>>,
+    /// The parts that changed.
+    pub damage: Vec<Rect>,
+}
 type CommandSink = Box<dyn Fn(Command) + Send + Sync>;
 
 #[derive(Clone, Debug, Default)]
@@ -46,8 +60,10 @@ struct Inner {
     /// The last commit of each surface, with the whole buffer as damage, for a new channel.
     commits: HashMap<u32, SurfaceEvent>,
     /// The last pixels of each surface, for the tile codec.
-    pixels: HashMap<u32, Arc<Vec<u8>>>,
+    pixels: HashMap<u32, (usize, usize, Arc<Vec<u8>>)>,
     viewers: HashMap<u64, EventSink>,
+    /// The surface channels of each surface.
+    watchers: HashMap<u32, HashMap<u64, FrameSink>>,
 }
 
 /// The windows of the compositor and the surfaces channels of the shell.
@@ -72,6 +88,30 @@ pub struct ViewerGuard {
 impl std::fmt::Debug for ViewerGuard {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ViewerGuard").field("id", &self.id).finish()
+    }
+}
+
+/// One surface channel. Dropping it ends the watch.
+pub struct WatchGuard {
+    surfaces: Arc<Surfaces>,
+    surface: u32,
+    id: u64,
+}
+
+impl std::fmt::Debug for WatchGuard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WatchGuard")
+            .field("surface", &self.surface)
+            .finish()
+    }
+}
+
+impl Drop for WatchGuard {
+    fn drop(&mut self) {
+        let mut inner = self.surfaces.lock();
+        if let Some(watchers) = inner.watchers.get_mut(&self.surface) {
+            watchers.remove(&self.id);
+        }
     }
 }
 
@@ -156,6 +196,7 @@ impl Surfaces {
             toplevels
                 .chain(popups)
                 .chain(inner.commits.values().cloned())
+                .chain(std::iter::once(SurfaceEvent::Synced))
                 .collect()
         };
         for event in snapshot {
@@ -170,7 +211,49 @@ impl Surfaces {
     /// Returns the pixels of the last commit of the surface `id`: `width * 4` bytes in each row.
     #[must_use]
     pub fn pixels(&self, id: u32) -> Option<Arc<Vec<u8>>> {
-        self.lock().pixels.get(&id).cloned()
+        self.lock()
+            .pixels
+            .get(&id)
+            .map(|(_, _, pixels)| pixels.clone())
+    }
+
+    /// Watches the pixels of the surface `id` for a surface channel. `send` gets the last
+    /// buffer at once, with the whole buffer as damage, then each commit.
+    pub fn watch(
+        self: &Arc<Self>,
+        surface: u32,
+        send: impl Fn(FrameUpdate) + Send + Sync + 'static,
+    ) -> WatchGuard {
+        let id = self.next_viewer.fetch_add(1, Ordering::Relaxed);
+        let send: FrameSink = Arc::new(send);
+        let last = {
+            let mut inner = self.lock();
+            inner
+                .watchers
+                .entry(surface)
+                .or_default()
+                .insert(id, send.clone());
+            inner.pixels.get(&surface).cloned()
+        };
+        if let Some((width, height, pixels)) = last {
+            let full = Rect {
+                x: 0,
+                y: 0,
+                width: i32::try_from(width).unwrap_or(i32::MAX),
+                height: i32::try_from(height).unwrap_or(i32::MAX),
+            };
+            send(FrameUpdate {
+                width,
+                height,
+                pixels,
+                damage: vec![full],
+            });
+        }
+        WatchGuard {
+            surfaces: self.clone(),
+            surface,
+            id,
+        }
     }
 
     /// Gives a request of the shell to the compositor.
@@ -262,7 +345,27 @@ impl Surfaces {
                         geometry: commit.geometry.map(rect),
                     };
                     inner.commits.insert(commit.id, full);
-                    inner.pixels.insert(commit.id, commit.pixels.clone());
+                    let (width, height) = (
+                        usize::try_from(commit.width).unwrap_or(0),
+                        usize::try_from(commit.height).unwrap_or(0),
+                    );
+                    inner
+                        .pixels
+                        .insert(commit.id, (width, height, commit.pixels.clone()));
+                    let update = FrameUpdate {
+                        width,
+                        height,
+                        pixels: commit.pixels.clone(),
+                        damage: commit.damage.clone(),
+                    };
+                    for watch in inner
+                        .watchers
+                        .get(&commit.id)
+                        .into_iter()
+                        .flat_map(HashMap::values)
+                    {
+                        watch(update.clone());
+                    }
                     SurfaceEvent::Commit {
                         id: commit.id,
                         width: commit.width,
@@ -328,7 +431,8 @@ mod tests {
         let sink = seen.clone();
         let _viewer = surfaces.add_viewer(move |event| sink.lock().unwrap().push(event));
         let seen = seen.lock().unwrap().clone();
-        assert_eq!(seen.len(), 2);
+        assert_eq!(seen.len(), 3);
+        assert_eq!(seen[2], SurfaceEvent::Synced);
         assert!(
             matches!(&seen[0], SurfaceEvent::Toplevel { title: Some(t), .. } if t == "Calculator")
         );

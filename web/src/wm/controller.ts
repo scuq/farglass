@@ -72,6 +72,12 @@ export interface DesktopController {
   place(id: string, rect: Rect, zone: SnapZone | null): void;
   setPreview(zone: SnapZone | null): void;
   openApp(appId: string): void;
+  /** Opens a window with the id `id` for the app `linux`, if no window has the id. */
+  openSurface(id: string, title: string, w: number, h: number): void;
+  /** Returns the ids of the windows of the app `linux`. */
+  surfaceWindows(): string[];
+  /** Calls `handler` after the desktop came from the state store, at once if it came already. */
+  whenLoaded(handler: () => void): void;
   switchWorkspace(index: number): void;
   tile(): void;
   /** Snaps a window to `zone`. */
@@ -138,6 +144,7 @@ export function createDesktopController(connection: Connection): DesktopControll
     return openWindow(state, { id: crypto.randomUUID(), app: app.id, title, ...app.size }, area());
   };
 
+  const onLoaded: (() => void)[] = [];
   store.watch(DESKTOP_KEY, (value) => {
     const restored = parseDesktop(value);
     if (restored) {
@@ -146,7 +153,12 @@ export function createDesktopController(connection: Connection): DesktopControll
       // A new session: open one window, thus the desktop is not empty.
       apply((state) => withApp(state, "echo"));
     }
-    loaded = true;
+    if (!loaded) {
+      loaded = true;
+      for (const handler of onLoaded.splice(0)) {
+        handler();
+      }
+    }
   });
 
   const focusedId = createMemo(() => focused(desktop()));
@@ -227,6 +239,17 @@ export function createDesktopController(connection: Connection): DesktopControll
       apply((state) => withApp(state, appId));
       queueMicrotask(() => focusElement(focusedId()));
     },
+    openSurface(id, title, w, h) {
+      apply((state) => (state.windows.some((win) => win.id === id) ? state : openWindow(state, { id, app: "linux", title, w, h }, area())));
+    },
+    whenLoaded(handler) {
+      if (loaded) {
+        handler();
+      } else {
+        onLoaded.push(handler);
+      }
+    },
+    surfaceWindows: () => (unsaved ?? desktop()).windows.filter((win) => win.app === "linux").map((win) => win.id),
     switchWorkspace: (index) => apply((state) => switchWorkspace(state, index)),
     tile: () => apply((state) => tileWorkspace(state, area())),
     snap: (id, zone) => apply((state) => focusWindow(snapWindow(state, id, zone), id)),

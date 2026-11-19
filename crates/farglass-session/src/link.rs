@@ -323,7 +323,7 @@ where
                             )),
                         }
                     }
-                    Kind::Surfaces { .. } => None,
+                    Kind::Surfaces { .. } | Kind::Surface(_) => None,
                     Kind::State if frame.frame_type() == FrameType::Control => {
                         state_request(
                             &mut link,
@@ -571,6 +571,11 @@ enum Kind {
         /// Dropping the guard removes the channel from the agent.
         _viewer: notify::ViewerGuard,
     },
+    /// Gets the tile stream of one surface. Dropping the channel stops the stream.
+    Surface(
+        #[allow(dead_code, reason = "dropping it stops the stream")]
+        crate::surface_stream::SurfaceStream,
+    ),
     /// Gets the windows of the Wayland compositor. Dropping the channel removes it.
     Surfaces {
         /// Dropping the guard removes the channel from the agent.
@@ -654,6 +659,14 @@ fn open(
                 }
             });
             accept(Kind::Surfaces { _viewer: guard })
+        }
+        Ok(Open::Surface { id }) => {
+            accept(Kind::Surface(crate::surface_stream::SurfaceStream::open(
+                &session.surfaces,
+                id,
+                channel,
+                events.clone(),
+            )))
         }
         Ok(Open::Dbus { bus }) => accept(Kind::Dbus {
             bus,

@@ -39,7 +39,11 @@ rows: number, } | { "kind": "dbus",
 /**
  * The bus.
  */
-bus: Bus, } | { "kind": "notify" } | { "kind": "surfaces" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" };
+bus: Bus, } | { "kind": "notify" } | { "kind": "surfaces" } | { "kind": "surface", 
+/**
+ * The id of the surface from the surfaces channel.
+ */
+id: number, } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" };
 
 /**
  * The payload of a ready frame. The receiver of the open frame accepts the channel.
@@ -358,7 +362,7 @@ id: number, } | { "type": "move-request",
 /**
  * The window.
  */
-id: number, };
+id: number, } | { "type": "synced" };
 
 /**
  * A message of the shell on a surfaces channel.

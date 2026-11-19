@@ -1,0 +1,20 @@
+/* A window of a Wayland app: the canvas of the surface, with the shadow of the client cut off. */
+.wm-content:has(> .linux-app) {
+  position: relative;
+  padding: 0;
+  overflow: hidden;
+}
+.linux-app {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: transparent;
+}
+.linux-app canvas {
+  position: absolute;
+  image-rendering: pixelated;
+}
+.linux-app .linux-waiting {
+  margin: 1rem;
+  color: var(--muted);
+}

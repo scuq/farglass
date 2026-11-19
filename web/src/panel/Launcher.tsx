@@ -11,7 +11,7 @@ export function Launcher(props: { onopen: (appId: string) => void }) {
   const [query, setQuery] = createSignal("");
   const [active, setActive] = createSignal(0);
   const listId = createUniqueId();
-  const results = () => search(Object.values(APPS), query());
+  const results = () => search(Object.values(APPS).filter((app) => !app.hidden), query());
 
   const open = (appId: string | undefined) => {
     if (appId) {

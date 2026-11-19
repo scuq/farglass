@@ -1,0 +1,133 @@
+// surface.mjs - end-to-end test of a Wayland app window in Chromium
+//
+// Usage: npm --prefix spikes/e2e run surface
+//
+// The script starts farglassd in dev_user mode and the agent with a Wayland
+// socket in a temporary directory. It starts gnome-calculator on that socket,
+// and the shell must show its window with its pixels. A resize of the window
+// must give a new buffer, and the close button must stop the app. The script
+// prints the CPU time of the encoder for each frame.
+//
+// Exit status: 0 if all steps pass, 1 if a step fails.
+
+import { spawn } from "node:child_process";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { chromium } from "playwright";
+import { buildAll, start, TIMEOUT_MS } from "./lib.mjs";
+
+const SHOTS = process.env.FARGLASS_SHOTS;
+const APP = "/usr/bin/gnome-calculator";
+const state = mkdtempSync(join(tmpdir(), "farglass-e2e-"));
+const children = [];
+let browser;
+let failed = false;
+
+function check(condition, text) {
+  if (!condition) {
+    throw new Error(text);
+  }
+  console.log(`PASS: ${text}`);
+}
+
+/** Returns the number of distinct colors in the screenshot of `locator`. A blank page decodes it: the shell has a strict CSP. */
+async function colors(page, locator) {
+  const png = await locator.screenshot();
+  const blank = await page.context().newPage();
+  const count = await blank.evaluate(async (base64) => {
+    const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${base64}`)).blob());
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const context = canvas.getContext("2d");
+    context.drawImage(bitmap, 0, 0);
+    const data = context.getImageData(0, 0, bitmap.width, bitmap.height).data;
+    const set = new Set();
+    for (let i = 0; i < data.length; i += 4) set.add((data[i] << 16) | (data[i + 1] << 8) | data[i + 2]);
+    return set.size;
+  }, png.toString("base64"));
+  await blank.close();
+  return count;
+}
+
+try {
+  if (!existsSync(APP)) {
+    console.log("SKIP: no gnome-calculator");
+    process.exit(0);
+  }
+  buildAll();
+  const socket = join(state, "agent.sock");
+  const wayland = join(state, "wayland-0");
+  const daemon = start(
+    "farglassd",
+    "target/debug/farglassd",
+    ["--listen", "127.0.0.1:0", "--web-root", "web/dist", "--state-dir", state, "--agent-socket", socket, "--dev-user", String(process.getuid())],
+    {},
+    /listening on (https:\/\/\S+)/,
+  );
+  children.push(daemon.child);
+  const [, url] = await daemon.match;
+  const agent = start(
+    "farglass-session",
+    "target/debug/farglass-session",
+    [],
+    { FARGLASS_AGENT_SOCKET: socket, FARGLASS_WAYLAND_SOCKET: wayland, RUST_LOG: "info,farglass_session::surface_stream=trace" },
+    /connected to farglassd/,
+  );
+  children.push(agent.child);
+  await agent.match;
+
+  browser = await chromium.launch();
+  const context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1280, height: 900 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(url);
+  await page.locator(".wm").waitFor({ timeout: TIMEOUT_MS });
+
+  const app = spawn(APP, [], {
+    env: { ...process.env, WAYLAND_DISPLAY: wayland, GDK_BACKEND: "wayland", DBUS_SESSION_BUS_ADDRESS: "disabled:", DISPLAY: "" },
+    stdio: "ignore",
+  });
+  children.push(app);
+  let exited = null;
+  app.on("exit", (code) => (exited = code));
+
+  // 1. The window shows with the title and the pixels of the app.
+  const window = page.locator(".wm-window").filter({ has: page.locator(".linux-app") });
+  await window.waitFor({ timeout: 30_000 });
+  await page.waitForFunction(() => document.querySelector(".linux-app canvas")?.style.width, null, { timeout: TIMEOUT_MS });
+  await page.waitForTimeout(500);
+  check((await window.getAttribute("aria-label")) === "Calculator", "the window of the app shows with its title");
+  const content = window.locator(".linux-app");
+  const shown = await colors(page, content);
+  check(shown > 20, `the window shows the pixels of the app (${shown} colors)`);
+  if (SHOTS) await page.screenshot({ path: join(SHOTS, "surface.png") });
+  check(!(await page.locator("#launcher [role=option]").filter({ hasText: "Linux app" }).count()), "the launcher does not list the window app");
+
+  // 2. A new size of the window (maximize) gives a buffer of the new size.
+  const before = await content.evaluate((el) => el.querySelector("canvas").style.width);
+  await window.getByRole("button", { name: "Maximize" }).click();
+  await page.waitForFunction((old) => document.querySelector(".linux-app canvas")?.style.width !== old, before, { timeout: TIMEOUT_MS });
+  check(true, `a resize gives a new buffer (${before} to ${await content.evaluate((el) => el.querySelector("canvas").style.width)})`);
+
+  // 3. The encoder time of each frame on the host.
+  const times = [...agent.log().matchAll(/micros: (\d+)/g)].map((match) => Number(match[1])).sort((a, b) => a - b);
+  const bytes = [...agent.log().matchAll(/bytes: (\d+)/g)].map((match) => Number(match[1]));
+  check(times.length > 0, `the encoder sent ${times.length} frames: p50 ${times[Math.floor(times.length / 2)]} µs, p95 ${times[Math.floor(times.length * 0.95)]} µs, ${Math.round(bytes.reduce((a, b) => a + b, 0) / 1024)} KiB`);
+
+  // 4. The close button asks the app to close, and the app stops.
+  await window.getByRole("button", { name: "Close" }).click();
+  const end = Date.now() + TIMEOUT_MS;
+  while (exited === null && Date.now() < end) await new Promise((resolve) => setTimeout(resolve, 100));
+  check(exited === 0, "the close button stops the app");
+  check(errors.length === 0, `no page error ${errors.join("; ")}`);
+} catch (error) {
+  failed = true;
+  console.error(`FAIL: ${error.message}`);
+} finally {
+  await browser?.close();
+  for (const child of children) child.kill("SIGTERM");
+  rmSync(state, { recursive: true, force: true });
+}
+
+process.exit(failed ? 1 : 0);

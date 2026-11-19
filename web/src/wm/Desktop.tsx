@@ -1,6 +1,7 @@
 import { onCleanup } from "solid-js";
 import { APPEARANCE_KEY, applyAppearance, parseAppearance } from "../appearance";
 import { Notifications } from "../notify/Notifications";
+import { startSurfaceManager, stopSurfaceManager } from "../surface/manager";
 import { Panel } from "../panel/Panel";
 import { PolkitDialog } from "../polkit/PolkitDialog";
 import type { Connection } from "../proto";
@@ -19,6 +20,9 @@ export function Desktop(props: { connection: Connection; user: string; onlogout:
   const controller = createDesktopController(props.connection);
   // The idle lock of farglassd needs the activity of the user.
   onCleanup(trackActivity(() => props.connection.activity()));
+  // The windows of the Wayland apps of the session.
+  startSurfaceManager(props.connection, controller);
+  onCleanup(() => stopSurfaceManager(props.connection));
   // The appearance from the settings app, also when a different tab changes it.
   onCleanup(controller.state.watch(APPEARANCE_KEY, (value) => applyAppearance(parseAppearance(value))));
   return (

@@ -337,6 +337,29 @@ The shell sends these messages:
 
 The compositor sends the frame callbacks at most each 16 ms, thus a client draws at most 60 frames each second.
 
+## Surface channel
+
+A channel `{"kind":"surface","id":1}` gets the pixels of one surface as a binary tile stream in data frames.
+A message can go over two data frames: the client keeps the rest of a data frame until the next one.
+Each message starts with a code byte. The fields are little-endian:
+
+| Code | Message | Fields |
+|---|---|---|
+| 0 | hello | version u8, tile size u8, cache slots u16 |
+| 1 | frame | sequence u32, width u16, height u16 |
+| 2 | tile | x u16, y u16, w u8, h u8, length u32, LZ4 block of `w * h * 4` BGRA bytes |
+| 6 | fill | x u16, y u16, w u8, h u8, BGRA u32 |
+| 8 | end | sequence u32 |
+
+The tiles are 64 x 64 pixels on a grid from the top-left corner. Tiles at the right and bottom edges are smaller.
+The pixels are BGRA with premultiplied alpha, as the Wayland client gives them.
+A frame with a new width or height clears the canvas to transparent black.
+The client shows the canvas at the end message.
+
+The agent sends only the tiles in the damage of the Wayland client that differ from what the client shows.
+A tile of one color goes as a fill. While the encoder works, the commits wait, and their damage adds up: the client gets the newest pixels only.
+At the start, the channel gets the whole last buffer of the surface.
+
 ## WebTransport
 
 farglassd serves WebTransport on HTTP/3 at `/wt`, on the UDP port with the number of the TCP port.

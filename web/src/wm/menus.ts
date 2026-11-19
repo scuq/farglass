@@ -33,6 +33,7 @@ export function windowMenu(c: DesktopController, id: string): MenuItem[] {
 /** Returns the menu of the empty desktop: open each app, and tile the windows. */
 export function desktopMenu(c: DesktopController): MenuItem[] {
   const apps = Object.values(APPS)
+    .filter((app) => !app.hidden)
     .toSorted((a, b) => a.title.localeCompare(b.title))
     .map((app) => ({ label: `Open ${app.title}`, action: () => c.openApp(app.id) }));
   return [...apps, { separator: true }, { label: "Tile the windows", action: () => c.tile(), shortcut: "Super+T" }];

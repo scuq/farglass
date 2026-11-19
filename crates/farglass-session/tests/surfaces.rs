@@ -76,6 +76,7 @@ async fn the_channel_gets_the_windows_and_its_requests_go_to_the_compositor() {
             parent: None
         }
     );
+    assert_eq!(next_event(&mut link, |_| true).await, SurfaceEvent::Synced);
     surfaces.handle(farglass_surface::Event::ToplevelClosed { id: 1 });
     assert_eq!(
         next_event(&mut link, |_| true).await,
