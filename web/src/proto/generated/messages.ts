@@ -13,7 +13,12 @@ version: number,
  * From farglassd: the user of the connection, if it has one.
  * With no user, the shell must log in on a channel of kind login.
  */
-user?: string, } | { "type": "logged-out" };
+user?: string, 
+/**
+ * From farglassd: the session of this user is locked, and the connection has no user.
+ * The shell shows the lock screen. A login of this user on a channel of kind login unlocks the session.
+ */
+locked?: string, } | { "type": "logged-out" } | { "type": "locked" } | { "type": "unlocked" } | { "type": "lock" } | { "type": "activity" };
 
 /**
  * The payload of an open frame. It selects the kind of the channel.

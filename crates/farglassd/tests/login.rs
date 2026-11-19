@@ -13,6 +13,7 @@ use farglass_proto::message::{Close, CloseReason, ConnectionMessage, LinkMessage
 use farglass_proto::{ChannelId, Frame, FrameType, PROTOCOL_VERSION};
 use farglassd::agents::Registry;
 use farglassd::connection::{self, Context, Violation};
+use farglassd::login::Identity;
 use futures_util::{SinkExt as _, StreamExt as _, sink, stream};
 use tempfile::TempDir;
 use tokio::net::UnixStream;
@@ -84,6 +85,7 @@ impl LoginService {
 /// The browser side of one connection.
 struct Browser {
     hello_user: Option<String>,
+    hello_locked: Option<String>,
     to_server: mpsc::Sender<Result<Frame, Violation>>,
     from_server: mpsc::Receiver<Frame>,
     _task: JoinHandle<Result<(), Violation>>,
@@ -91,6 +93,11 @@ struct Browser {
 
 impl Browser {
     async fn connect(context: &Arc<Context>) -> Self {
+        Self::connect_as(context, context.dev_user.clone()).await
+    }
+
+    /// Connects with the user of a session cookie.
+    async fn connect_as(context: &Arc<Context>, user: Option<Identity>) -> Self {
         let (to_server, server_in) = mpsc::channel(16);
         let (server_out, mut from_server) = mpsc::channel(16);
         let context = context.clone();
@@ -104,24 +111,18 @@ impl Browser {
             });
             let mut outgoing = std::pin::pin!(outgoing);
             let peer = Some("192.0.2.10".parse().unwrap());
-            connection::run(
-                &context,
-                peer,
-                context.dev_user.clone(),
-                &mut incoming,
-                &mut outgoing,
-            )
-            .await
+            connection::run(&context, peer, user, &mut incoming, &mut outgoing).await
         });
         let hello = tokio::time::timeout(WAIT, from_server.recv())
             .await
             .unwrap()
             .unwrap();
-        let ConnectionMessage::Hello { user, .. } = hello.parse().unwrap() else {
+        let ConnectionMessage::Hello { user, locked, .. } = hello.parse().unwrap() else {
             panic!("the first message was not a hello message");
         };
         let browser = Self {
             hello_user: user,
+            hello_locked: locked,
             to_server,
             from_server,
             _task: task,
@@ -129,6 +130,7 @@ impl Browser {
         let ours = ConnectionMessage::Hello {
             version: PROTOCOL_VERSION,
             user: None,
+            locked: None,
         };
         browser.send(Frame::connection(&ours).unwrap()).await;
         browser
@@ -566,4 +568,161 @@ async fn idle_logout_ends_a_session_with_no_tab_and_keeps_a_session_with_a_tab()
     .await
     .expect("the idle logout did not end the session");
     assert_eq!(*host.0.lock().unwrap(), [uid]);
+}
+
+/// Waits for the connection message `expected` of farglassd, and skips the frames of channels.
+async fn connection_message(browser: &mut Browser, expected: ConnectionMessage) {
+    loop {
+        let frame = browser.recv().await;
+        if frame.channel().is_connection() {
+            assert_eq!(frame.parse::<ConnectionMessage>().unwrap(), expected);
+            return;
+        }
+    }
+}
+
+/// Waits for the LockedHint message on the agent link.
+async fn locked_hint(agent: &mut Framed<UnixStream, FrameCodec>) -> bool {
+    loop {
+        let frame = tokio::time::timeout(WAIT, agent.next())
+            .await
+            .expect("no LockedHint")
+            .unwrap()
+            .unwrap();
+        if frame.channel().is_connection()
+            && let Ok(LinkMessage::LockedHint { locked }) = frame.parse()
+        {
+            return locked;
+        }
+    }
+}
+
+async fn lock_service() -> (LoginService, String, u32, Framed<UnixStream, FrameCodec>) {
+    let service = LoginService::start().await;
+    tokio::spawn(farglassd::lock::agent_loop(
+        service.context.presence.clone(),
+        service.registry.clone(),
+    ));
+    let (name, uid) = current_user();
+    let mut agent = fake_agent(&service.registry, uid).await;
+    assert!(
+        !locked_hint(&mut agent).await,
+        "a new agent gets the lock state"
+    );
+    (service, name, uid, agent)
+}
+
+#[tokio::test]
+async fn lock_closes_each_tab_and_only_a_login_of_the_user_unlocks() {
+    let (service, name, uid, mut agent) = lock_service().await;
+    let mut first = Browser::connect(&service.context).await;
+    first.login(1, &name, "secret").await;
+    let mut second = Browser::connect_as(
+        &service.context,
+        Some(Identity {
+            uid,
+            name: name.clone(),
+        }),
+    )
+    .await;
+    assert_eq!(second.hello_user.as_deref(), Some(name.as_str()));
+
+    first
+        .send(Frame::connection(&ConnectionMessage::Lock).unwrap())
+        .await;
+    connection_message(&mut first, ConnectionMessage::Locked).await;
+    connection_message(&mut second, ConnectionMessage::Locked).await;
+    assert!(locked_hint(&mut agent).await);
+
+    // A new tab with the cookie gets the lock screen and no channel of the agent.
+    let identity = Identity {
+        uid,
+        name: name.clone(),
+    };
+    let mut locked = Browser::connect_as(&service.context, Some(identity.clone())).await;
+    assert_eq!(
+        (locked.hello_user.as_deref(), locked.hello_locked.as_deref()),
+        (None, Some(name.as_str()))
+    );
+    locked.send(Frame::open(ch(1), &Open::Echo).unwrap()).await;
+    assert_eq!(
+        locked.recv().await.parse::<Close>().unwrap().reason,
+        CloseReason::AccessDenied
+    );
+    let mut waiting = Browser::connect_as(&service.context, Some(identity)).await;
+
+    // The lock screen asks only for the password of the locked user.
+    assert!(matches!(
+        locked.login(3, "unused", "wrong").await,
+        LoginEvent::Failure { .. }
+    ));
+    assert!(service.context.presence.is_locked(uid));
+    let LoginEvent::Success { user, .. } = locked.login(5, "unused", "secret").await else {
+        panic!("the unlock failed");
+    };
+    assert_eq!(user, name);
+    assert!(!service.context.presence.is_locked(uid));
+    assert!(!locked_hint(&mut agent).await);
+    // The other tab on the lock screen connects again. The tab of the login keeps its connection.
+    connection_message(&mut waiting, ConnectionMessage::Unlocked).await;
+    locked.send(Frame::open(ch(7), &Open::Echo).unwrap()).await;
+    let ready = loop {
+        let frame = tokio::time::timeout(WAIT, agent.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        if frame.frame_type() == FrameType::Open {
+            break frame;
+        }
+    };
+    assert_eq!(ready.parse::<Open>().unwrap(), Open::Echo);
+}
+
+#[tokio::test]
+async fn idle_lock_and_logind_lock_the_session_and_logind_unlocks_it() {
+    let (service, name, uid, mut agent) = lock_service().await;
+    let mut browser = Browser::connect(&service.context).await;
+    browser.login(1, &name, "secret").await;
+    browser
+        .send(Frame::connection(&ConnectionMessage::Activity).unwrap())
+        .await;
+    farglassd::server::lock_idle(&service.context, Duration::from_secs(3600));
+    assert!(
+        !service.context.presence.is_locked(uid),
+        "a user with activity is not idle"
+    );
+    farglassd::server::lock_idle(&service.context, Duration::ZERO);
+    connection_message(&mut browser, ConnectionMessage::Locked).await;
+    assert!(locked_hint(&mut agent).await);
+
+    // loginctl unlock-session, then loginctl lock-session.
+    agent
+        .send(
+            Frame::json(
+                ChannelId::CONNECTION,
+                FrameType::Control,
+                &LinkMessage::Unlock,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(!locked_hint(&mut agent).await);
+    assert!(!service.context.presence.is_locked(uid));
+    let mut browser = Browser::connect_as(&service.context, Some(Identity { uid, name })).await;
+    assert!(browser.hello_user.is_some());
+    agent
+        .send(
+            Frame::json(
+                ChannelId::CONNECTION,
+                FrameType::Control,
+                &LinkMessage::Lock,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    connection_message(&mut browser, ConnectionMessage::Locked).await;
+    assert!(service.context.presence.is_locked(uid));
 }

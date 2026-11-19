@@ -101,16 +101,16 @@ describe("launcher", () => {
 });
 
 describe("session menu", () => {
-  test("the menu has Lock, which is not available yet, and Log out", async () => {
+  test("Lock sends the lock message, and Log out logs out", async () => {
     let logouts = 0;
-    const { host } = await mountDesktop(() => (logouts += 1));
+    const { host, server } = await mountDesktop(() => (logouts += 1));
     const session = byText(host, ".panel-session", "alice");
     expect(session.textContent).toBe("Logged in as alice");
     session.click();
     await settle();
-    const lock = byText(host, "[role=menuitem]", "Lock");
-    expect(lock.getAttribute("aria-disabled")).toBe("true");
-    lock.click();
+    server.take();
+    byText(host, "[role=menuitem]", "Lock").click();
+    expect(server.take().map((frame) => parseJson(frame))).toEqual([{ type: "lock" }]);
     expect(logouts).toBe(0);
     byText(host, "[role=menuitem]", "Log out").click();
     expect(logouts).toBe(1);

@@ -149,3 +149,19 @@ button.danger {
   color: var(--bad);
   border: 1px solid var(--bad);
 }
+
+/* The lock screen: the login screen of a locked session. */
+.login-locked {
+  max-width: 28rem;
+  margin: 0 0 1rem;
+}
+.login-switch {
+  margin-top: 1.5rem;
+  padding: 0;
+  color: var(--focus);
+  font: inherit;
+  text-decoration: underline;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}

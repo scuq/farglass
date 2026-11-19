@@ -24,7 +24,7 @@ use farglass_proto::{ChannelId, ChannelIdAllocator, Frame, FrameType, PROTOCOL_V
 use futures_util::{SinkExt as _, StreamExt as _};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::UnixListener;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tokio_util::codec::{FramedRead, FramedWrite};
 
 /// The agent must send its hello message in this time.
@@ -47,12 +47,35 @@ pub struct BindError {
     pub source: io::Error,
 }
 
+/// A message of an agent for farglassd, with the uid of the agent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AgentEvent {
+    /// The agent of the user connected.
+    Connected(u32),
+    /// logind asks to lock the session of the user.
+    Lock(u32),
+    /// logind asks to unlock the session of the user.
+    Unlock(u32),
+}
+
 /// The agents that are connected now, by uid.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Registry {
     agents: Mutex<HashMap<u32, Arc<Agent>>>,
     next_agent: AtomicU64,
     next_connection: AtomicU64,
+    events: broadcast::Sender<AgentEvent>,
+}
+
+impl Default for Registry {
+    fn default() -> Self {
+        Self {
+            agents: Mutex::new(HashMap::new()),
+            next_agent: AtomicU64::new(0),
+            next_connection: AtomicU64::new(0),
+            events: broadcast::channel(64).0,
+        }
+    }
 }
 
 impl Registry {
@@ -60,6 +83,12 @@ impl Registry {
     #[must_use]
     pub fn new() -> Arc<Self> {
         Arc::new(Self::default())
+    }
+
+    /// Returns a receiver that gets the connects of the agents and their lock and unlock requests.
+    #[must_use]
+    pub fn subscribe(&self) -> broadcast::Receiver<AgentEvent> {
+        self.events.subscribe()
     }
 
     /// Returns the agent of the user `uid`, if one is connected.
@@ -129,12 +158,14 @@ impl Registry {
             uid,
             to_agent,
             routes: Mutex::new(Routes::default()),
+            events: self.events.clone(),
         });
         if let Some(old) = lock(&self.agents).insert(uid, agent.clone()) {
             tracing::info!(uid, "a new agent replaced the old agent of the user");
             old.stop("A new agent replaced the agent of the session.");
         }
         tracing::info!(uid, "agent connected");
+        let _ = self.events.send(AgentEvent::Connected(uid));
 
         let write_loop = async {
             while let Some(frame) = queue.recv().await {
@@ -176,6 +207,7 @@ pub struct Agent {
     uid: u32,
     to_agent: mpsc::Sender<Frame>,
     routes: Mutex<Routes>,
+    events: broadcast::Sender<AgentEvent>,
 }
 
 /// The channels of all browser connections on one agent link.
@@ -330,6 +362,15 @@ impl Agent {
         }
     }
 
+    /// Sends `message` to the agent in a separate task. A full queue does not delay the caller.
+    pub fn tell(self: &Arc<Self>, message: &LinkMessage) {
+        if let Some(frame) = self.link_frame(message) {
+            tokio::spawn(async move {
+                frame.send().await;
+            });
+        }
+    }
+
     fn link_frame(self: &Arc<Self>, message: &LinkMessage) -> Option<ToAgent> {
         let frame = Frame::json(ChannelId::CONNECTION, FrameType::Control, message).ok()?;
         Some(self.to(frame))
@@ -341,11 +382,20 @@ impl Agent {
     async fn deliver(&self, frame: Frame) -> bool {
         let number = frame.channel();
         if number.is_connection() {
-            tracing::warn!(
-                uid = self.uid,
-                "the agent sent a link message after the hello message"
-            );
-            return false;
+            let event = match parse_link(&frame) {
+                Some(LinkMessage::Lock) => AgentEvent::Lock(self.uid),
+                Some(LinkMessage::Unlock) => AgentEvent::Unlock(self.uid),
+                message => {
+                    tracing::warn!(
+                        uid = self.uid,
+                        ?message,
+                        "the agent sent a link message that only farglassd sends"
+                    );
+                    return false;
+                }
+            };
+            let _ = self.events.send(event);
+            return true;
         }
         let target = {
             let mut routes = lock(&self.routes);

@@ -1,8 +1,10 @@
 // session-browser.mjs - one login through the shell in Chromium, for spikes/session/check.sh
 //
-// Usage: node session-browser.mjs URL USER EXPECT
+// Usage: node session-browser.mjs URL USER EXPECT [SESSION]
 //
-// EXPECT is "success", "logout", "polkit", "notify", or "decline".
+// EXPECT is "success", "logout", "polkit", "notify", "lock", or "decline".
+// With "lock", loginctl in a terminal must lock the session SESSION, and the
+// password must unlock it. logind must show LockedHint for the two states.
 // With "success", the login must succeed with no confirm step, and the echo
 // channel must work. With "logout", the login must succeed, and then the Log out
 // button must give the login screen. With "polkit", pkexec in a terminal must
@@ -13,6 +15,7 @@
 //
 // Exit status: 0 if the result is as expected, 1 if not.
 
+import { execFileSync } from "node:child_process";
 import { chromium } from "playwright";
 import { echo, launch, logout, TIMEOUT_MS } from "./lib.mjs";
 
@@ -107,6 +110,33 @@ try {
       }
       console.log("PASS: the action of the notification goes back to notify-send");
       await page.locator(".wm-window").filter({ has: term }).getByRole("button", { name: "Close" }).click();
+    }
+    if (expect === "lock") {
+      // The owner of a session can lock it with loginctl. logind sends the signal Lock to the agent.
+      const session = process.argv[5];
+      await launch(page, "Terminal");
+      const term = page.locator('.term-app[data-status="running"]').last();
+      await term.waitFor({ timeout: TIMEOUT_MS });
+      await term.click();
+      await page.keyboard.type("loginctl lock-session $XDG_SESSION_ID");
+      await page.keyboard.press("Enter");
+      await page.getByRole("heading", { name: "Locked" }).waitFor({ timeout: 30_000 });
+      console.log("PASS: loginctl lock-session shows the lock screen");
+      const hint = () => execFileSync("loginctl", ["show-session", session, "-p", "LockedHint", "--value"], { encoding: "utf8" }).trim();
+      if (hint() !== "yes") {
+        throw new Error(`LockedHint of session ${session} is ${hint()} while the session is locked`);
+      }
+      console.log("PASS: logind shows LockedHint=yes");
+      const field = page.getByLabel("Password", { exact: true });
+      await field.fill("secret");
+      await page.getByRole("button", { name: "Continue" }).click();
+      await page.getByText(`Logged in as ${user}`).waitFor({ timeout: TIMEOUT_MS });
+      for (let i = 0; i < 50 && hint() !== "no"; i++) await page.waitForTimeout(100);
+      if (hint() !== "no") {
+        throw new Error(`LockedHint of session ${session} is ${hint()} after the unlock`);
+      }
+      console.log("PASS: the password unlocks the session, and logind shows LockedHint=no");
+      await page.locator(".wm-window").filter({ has: page.locator(".term-app") }).last().getByRole("button", { name: "Close" }).click();
     }
     if (expect === "logout") {
       await logout(page, user);

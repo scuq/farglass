@@ -72,6 +72,7 @@ impl Browser {
                 Frame::connection(&ConnectionMessage::Hello {
                     version: PROTOCOL_VERSION,
                     user: None,
+                    locked: None,
                 })
                 .unwrap(),
             )
@@ -488,6 +489,7 @@ async fn shell_violations_stop_the_connection() {
             Frame::connection(&ConnectionMessage::Hello {
                 version: PROTOCOL_VERSION,
                 user: None,
+                locked: None,
             })
             .unwrap(),
         )

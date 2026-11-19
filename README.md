@@ -208,6 +208,16 @@ The dialog shows the message of polkit and asks for the password of a permitted 
 Cancel or Escape stops the action.
 With no open tab, polkit gets no answer, and the action fails.
 
+## Lock screen
+
+Lock in the session menu locks the session in each tab of the user.
+farglassd also locks it after 15 minutes with no keyboard or pointer activity in a tab of the user, and after `loginctl lock-session`.
+While the session is locked, the browser gets no channel of the session, and the page has no desktop.
+Your programs continue on the host.
+The password of the user unlocks the session in each tab.
+Log in as a different user removes the cookie of this browser only.
+`idle_lock_minutes` in `farglassd.conf` changes the time, and 0 turns the idle lock off.
+
 ## Notifications
 
 farglass is the notification service of the web session.

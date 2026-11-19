@@ -9,7 +9,13 @@ import { storeSession } from "./session";
 /** The state of the connection to farglassd. */
 type Stage =
   | { readonly kind: "connecting" }
-  | { readonly kind: "login"; readonly connection: Connection; readonly notice: string | undefined }
+  | {
+      readonly kind: "login";
+      readonly connection: Connection;
+      readonly notice: string | undefined;
+      /** The user of a locked session: the login screen is the lock screen. */
+      readonly locked: string | null;
+    }
   | { readonly kind: "desktop"; readonly connection: Connection; readonly user: string }
   | { readonly kind: "waiting"; readonly reason: string; readonly retryAt: number };
 
@@ -53,12 +59,15 @@ export function App(props: AppServices) {
             // Connect again at once. The cookie no longer works, thus the login screen shows.
             notice = "You logged out.";
             open();
+          } else if (connection.lockedNow || connection.unlocked) {
+            // Connect again at once: the new connection gets the lock screen, or the desktop after an unlock.
+            open();
           } else {
             wait(reason);
           }
         };
         if (connection.user === null) {
-          setStage({ kind: "login", connection, notice });
+          setStage({ kind: "login", connection, notice, locked: connection.locked });
         } else {
           setStage({ kind: "desktop", connection, user: connection.user });
         }
@@ -73,6 +82,14 @@ export function App(props: AppServices) {
     attempt += 1;
     setStage({ kind: "waiting", reason, retryAt: Date.now() + delay });
     retryTimer = setTimeout(open, delay);
+  };
+
+  /** Leaves the lock screen: this browser forgets its cookie, and the session continues on the host. */
+  const switchUser = async (connection: Connection) => {
+    await (props.logout ?? logout)();
+    active = undefined;
+    connection.close();
+    open();
   };
 
   const connectNow = () => {
@@ -105,14 +122,17 @@ export function App(props: AppServices) {
         <Match when={stage().kind === "connecting"}>
           <p role="status">Connecting to the host</p>
         </Match>
-        <Match when={stage().kind === "login" && stage()}>
+        {/* Keyed: a new connection gives a new screen, also from a login screen to a lock screen. */}
+        <Match when={stage().kind === "login" && stage()} keyed>
           {(current) => {
-            const { connection, notice } = current() as Extract<Stage, { kind: "login" }>;
+            const { connection, notice, locked } = current as Extract<Stage, { kind: "login" }>;
             return (
               <>
                 {notice ? <p class="notice" role="status">{notice}</p> : null}
                 <LoginScreen
                   connection={connection}
+                  locked={locked}
+                  onswitch={() => void switchUser(connection)}
                   onlogin={(user, ticket) => {
                     connection.user = user;
                     setStage({ kind: "desktop", connection, user });
@@ -126,9 +146,9 @@ export function App(props: AppServices) {
             );
           }}
         </Match>
-        <Match when={stage().kind === "desktop" && stage()}>
+        <Match when={stage().kind === "desktop" && stage()} keyed>
           {(current) => {
-            const { connection, user } = current() as Extract<Stage, { kind: "desktop" }>;
+            const { connection, user } = current as Extract<Stage, { kind: "desktop" }>;
             return (
               <Desktop connection={connection} user={user} onlogout={() => void (props.logout ?? logout)()} />
             );

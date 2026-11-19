@@ -13,6 +13,7 @@
 #      the agent as farglass-test. A second login must attach to the same session.
 #      pkexec in a terminal must show the polkit dialog, and Cancel must end it.
 #      notify-send in a terminal must show a notification, and its action must go back.
+#      loginctl lock-session must show the lock screen, and the password must unlock it.
 #      The Log out button must end the web session and the agent.
 #   2. If the user who runs sudo has a local graphical session, a login as that
 #      user must show the confirm step. The script clicks Cancel only, and the
@@ -102,7 +103,7 @@ URL=https://localhost:18447
 USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
 browser() {
     # runuser keeps the environment of root. Playwright finds its browser in the home of the user.
-    runuser -u "$SUDO_USER" -- env HOME="$USER_HOME" node "$REPO/spikes/e2e/session-browser.mjs" "$URL" "$1" "$2"
+    runuser -u "$SUDO_USER" -- env HOME="$USER_HOME" node "$REPO/spikes/e2e/session-browser.mjs" "$URL" "$1" "$2" "${3:-}"
 }
 
 web_sessions() {
@@ -150,6 +151,11 @@ if browser "$TEST_USER" success; then
     else
         fail "the notification of notify-send did not work"
         journalctl _UID="$TEST_UID" --since "-2 min" --no-pager -o cat 2>/dev/null | grep -i notif | tail -5
+    fi
+    if browser "$TEST_USER" lock "$sessions"; then
+        pass "loginctl lock-session locks the web session, and the password unlocks it"
+    else
+        fail "the lock of the web session through logind did not work"
     fi
     if browser "$TEST_USER" logout; then
         gone=no

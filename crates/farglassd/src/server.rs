@@ -108,6 +108,8 @@ impl Server {
             hsts,
             idle_logout: (config.idle_logout_minutes > 0)
                 .then(|| Duration::from_secs(config.idle_logout_minutes * 60)),
+            idle_lock: (config.idle_lock_minutes > 0)
+                .then(|| Duration::from_secs(config.idle_lock_minutes * 60)),
             ..Context::new(registry.clone(), config.login_socket.clone())
         });
         Ok(Self {
@@ -167,6 +169,10 @@ impl Server {
             self.registry.clone(),
         ));
         let idle_loop = tokio::spawn(idle_loop(self.context.clone()));
+        let lock_loop = tokio::spawn(crate::lock::agent_loop(
+            self.context.presence.clone(),
+            self.context.registry.clone(),
+        ));
 
         tokio::pin!(shutdown);
         loop {
@@ -174,6 +180,7 @@ impl Server {
                 () = &mut shutdown => {
                     agent_loop.abort();
                     idle_loop.abort();
+                    lock_loop.abort();
                     return;
                 }
                 accepted = self.listener.accept() => accepted,
@@ -207,18 +214,24 @@ impl Server {
     }
 }
 
-/// The interval between two examinations for the idle logout.
-const IDLE_INTERVAL: Duration = Duration::from_secs(60);
+/// The interval between two examinations for the idle logout and the idle lock.
+const IDLE_INTERVAL: Duration = Duration::from_secs(15);
 
-/// Logs out each user who had no browser connection for the idle time.
+/// Logs out each user who had no browser connection for the idle time, and
+/// locks each session with no keyboard or pointer activity for the lock time.
 async fn idle_loop(context: Arc<Context>) {
-    let Some(timeout) = context.idle_logout else {
+    if context.idle_logout.is_none() && context.idle_lock.is_none() {
         return;
-    };
+    }
     let mut interval = tokio::time::interval(IDLE_INTERVAL);
     loop {
         interval.tick().await;
-        logout_idle(&context, timeout).await;
+        if let Some(timeout) = context.idle_logout {
+            logout_idle(&context, timeout).await;
+        }
+        if let Some(timeout) = context.idle_lock {
+            lock_idle(&context, timeout);
+        }
     }
 }
 
@@ -230,6 +243,17 @@ pub async fn logout_idle(context: &Context, timeout: Duration) {
         .idle_users(&uids, timeout, std::time::Instant::now())
     {
         crate::login::logout(context, uid, "idle").await;
+    }
+}
+
+/// Locks the session of each user with an agent who had no keyboard or pointer activity for `timeout`.
+pub fn lock_idle(context: &Context, timeout: Duration) {
+    let uids = context.registry.uids();
+    for uid in context
+        .presence
+        .inactive_users(&uids, timeout, std::time::Instant::now())
+    {
+        crate::lock::lock(&context.presence, &context.registry, uid, "idle");
     }
 }
 

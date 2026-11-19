@@ -24,8 +24,16 @@ type Stage = "waiting" | "prompt" | "checking" | "confirm" | "failed" | "blocked
  *
  * The screen asks only what the PAM modules ask, for example a username,
  * a password, and then a one-time code.
+ *
+ * With `locked`, it is the lock screen: farglassd starts the login for that
+ * user only, thus PAM does not ask for the username.
  */
-export function LoginScreen(props: { connection: Connection; onlogin: (user: string, ticket?: string) => void }) {
+export function LoginScreen(props: {
+  connection: Connection;
+  onlogin: (user: string, ticket?: string) => void;
+  locked?: string | null;
+  onswitch?: () => void;
+}) {
   const [stage, setStage] = createSignal<Stage>("waiting");
   const [prompt, setPrompt] = createSignal<Prompt | null>(null);
   const [messages, setMessages] = createSignal<readonly Message[]>([]);
@@ -137,8 +145,17 @@ export function LoginScreen(props: { connection: Connection; onlogin: (user: str
   });
 
   return (
-    <section class="login" aria-labelledby="login-title">
-      <h1 id="login-title">Log in to {window.location.hostname}</h1>
+    <section class="login" data-locked={props.locked ? "true" : undefined} aria-labelledby="login-title">
+      <Show when={props.locked} fallback={<h1 id="login-title">Log in to {window.location.hostname}</h1>}>
+        {(user) => (
+          <>
+            <h1 id="login-title">Locked</h1>
+            <p class="login-locked">
+              The session of <strong>{user()}</strong> on {window.location.hostname} is locked. Your programs continue.
+            </p>
+          </>
+        )}
+      </Show>
 
       <Show when={messages().length > 0}>
         <ul class="login-messages">
@@ -216,6 +233,12 @@ export function LoginScreen(props: { connection: Connection; onlogin: (user: str
       <Show when={stage() === "failed" || stage() === "blocked"}>
         <button type="button" onClick={retry} disabled={stage() === "blocked" && retryIn() > 0}>
           Try again
+        </button>
+      </Show>
+
+      <Show when={props.locked && props.onswitch}>
+        <button type="button" class="login-switch" onClick={() => props.onswitch?.()}>
+          Log in as a different user
         </button>
       </Show>
     </section>

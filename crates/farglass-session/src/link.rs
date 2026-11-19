@@ -20,6 +20,7 @@ use tokio::sync::mpsc;
 use tokio_util::codec::Framed;
 
 use crate::dbus::{self, Buses, DbusOptions, Filter, Subscriptions};
+use crate::logind::Logind;
 use crate::notify::{self, Notifications};
 use crate::polkit::{HELPER, Polkit, ViewerGuard};
 use crate::state::StateStore;
@@ -67,14 +68,18 @@ pub struct Session {
     pub polkit: Arc<Polkit>,
     /// The desktop notifications.
     pub notifications: Arc<Notifications>,
+    /// The logind session: its lock signals and its LockedHint.
+    pub logind: Arc<Logind>,
 }
 
 impl Default for Session {
     fn default() -> Self {
+        let buses = Buses::new(DbusOptions::default());
         Self {
             store: StateStore::default(),
             terminals: Terminals::new(TerminalOptions::from_env()),
-            buses: Buses::new(DbusOptions::default()),
+            logind: Logind::new(buses.clone()),
+            buses,
             polkit: Polkit::new(HELPER),
             notifications: Notifications::new(),
         }
@@ -155,6 +160,8 @@ where
     let mut viewers: HashMap<ViewerId, ChannelId> = HashMap::new();
     // The frames of the tasks of the dbus channels: replies and signals.
     let (events, mut frames) = mpsc::unbounded_channel::<Frame>();
+    // The lock and unlock requests of logind go to farglassd.
+    let mut lock_requests = session.logind.subscribe();
 
     loop {
         let frame = tokio::select! {
@@ -167,6 +174,11 @@ where
                 if let Some(Channel { closed_by_agent: false, .. }) = channels.get(&event.channel()) {
                     link.send(event).await?;
                 }
+                continue;
+            }
+            Ok(lock) = lock_requests.recv() => {
+                let message = if lock { LinkMessage::Lock } else { LinkMessage::Unlock };
+                link.send(Frame::json(ChannelId::CONNECTION, FrameType::Control, &message)?).await?;
                 continue;
             }
             Some((viewer, out)) = output.recv() => {
@@ -191,8 +203,12 @@ where
                 LinkMessage::Detach { connection } => {
                     tracing::info!(connection, "a browser connection detached");
                 }
-                LinkMessage::Hello { .. } => {
-                    return Err(LinkError::Protocol("a second hello message".to_owned()));
+                LinkMessage::LockedHint { locked } => session.logind.set_locked_hint(locked),
+                LinkMessage::Hello { .. } | LinkMessage::Lock | LinkMessage::Unlock => {
+                    return Err(LinkError::Protocol(format!(
+                        "farglassd sent a message that only the agent sends: {:?}",
+                        link_message(&frame)?
+                    )));
                 }
             }
             continue;

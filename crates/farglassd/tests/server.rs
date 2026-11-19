@@ -299,6 +299,7 @@ fn hello(version: u16) -> Frame {
     Frame::connection(&ConnectionMessage::Hello {
         version,
         user: None,
+        locked: None,
     })
     .unwrap()
 }
@@ -314,7 +315,8 @@ where
         first.parse::<ConnectionMessage>().unwrap(),
         ConnectionMessage::Hello {
             version: PROTOCOL_VERSION,
-            user: None
+            user: None,
+            locked: None,
         }
     );
 

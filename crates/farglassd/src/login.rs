@@ -81,6 +81,10 @@ impl SharedUser {
 pub struct LoginTask {
     /// The login socket of farglass-login.
     pub socket: PathBuf,
+    /// The only user who can log in, on the lock screen of a locked session.
+    pub only_user: Option<String>,
+    /// The lock state of the sessions. A login unlocks the session of its user.
+    pub presence: Arc<Presence>,
     /// The address of the browser.
     pub rhost: String,
     /// The channel of the shell.
@@ -117,7 +121,7 @@ impl LoginTask {
     }
 
     async fn relay(&mut self) -> Result<(), String> {
-        let mut attempt = Attempt::start(&self.socket, None, self.rhost.clone())
+        let mut attempt = Attempt::start(&self.socket, self.only_user.clone(), self.rhost.clone())
             .await
             .map_err(|error| {
                 tracing::error!(socket = %self.socket.display(), %error, "the login service is not available");
@@ -137,7 +141,9 @@ impl LoginTask {
                             self.wait_for_agent(*uid).await;
                             let identity = Identity { uid: *uid, name: user.clone() };
                             *ticket = Some(self.sessions.ticket(identity.clone()));
+                            // The connection gets its user first: the unlock then does not end it.
                             self.user.set(identity);
+                            crate::lock::unlock(&self.presence, &self.registry, *uid, "login");
                             true
                         }
                         LoginEvent::Failure { .. } | LoginEvent::Blocked { .. } | LoginEvent::LoggedOut { .. } => true,

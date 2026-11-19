@@ -34,6 +34,14 @@ async fn main() {
     let mut session = Session::default();
     // The polkit agent of the logind session: polkit asks it for the authentications of the session.
     if let Ok(session_id) = std::env::var("XDG_SESSION_ID") {
+        // The lock signals of logind, for example from `loginctl lock-session`.
+        let logind = session.logind.clone();
+        let id = session_id.clone();
+        tokio::spawn(async move {
+            if let Err(error) = logind.watch(&id).await {
+                tracing::warn!(%error, "the agent does not follow the lock signals of logind");
+            }
+        });
         let polkit = session.polkit.clone();
         let buses = session.buses.clone();
         tokio::spawn(async move {

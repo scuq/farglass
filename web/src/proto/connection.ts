@@ -155,8 +155,14 @@ export class Connection {
   onclose: ((reason: string) => void) | null = null;
   /** The user of the connection, from the hello message of the server. `null` before a login. */
   user: string | null = null;
+  /** The user of a locked session, from the hello message. The connection then has no user until a login. */
+  locked: string | null = null;
   /** Reports whether the server ended the connection because the user logged out. */
   loggedOut = false;
+  /** Reports whether the server ended the connection because the session is locked now. */
+  lockedNow = false;
+  /** Reports whether the server ended a connection with a locked session because a different tab unlocked it. */
+  unlocked = false;
 
   private constructor(transport: Transport) {
     this.#transport = transport;
@@ -216,6 +222,20 @@ export class Connection {
     return channel;
   }
 
+  /** Asks the server to lock the session. The server then ends each connection of the user. */
+  lock(): void {
+    this.#sendConnection({ type: "lock" });
+  }
+
+  /** Tells the server that the user used the keyboard or the pointer. */
+  activity(): void {
+    this.#sendConnection({ type: "activity" });
+  }
+
+  #sendConnection(message: ConnectionMessage): void {
+    this.sendRaw(encodeJsonFrame(CONNECTION_CHANNEL, FrameType.Control, message));
+  }
+
   /** Closes the connection. Each open channel gets a close callback. */
   close(): void {
     this.#transport.close();
@@ -244,15 +264,24 @@ export class Connection {
       );
     }
     this.user = hello.user ?? null;
+    this.locked = hello.locked ?? null;
     this.#state = "open";
   }
 
   #receive(frame: Frame): void {
     if (frame.channel === CONNECTION_CHANNEL) {
       const message = parseJson<ConnectionMessage>(frame);
+      // The server closes the connection after each of these messages.
       if (message.type === "logged-out") {
-        // The server closes the connection after this message.
         this.loggedOut = true;
+        return;
+      }
+      if (message.type === "locked") {
+        this.lockedNow = true;
+        return;
+      }
+      if (message.type === "unlocked") {
+        this.unlocked = true;
         return;
       }
       throw new ProtocolError("invalid-connection-frame", "The server sent a second hello message.");

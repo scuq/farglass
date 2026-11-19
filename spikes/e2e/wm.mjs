@@ -191,7 +191,10 @@ try {
     menuBox.y >= sessionBox.y + sessionBox.height && Math.abs(menuBox.x + menuBox.width - (sessionBox.x + sessionBox.width)) <= 2,
     "the session menu is under the user button, at its right edge",
   );
-  check((await menu.getByRole("menuitem", { name: "Lock" }).getAttribute("aria-disabled")) === "true", "the session menu has Lock, not available yet, and Log out");
+  check(
+    (await menu.getByRole("menuitem", { name: "Lock" }).isEnabled()) && (await menu.getByRole("menuitem", { name: "Log out" }).isVisible()),
+    "the session menu has Lock and Log out",
+  );
   if (SHOTS) await page.screenshot({ path: join(SHOTS, "session.png") });
   await page.keyboard.press("Escape");
 

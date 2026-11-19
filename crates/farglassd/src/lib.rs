@@ -11,6 +11,7 @@ pub mod config;
 pub mod connection;
 pub mod cookie;
 mod http;
+pub mod lock;
 pub mod login;
 pub mod origin;
 pub mod presence;

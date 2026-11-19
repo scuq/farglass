@@ -13,7 +13,7 @@ import "./panel.css";
  * The panel at the top: the launcher, the workspaces, the open windows of the
  * workspace, the clock, and the session menu.
  */
-export function Panel(props: { controller: DesktopController; user: string; onlogout: () => void }) {
+export function Panel(props: { controller: DesktopController; user: string; onlogout: () => void; onlock: () => void }) {
   const c = props.controller;
   const [sessionOpen, setSessionOpen] = createSignal(false);
 
@@ -105,9 +105,10 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
           <button
             type="button"
             role="menuitem"
-            aria-disabled="true"
-            title="The lock screen comes in a later version of farglass."
-            onClick={(event) => event.preventDefault()}
+            onClick={() => {
+              setSessionOpen(false);
+              props.onlock();
+            }}
           >
             Lock
           </button>

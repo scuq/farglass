@@ -1,7 +1,9 @@
+import { onCleanup } from "solid-js";
 import { Notifications } from "../notify/Notifications";
 import { Panel } from "../panel/Panel";
 import { PolkitDialog } from "../polkit/PolkitDialog";
 import type { Connection } from "../proto";
+import { trackActivity } from "./activity";
 import { createDesktopController } from "./controller";
 import { Surface } from "./Surface";
 import "./wm.css";
@@ -14,9 +16,11 @@ import "./wm.css";
  */
 export function Desktop(props: { connection: Connection; user: string; onlogout: () => void }) {
   const controller = createDesktopController(props.connection);
+  // The idle lock of farglassd needs the activity of the user.
+  onCleanup(trackActivity(() => props.connection.activity()));
   return (
     <div class="wm">
-      <Panel controller={controller} user={props.user} onlogout={props.onlogout} />
+      <Panel controller={controller} user={props.user} onlogout={props.onlogout} onlock={() => props.connection.lock()} />
       <Surface controller={controller} />
       <Notifications connection={props.connection} />
       <PolkitDialog connection={props.connection} />

@@ -6,7 +6,7 @@
 // pam_exec asks for the password and accepts "secret". It starts farglassd
 // with no dev_user, and the agent. Then Chromium logs in through the login
 // screen, first with a wrong password, then with the correct one, and uses
-// the echo channel.
+// the echo channel. It locks the session and unlocks it in a different tab.
 //
 // Exit status: 0 if all steps pass, 1 if a step fails.
 
@@ -144,6 +144,29 @@ try {
   await page.getByText(`Logged in as ${user}`).waitFor({ timeout: 30_000 });
   await echo(page, "hello after the break");
   console.log("PASS: after a break of the network, the shell connects again with no login");
+
+  // Lock in one tab locks each tab. The lock screen asks only for the password.
+  await page.locator(".panel-session").click();
+  await page.getByRole("menuitem", { name: "Lock" }).click();
+  for (const each of [page, tab]) {
+    await each.getByRole("heading", { name: "Locked" }).waitFor({ timeout: TIMEOUT_MS });
+    if ((await each.locator(".wm").count()) !== 0) {
+      throw new Error("The lock screen keeps the desktop in the page.");
+    }
+  }
+  console.log("PASS: Lock in the session menu shows the lock screen in each tab, with no desktop in the page");
+  await answer(tab, "Password", "guess");
+  await tab.getByRole("alert").filter({ hasText: "The login failed." }).waitFor({ timeout: TIMEOUT_MS });
+  await page.reload();
+  await page.getByRole("heading", { name: "Locked" }).waitFor({ timeout: TIMEOUT_MS });
+  console.log("PASS: a wrong password does not unlock, and a reload keeps the lock");
+  await tab.getByRole("button", { name: "Try again" }).click();
+  await answer(tab, "Password", "secret");
+  for (const each of [tab, page]) {
+    await each.getByText(`Logged in as ${user}`).waitFor({ timeout: TIMEOUT_MS });
+  }
+  await page.locator(".echo-log li").filter({ hasText: "hello after the break" }).first().waitFor({ timeout: TIMEOUT_MS });
+  console.log("PASS: the password of the user unlocks each tab, and the desktop comes back");
 
   // A logout in one tab reaches the other tab.
   await logout(page, user);

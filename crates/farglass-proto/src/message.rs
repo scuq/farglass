@@ -21,10 +21,24 @@ pub enum ConnectionMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         user: Option<String>,
+        /// From farglassd: the session of this user is locked, and the connection has no user.
+        /// The shell shows the lock screen. A login of this user on a channel of kind login unlocks the session.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        locked: Option<String>,
     },
     /// From farglassd: the user logged out, in this tab or in a different one.
     /// farglassd closes the connection after this message.
     LoggedOut,
+    /// From farglassd: the session of the user is locked now. farglassd closes the connection after this message.
+    Locked,
+    /// From farglassd, on a connection with a locked session: a login in a different tab unlocked the session.
+    /// farglassd closes the connection after this message.
+    Unlocked,
+    /// From the shell: lock the session of the user.
+    Lock,
+    /// From the shell: the user used the keyboard or the pointer. The shell sends it at most each 30 s.
+    Activity,
 }
 
 /// A message on channel 0 of the agent link, between farglassd and an agent.
@@ -49,6 +63,15 @@ pub enum LinkMessage {
     Detach {
         /// The number of the browser connection.
         connection: u64,
+    },
+    /// The agent to farglassd: logind asks to lock the session, for example after `loginctl lock-session`.
+    Lock,
+    /// The agent to farglassd: logind asks to unlock the session, for example after `loginctl unlock-session`.
+    Unlock,
+    /// farglassd to the agent: the session is locked or unlocked. The agent sets LockedHint of its logind session.
+    LockedHint {
+        /// Reports whether the session is locked.
+        locked: bool,
     },
 }
 

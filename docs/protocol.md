@@ -90,6 +90,32 @@ If the connection already has a user, the hello message of farglassd has the fie
 With no `user`, the shell must log in on a login channel first.
 Before the login, farglassd refuses each other channel with the reason `access-denied`.
 
+### Lock
+
+If the session of the user of the cookie is locked, the connection has no user, and the hello message has the field `locked`:
+
+```json
+{"type":"hello","version":1,"locked":"alice"}
+```
+
+The shell then shows the lock screen.
+A login channel on this connection logs in only the locked user: farglass-login gets the username, thus PAM does not ask for it.
+A successful login unlocks the session and gives the connection its user.
+A login of the user on a different connection also unlocks the session.
+
+The other connection messages:
+
+| Message | Sender | Meaning |
+|---|---|---|
+| `{"type":"lock"}` | shell | Locks the session of the user. |
+| `{"type":"activity"}` | shell | The user used the keyboard or the pointer. The shell sends it at most each 30 s. |
+| `{"type":"locked"}` | farglassd | The session is locked now. farglassd closes the connection after it, thus each channel ends. |
+| `{"type":"unlocked"}` | farglassd | A connection with `locked` in its hello message: a different tab unlocked the session. farglassd closes the connection after it. |
+
+farglassd locks a session after `{"type":"lock"}`, after `idle_lock_minutes` with no activity in a tab of the user (15 by default), and after the signal Lock of logind.
+A closed tab has no activity.
+On the lock screen, `DELETE /session` removes only the cookie of the browser, and the session continues.
+
 ## Login channel
 
 The shell opens a channel of kind `login`.
@@ -343,6 +369,14 @@ farglassd also sends these messages to the agent:
 |---|---|
 | `{"type":"attach","connection":7}` | Browser connection 7 of the user starts to use the agent. |
 | `{"type":"detach","connection":7}` | Browser connection 7 stopped. farglassd sent a close frame for each of its open channels first. |
+| `{"type":"locked-hint","locked":true}` | The session is locked or unlocked. The agent sets LockedHint of its logind session. A new agent gets the current state. |
+
+The agent sends these messages to farglassd:
+
+| Message | Meaning |
+|---|---|
+| `{"type":"lock"}` | logind sent the signal Lock to the session of the agent, for example after `loginctl lock-session`. |
+| `{"type":"unlock"}` | logind sent the signal Unlock, for example after `loginctl unlock-session`. |
 
 If a browser connection stops, the agent gets a close frame with the reason `cancelled` for each open channel.
 If the agent stops, each browser connection gets a close frame with the reason `internal-error` for each open channel.

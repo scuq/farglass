@@ -110,6 +110,8 @@ async fn create_session(
 
 /// Logs out the user of the cookie: ends the web session, removes each cookie
 /// session of the user, and tells each browser connection of the user.
+///
+/// If the session of the user is locked, only the cookie of this browser goes.
 async fn delete_session(
     State(context): State<Arc<Context>>,
     headers: HeaderMap,
@@ -123,8 +125,16 @@ async fn delete_session(
         .user(&headers)
         .or_else(|| context.dev_user.clone());
     context.sessions.remove(&headers);
-    if let Some(user) = user {
-        crate::login::logout(&context, user.uid, "the user logged out").await;
+    match user {
+        // On the lock screen, the tab forgets its cookie, but the session continues.
+        Some(user) if context.presence.is_locked(user.uid) => {
+            tracing::info!(
+                uid = user.uid,
+                "a tab of a locked session removed its cookie"
+            );
+        }
+        Some(user) => crate::login::logout(&context, user.uid, "the user logged out").await,
+        None => {}
     }
     let mut response = StatusCode::NO_CONTENT.into_response();
     if let Ok(value) = HeaderValue::from_str(&cookie::clear_cookie()) {

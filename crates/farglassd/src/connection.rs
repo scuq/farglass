@@ -20,7 +20,7 @@ use crate::agents::{Agent, ConnectionId, Registry, ToAgent};
 use crate::cookie::SessionStore;
 use crate::login::{Identity, LoginTask, SharedUser};
 use crate::origin::OriginPolicy;
-use crate::presence::{IDLE_LOGOUT, Presence};
+use crate::presence::{IDLE_LOCK, IDLE_LOGOUT, Presence, UserEvent};
 
 /// The frames from the agent that wait for the browser. When the queue is
 /// full, the agent link of the user waits. Flow control comes with F014.
@@ -48,6 +48,8 @@ pub struct Context {
     pub presence: Arc<Presence>,
     /// The time with no browser connection before the idle logout. `None` turns it off.
     pub idle_logout: Option<Duration>,
+    /// The time with no keyboard or pointer activity before the idle lock. `None` turns it off.
+    pub idle_lock: Option<Duration>,
     /// Reports whether responses get Strict-Transport-Security. Only with a
     /// certificate of the administrator: with a self-signed certificate, the
     /// header stops the user from accepting the next certificate.
@@ -67,6 +69,7 @@ impl Context {
             origin: OriginPolicy::default(),
             presence: Arc::new(Presence::default()),
             idle_logout: Some(IDLE_LOGOUT),
+            idle_lock: Some(IDLE_LOCK),
             hsts: false,
         }
     }
@@ -90,6 +93,9 @@ pub enum Violation {
     /// The shell sent a second hello message.
     #[error("the shell sent a second hello message")]
     SecondHello,
+    /// The shell sent a connection message that only farglassd sends.
+    #[error("the shell sent a connection message that only farglassd sends")]
+    ServerMessage,
     /// The transport got a message that is not binary.
     #[error("the message was not binary")]
     NotBinary,
@@ -168,6 +174,8 @@ struct Connection<'a, O> {
     context: &'a Context,
     rhost: String,
     user: SharedUser,
+    /// The user of a locked session. The connection then has no user until a login of this user.
+    locked: Option<Identity>,
     outgoing: &'a mut O,
     to_shell: mpsc::Sender<Frame>,
     channels: HashMap<ChannelId, Local>,
@@ -199,10 +207,16 @@ where
     I: Stream<Item = Result<Frame, Violation>> + Unpin,
     O: Sink<Frame, Error = E> + Unpin,
 {
+    // A locked session gives the connection no user: only a login of the same user unlocks it.
+    let (user, locked) = match user {
+        Some(identity) if context.presence.is_locked(identity.uid) => (None, Some(identity)),
+        user => (user, None),
+    };
     let user = SharedUser::new(user, context.presence.clone());
     let hello = ConnectionMessage::Hello {
         version: PROTOCOL_VERSION,
         user: user.get().map(|identity| identity.name),
+        locked: locked.as_ref().map(|identity| identity.name.clone()),
     };
     if outgoing.send(Frame::connection(&hello)?).await.is_err() {
         return Ok(());
@@ -219,7 +233,7 @@ where
                 ConnectionMessage::Hello { version, .. } => {
                     return Err(Violation::Version(version));
                 }
-                ConnectionMessage::LoggedOut => return Err(Violation::NoHello),
+                _ => return Err(Violation::NoHello),
             }
         }
     }
@@ -230,6 +244,7 @@ where
         context,
         rhost: peer.map_or_else(String::new, |ip| ip.to_canonical().to_string()),
         user,
+        locked,
         outgoing,
         to_shell,
         channels: HashMap::new(),
@@ -254,16 +269,16 @@ where
     where
         I: Stream<Item = Result<Frame, Violation>> + Unpin,
     {
-        let mut logouts = self.context.presence.subscribe();
+        let mut events = self.context.presence.subscribe();
         loop {
             tokio::select! {
                 // Frames to the browser first: they free the queue of the agent link.
                 biased;
-                logout = logouts.recv() => {
-                    if let Ok(uid) = logout
-                        && self.user.get().is_some_and(|user| user.uid == uid)
+                event = events.recv() => {
+                    if let Ok(event) = event
+                        && let Some(message) = self.user_event(event)
                     {
-                        if let Ok(frame) = Frame::connection(&ConnectionMessage::LoggedOut) {
+                        if let Ok(frame) = Frame::connection(&message) {
                             let _ = self.outgoing.send(frame).await;
                         }
                         return Ok(());
@@ -294,14 +309,52 @@ where
         }
     }
 
+    /// Returns the message for a change of a user that ends this connection, if the change is for its user.
+    ///
+    /// A lock ends each connection of the user: all channels close. A new
+    /// connection gets the lock screen. An unlock ends each connection that
+    /// shows the lock screen, unless a login on it gave it the user already.
+    fn user_event(&self, event: UserEvent) -> Option<ConnectionMessage> {
+        let user = self.user.get().map(|user| user.uid);
+        let locked = self.locked.as_ref().map(|user| user.uid);
+        match event {
+            UserEvent::LoggedOut(uid) if user == Some(uid) || locked == Some(uid) => {
+                Some(ConnectionMessage::LoggedOut)
+            }
+            UserEvent::Locked(uid) if user == Some(uid) => Some(ConnectionMessage::Locked),
+            UserEvent::Unlocked(uid) if user.is_none() && locked == Some(uid) => {
+                Some(ConnectionMessage::Unlocked)
+            }
+            _ => None,
+        }
+    }
+
     /// Handles one frame from the shell. Returns `false` if the browser stopped.
     async fn handle_shell(&mut self, frame: Frame) -> Result<bool, Violation> {
         let channel = frame.channel();
         if channel.is_connection() {
             return match frame.parse::<ConnectionMessage>()? {
                 ConnectionMessage::Hello { .. } => Err(Violation::SecondHello),
-                // Only farglassd sends this message.
-                ConnectionMessage::LoggedOut => Err(Violation::SecondHello),
+                ConnectionMessage::Lock => {
+                    if let Some(user) = self.user.get() {
+                        crate::lock::lock(
+                            &self.context.presence,
+                            &self.context.registry,
+                            user.uid,
+                            "the user locked the session",
+                        );
+                    }
+                    Ok(true)
+                }
+                ConnectionMessage::Activity => {
+                    if let Some(user) = self.user.get() {
+                        self.context.presence.activity(user.uid);
+                    }
+                    Ok(true)
+                }
+                ConnectionMessage::LoggedOut
+                | ConnectionMessage::Locked
+                | ConnectionMessage::Unlocked => Err(Violation::ServerMessage),
             };
         }
 
@@ -383,6 +436,8 @@ where
         let (answers, receiver) = mpsc::channel(ANSWER_QUEUE);
         let task = LoginTask {
             socket: self.context.login_socket.clone(),
+            only_user: self.locked.as_ref().map(|user| user.name.clone()),
+            presence: self.context.presence.clone(),
             rhost: self.rhost.clone(),
             channel,
             answers: receiver,
