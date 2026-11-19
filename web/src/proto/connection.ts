@@ -155,6 +155,8 @@ export class Connection {
   onclose: ((reason: string) => void) | null = null;
   /** The user of the connection, from the hello message of the server. `null` before a login. */
   user: string | null = null;
+  /** Reports whether the server ended the connection because the user logged out. */
+  loggedOut = false;
 
   private constructor(transport: Transport) {
     this.#transport = transport;
@@ -232,7 +234,10 @@ export class Connection {
       throw new ProtocolError("invalid-connection-frame", "The first frame was not a hello message.");
     }
     const hello = parseJson<ConnectionMessage>(frame);
-    if (hello.type !== "hello" || hello.version !== PROTOCOL_VERSION) {
+    if (hello.type !== "hello") {
+      throw new ProtocolError("invalid-connection-frame", "The first frame was not a hello message.");
+    }
+    if (hello.version !== PROTOCOL_VERSION) {
       throw new ProtocolError(
         "invalid-connection-frame",
         `The server has protocol version ${hello.version}, the shell has ${PROTOCOL_VERSION}.`,
@@ -244,6 +249,12 @@ export class Connection {
 
   #receive(frame: Frame): void {
     if (frame.channel === CONNECTION_CHANNEL) {
+      const message = parseJson<ConnectionMessage>(frame);
+      if (message.type === "logged-out") {
+        // The server closes the connection after this message.
+        this.loggedOut = true;
+        return;
+      }
       throw new ProtocolError("invalid-connection-frame", "The server sent a second hello message.");
     }
     const channel = this.#channels.get(frame.channel);

@@ -13,6 +13,7 @@ use tokio::sync::mpsc;
 
 use crate::agents::Registry;
 use crate::cookie::SessionStore;
+use crate::presence::{Presence, PresenceGuard};
 
 /// A user who logged in, or the user of `dev_user`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,27 +37,42 @@ impl Identity {
 }
 
 /// The user of one browser connection. The login task sets it after a success.
-#[derive(Clone, Debug, Default)]
-pub struct SharedUser(Arc<Mutex<Option<Identity>>>);
+///
+/// While the connection has a user, it counts as a connection of that user
+/// for the idle logout.
+#[derive(Clone, Debug)]
+pub struct SharedUser {
+    inner: Arc<Mutex<Option<(Identity, PresenceGuard)>>>,
+    presence: Arc<Presence>,
+}
 
 impl SharedUser {
     /// Returns a shared user with the value `user`.
     #[must_use]
-    pub fn new(user: Option<Identity>) -> Self {
-        Self(Arc::new(Mutex::new(user)))
+    pub fn new(user: Option<Identity>, presence: Arc<Presence>) -> Self {
+        let shared = Self {
+            inner: Arc::new(Mutex::new(None)),
+            presence,
+        };
+        if let Some(user) = user {
+            shared.set(user);
+        }
+        shared
     }
 
     /// Returns the current user.
     #[must_use]
     pub fn get(&self) -> Option<Identity> {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+        self.lock().as_ref().map(|(identity, _)| identity.clone())
     }
 
     fn set(&self, user: Identity) {
-        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(user);
+        let guard = self.presence.enter(user.uid);
+        *self.lock() = Some((user, guard));
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Option<(Identity, PresenceGuard)>> {
+        self.inner.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -124,7 +140,7 @@ impl LoginTask {
                             self.user.set(identity);
                             true
                         }
-                        LoginEvent::Failure { .. } | LoginEvent::Blocked { .. } => true,
+                        LoginEvent::Failure { .. } | LoginEvent::Blocked { .. } | LoginEvent::LoggedOut { .. } => true,
                         LoginEvent::Prompt { .. }
                         | LoginEvent::Info { .. }
                         | LoginEvent::Error { .. }
@@ -166,6 +182,19 @@ impl LoginTask {
     async fn send(&self, frame: Result<Frame, farglass_proto::FrameError>) {
         if let Ok(frame) = frame {
             let _ = self.to_shell.send(frame).await;
+        }
+    }
+}
+
+/// Logs out the user `uid`: removes the cookie sessions, tells each browser
+/// connection of the user, and ends the web sessions through farglass-login.
+pub async fn logout(context: &crate::connection::Context, uid: u32, cause: &str) {
+    context.sessions.remove_user(uid);
+    context.presence.announce_logout(uid);
+    match farglass_login::client::logout(&context.login_socket, uid).await {
+        Ok(sessions) => tracing::info!(uid, sessions, cause, "logout"),
+        Err(error) => {
+            tracing::warn!(uid, cause, %error, "the web session did not end through farglass-login")
         }
     }
 }

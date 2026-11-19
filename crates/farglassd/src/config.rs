@@ -77,6 +77,9 @@ pub struct Config {
     /// More origins that the WebSocket endpoint and the session endpoint accept,
     /// for example `http://localhost:5173` for the Vite server.
     pub allowed_origins: Vec<String>,
+    /// The time in minutes with no browser connection before farglassd logs the user out.
+    /// 0 turns the idle logout off.
+    pub idle_logout_minutes: u64,
     /// The user of each browser connection, with no login. Only for development.
     ///
     /// A username or a numeric uid. farglassd refuses this option if it does
@@ -107,6 +110,7 @@ impl Default for Config {
             agent_socket: PathBuf::from("/run/farglass/agent.sock"),
             login_socket: PathBuf::from("/run/farglass/login.sock"),
             allowed_origins: Vec::new(),
+            idle_logout_minutes: 480,
             dev_user: None,
             tls: TlsConfig::default(),
         }

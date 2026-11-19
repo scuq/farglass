@@ -13,6 +13,7 @@ pub mod cookie;
 mod http;
 pub mod login;
 pub mod origin;
+pub mod presence;
 pub mod server;
 pub mod tls;
 mod ws;

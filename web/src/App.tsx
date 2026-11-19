@@ -1,35 +1,102 @@
-import { createSignal, Match, Switch } from "solid-js";
+import { createSignal, Match, onCleanup, Switch } from "solid-js";
 import { Echo } from "./Echo";
 import { LoginScreen } from "./LoginScreen";
 import { type Connection, connect, endpointUrl } from "./proto";
+import { reconnectDelay } from "./reconnect";
 import { storeSession } from "./session";
 
 /** The state of the connection to farglassd. */
 type Stage =
   | { readonly kind: "connecting" }
-  | { readonly kind: "login"; readonly connection: Connection }
+  | { readonly kind: "login"; readonly connection: Connection; readonly notice: string | undefined }
   | { readonly kind: "desktop"; readonly connection: Connection; readonly user: string }
-  | { readonly kind: "closed"; readonly reason: string };
+  | { readonly kind: "waiting"; readonly reason: string; readonly retryAt: number };
+
+/** The functions of the shell that tests replace. */
+export interface AppServices {
+  connect?: () => Promise<Connection>;
+  storeSession?: (ticket: string) => Promise<boolean>;
+  logout?: () => Promise<void>;
+}
+
+/** Logs out through farglassd. Each tab of the user then gets the logout message. */
+async function logout(): Promise<void> {
+  await fetch("/session", { method: "DELETE", credentials: "same-origin" });
+}
 
 /**
  * The root of the shell. It connects to farglassd, shows the login screen if
- * the connection has no user, and then the desktop. In M1, the desktop has only the echo panel.
+ * the connection has no user, and then the desktop. After a break, it
+ * connects again. The session cookie and the state store of the agent then
+ * give the desktop back.
  */
-export function App(props: { connect?: () => Promise<Connection>; storeSession?: (ticket: string) => Promise<boolean> }) {
+export function App(props: AppServices) {
   const [stage, setStage] = createSignal<Stage>({ kind: "connecting" });
+  const [now, setNow] = createSignal(Date.now());
+  let attempt = 0;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let notice: string | undefined;
+  let active: Connection | undefined;
 
-  const open = (props.connect ?? (() => connect(endpointUrl())))();
-  open.then(
-    (connection) => {
-      connection.onclose = (reason) => setStage({ kind: "closed", reason });
-      setStage(
-        connection.user === null
-          ? { kind: "login", connection }
-          : { kind: "desktop", connection, user: connection.user },
-      );
-    },
-    (error: unknown) => setStage({ kind: "closed", reason: error instanceof Error ? error.message : String(error) }),
-  );
+  const open = () => {
+    clearTimeout(retryTimer);
+    (props.connect ?? (() => connect(endpointUrl())))().then(
+      (connection) => {
+        attempt = 0;
+        active = connection;
+        connection.onclose = (reason) => {
+          if (connection !== active) {
+            return;
+          }
+          if (connection.loggedOut) {
+            // Connect again at once. The cookie no longer works, thus the login screen shows.
+            notice = "You logged out.";
+            open();
+          } else {
+            wait(reason);
+          }
+        };
+        if (connection.user === null) {
+          setStage({ kind: "login", connection, notice });
+        } else {
+          setStage({ kind: "desktop", connection, user: connection.user });
+        }
+        notice = undefined;
+      },
+      (error: unknown) => wait(error instanceof Error ? error.message : String(error)),
+    );
+  };
+
+  const wait = (reason: string) => {
+    const delay = reconnectDelay(attempt);
+    attempt += 1;
+    setStage({ kind: "waiting", reason, retryAt: Date.now() + delay });
+    retryTimer = setTimeout(open, delay);
+  };
+
+  const connectNow = () => {
+    if (stage().kind === "waiting") {
+      open();
+    }
+  };
+
+  // The countdown of the waiting screen.
+  const clock = setInterval(() => setNow(Date.now()), 500);
+  // A network that comes back, or a tab that becomes visible, connects at once.
+  window.addEventListener("online", connectNow);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      connectNow();
+    }
+  });
+  onCleanup(() => {
+    clearInterval(clock);
+    clearTimeout(retryTimer);
+    window.removeEventListener("online", connectNow);
+    active = undefined;
+  });
+
+  open();
 
   return (
     <main class="shell">
@@ -39,19 +106,22 @@ export function App(props: { connect?: () => Promise<Connection>; storeSession?:
         </Match>
         <Match when={stage().kind === "login" && stage()}>
           {(current) => {
-            const { connection } = current() as Extract<Stage, { kind: "login" }>;
+            const { connection, notice } = current() as Extract<Stage, { kind: "login" }>;
             return (
-              <LoginScreen
-                connection={connection}
-                onlogin={(user, ticket) => {
-                  connection.user = user;
-                  setStage({ kind: "desktop", connection, user });
-                  if (ticket) {
-                    // The cookie lets a reload or a new tab skip the login.
-                    void (props.storeSession ?? storeSession)(ticket);
-                  }
-                }}
-              />
+              <>
+                {notice ? <p class="notice" role="status">{notice}</p> : null}
+                <LoginScreen
+                  connection={connection}
+                  onlogin={(user, ticket) => {
+                    connection.user = user;
+                    setStage({ kind: "desktop", connection, user });
+                    if (ticket) {
+                      // The cookie lets a reload, a new tab, and a new connection skip the login.
+                      void (props.storeSession ?? storeSession)(ticket);
+                    }
+                  }}
+                />
+              </>
             );
           }}
         </Match>
@@ -62,22 +132,30 @@ export function App(props: { connect?: () => Promise<Connection>; storeSession?:
               <>
                 <header class="shell-header">
                   <span>Logged in as {user}</span>
+                  <button type="button" onClick={() => void (props.logout ?? logout)()}>
+                    Log out
+                  </button>
                 </header>
                 <Echo connection={connection} />
               </>
             );
           }}
         </Match>
-        <Match when={stage().kind === "closed" && stage()}>
-          {(current) => (
-            <section class="closed" role="alert">
-              <h1>The connection to the host closed</h1>
-              <p>{(current() as Extract<Stage, { kind: "closed" }>).reason}</p>
-              <button type="button" onClick={() => window.location.reload()}>
-                Connect again
-              </button>
-            </section>
-          )}
+        <Match when={stage().kind === "waiting" && stage()}>
+          {(current) => {
+            const waiting = () => current() as Extract<Stage, { kind: "waiting" }>;
+            const seconds = () => Math.max(0, Math.ceil((waiting().retryAt - now()) / 1000));
+            return (
+              <section class="closed" role="alert">
+                <h1>No connection to the host</h1>
+                <p>{waiting().reason}</p>
+                <p role="status">Connecting again in {seconds()} s. Your session continues on the host.</p>
+                <button type="button" onClick={connectNow}>
+                  Connect now
+                </button>
+              </section>
+            );
+          }}
         </Match>
       </Switch>
     </main>

@@ -8,7 +8,9 @@ use std::fmt::Write as _;
 use ts_rs::{Config, TS};
 
 use crate::login::{LocalSession, LoginEvent, LoginReply};
-use crate::message::{Close, CloseReason, ConnectionMessage, Open, Ready};
+use crate::message::{
+    Close, CloseReason, ConnectionMessage, Open, Ready, StateEvent, StateRequest,
+};
 use crate::{ChannelId, FrameError, FrameType, HEADER_LEN, MAX_PAYLOAD_LEN, PROTOCOL_VERSION};
 
 /// The directory of the generated files, relative to the root of the repository.
@@ -75,6 +77,8 @@ fn messages() -> String {
     declare::<Ready>(&cfg, &mut out);
     declare::<Close>(&cfg, &mut out);
     declare::<CloseReason>(&cfg, &mut out);
+    declare::<StateRequest>(&cfg, &mut out);
+    declare::<StateEvent>(&cfg, &mut out);
     declare::<LoginEvent>(&cfg, &mut out);
     declare::<LocalSession>(&cfg, &mut out);
     declare::<LoginReply>(&cfg, &mut out);

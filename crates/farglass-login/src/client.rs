@@ -34,6 +34,25 @@ impl From<CodecError> for ClientError {
     }
 }
 
+/// Ends the web sessions of `uid` through the login socket at `path`.
+/// Returns the number of sessions that ended.
+///
+/// # Errors
+///
+/// [`ClientError`] if the connection fails, or if farglass-login could not end the sessions.
+pub async fn logout(path: &Path, uid: u32) -> Result<u32, ClientError> {
+    let stream = UnixStream::connect(path).await?;
+    let mut attempt = Attempt {
+        link: Framed::new(stream, FrameCodec),
+    };
+    attempt.send(&LoginRequest::Logout { uid }).await?;
+    match attempt.next().await? {
+        LoginEvent::LoggedOut { sessions } => Ok(sessions),
+        LoginEvent::Failure { message } => Err(ClientError::Io(io::Error::other(message))),
+        _ => Err(ClientError::Closed),
+    }
+}
+
 /// One login attempt. Drop it to stop the attempt.
 #[derive(Debug)]
 pub struct Attempt {

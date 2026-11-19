@@ -21,7 +21,7 @@ use crate::ws;
 /// The path of the WebSocket endpoint.
 pub const WS_PATH: &str = "/ws";
 
-/// The path of the session endpoint: POST redeems a ticket, DELETE removes the session.
+/// The path of the session endpoint: POST redeems a ticket, DELETE logs out.
 pub const SESSION_PATH: &str = "/session";
 
 /// The Content Security Policy of all responses.
@@ -104,7 +104,8 @@ async fn create_session(
     response
 }
 
-/// Removes the session of the cookie and the cookie. F010 also ends the logind session.
+/// Logs out the user of the cookie: ends the web session, removes each cookie
+/// session of the user, and tells each browser connection of the user.
 async fn delete_session(
     State(context): State<Arc<Context>>,
     headers: HeaderMap,
@@ -113,7 +114,14 @@ async fn delete_session(
     if !context.origin.allows(&headers, &uri) {
         return StatusCode::FORBIDDEN.into_response();
     }
+    let user = context
+        .sessions
+        .user(&headers)
+        .or_else(|| context.dev_user.clone());
     context.sessions.remove(&headers);
+    if let Some(user) = user {
+        crate::login::logout(&context, user.uid, "the user logged out").await;
+    }
     let mut response = StatusCode::NO_CONTENT.into_response();
     if let Ok(value) = HeaderValue::from_str(&cookie::clear_cookie()) {
         response.headers_mut().insert(SET_COOKIE, value);

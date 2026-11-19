@@ -8,6 +8,7 @@
 #![warn(missing_docs)]
 
 pub mod link;
+pub mod state;
 
 /// The agent socket that the agent connects to when the environment names no other socket.
 pub const DEFAULT_AGENT_SOCKET: &str = "/run/farglass/agent.sock";

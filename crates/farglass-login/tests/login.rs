@@ -317,6 +317,11 @@ impl Host for FakeHost {
         Ok(())
     }
 
+    fn end_web_sessions(&self, uid: u32) -> io::Result<u32> {
+        self.actions.lock().unwrap().push(format!("logout {uid}"));
+        Ok(1)
+    }
+
     fn start_session(&self, user: &str, uid: u32) -> io::Result<Started> {
         self.actions
             .lock()
@@ -498,4 +503,19 @@ async fn failed_session_start_gives_a_message_for_the_administrator() {
         panic!("{events:?}");
     };
     assert!(message.contains("session did not start"), "{message}");
+}
+
+#[tokio::test]
+async fn logout_ends_the_web_sessions_of_the_user() {
+    let host = Arc::new(FakeHost::default());
+    let harness = Harness::start({
+        let host = host.clone();
+        |settings| settings.host = host
+    })
+    .await;
+    let ended = farglass_login::client::logout(&harness.socket, 4242)
+        .await
+        .unwrap();
+    assert_eq!(ended, 1);
+    assert_eq!(host.actions(), ["logout 4242"]);
 }

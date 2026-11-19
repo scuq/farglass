@@ -79,6 +79,8 @@ Each side sends a hello message as its first frame:
 
 If the versions are different, the receiver closes the connection.
 
+When the user logs out, in this tab or in a different one, farglassd sends `{"type":"logged-out"}` on the connection channel and closes the connection.
+
 If the connection already has a user, the hello message of farglassd has the field `user`:
 
 ```json
@@ -114,6 +116,29 @@ The shell answers a confirm event with `{"type":"confirm","accept":true}` or `{"
 With `true`, the local graphical session ends, and the web session starts.
 With `false`, the login stops with a failure, and the local session continues.
 
+## State channel
+
+The agent keeps a state store for the session: JSON values by key.
+The shell keeps its state there, for example the open windows.
+The store lives as long as the agent, thus a reload or a break of the connection does not lose it.
+
+The shell sends these control messages:
+
+| Request | Meaning |
+|---|---|
+| `{"type":"get","key":"windows"}` | Asks for the value. From now on, the channel also gets each change of the key. |
+| `{"type":"set","key":"windows","value":[...]}` | Sets the value. `null` removes the key. |
+
+The agent answers a get request, and tells each other state channel that asked for the key about a change:
+
+```json
+{"type":"value","key":"windows","value":[...]}
+```
+
+A key has 1 to 256 bytes.
+All values together have a limit of 8 MiB.
+A set request above the limit closes the channel with the reason `resource-limit`.
+
 ## Session cookie
 
 A WebSocket message cannot set a cookie.
@@ -128,7 +153,13 @@ Set-Cookie: __Host-farglass=TOKEN; Path=/; Secure; HttpOnly; SameSite=Strict
 The browser sends the cookie with each later WebSocket handshake.
 farglassd then gives the connection the user, and the hello message has the field `user`.
 The session is valid for 12 hours.
-`DELETE /session` removes the session and the cookie.
+`DELETE /session` logs the user out:
+
+1. farglassd removes each cookie session of the user and the cookie.
+2. Each browser connection of the user gets `logged-out` and closes.
+3. farglass-login ends the web sessions of the user. Local sessions continue.
+
+If a user has an agent but no browser connection for `idle_logout_minutes` (default 480), farglassd logs the user out in the same way.
 farglassd keeps only the SHA-256 hash of each ticket and token, in memory.
 After a restart of farglassd, each browser must log in again.
 
@@ -189,6 +220,7 @@ Version 1 has one kind:
 |---|---|
 | `echo` | Sends each data frame back to the sender |
 | `login` | A PAM login, served by farglassd. See the section on the login channel. |
+| `state` | The state store of the session in the agent. See the section on the state channel. |
 
 `Ready` is an empty object.
 

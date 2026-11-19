@@ -127,3 +127,114 @@ async fn unknown_channel_kind_is_refused() {
         .await;
     assert!(link.is_quiet().await);
 }
+
+mod state {
+    use farglass_proto::message::{StateEvent, StateRequest};
+    use serde_json::json;
+
+    use super::*;
+
+    fn request(number: u32, request: &StateRequest) -> Frame {
+        Frame::json(ch(number), FrameType::Control, request).unwrap()
+    }
+
+    async fn value(link: &mut Link) -> (ChannelId, StateEvent) {
+        let frame = link.recv().await;
+        (frame.channel(), frame.parse().unwrap())
+    }
+
+    #[tokio::test]
+    async fn value_survives_the_channel_and_changes_reach_other_channels() {
+        let mut link = Link::start().await;
+        for number in [1, 3] {
+            link.send(Frame::open(ch(number), &Open::State).unwrap())
+                .await;
+            assert_eq!(link.recv().await.frame_type(), FrameType::Ready);
+        }
+        link.send(request(
+            1,
+            &StateRequest::Get {
+                key: "windows".to_owned(),
+            },
+        ))
+        .await;
+        assert_eq!(
+            value(&mut link).await,
+            (
+                ch(1),
+                StateEvent::Value {
+                    key: "windows".to_owned(),
+                    value: json!(null)
+                }
+            )
+        );
+
+        // Channel 3 sets the key. Channel 1 asked for it and gets the change. Channel 3 gets no echo.
+        let windows = json!([{"app": "terminal", "x": 10}]);
+        link.send(request(
+            3,
+            &StateRequest::Set {
+                key: "windows".to_owned(),
+                value: windows.clone(),
+            },
+        ))
+        .await;
+        assert_eq!(
+            value(&mut link).await,
+            (
+                ch(1),
+                StateEvent::Value {
+                    key: "windows".to_owned(),
+                    value: windows.clone()
+                }
+            )
+        );
+        assert!(link.is_quiet().await);
+
+        // A new channel, as after a reload, gets the value.
+        link.send(Frame::close(ch(1), &Close::new(CloseReason::Done)).unwrap())
+            .await;
+        link.recv().await;
+        link.send(Frame::open(ch(5), &Open::State).unwrap()).await;
+        link.recv().await;
+        link.send(request(
+            5,
+            &StateRequest::Get {
+                key: "windows".to_owned(),
+            },
+        ))
+        .await;
+        assert_eq!(
+            value(&mut link).await,
+            (
+                ch(5),
+                StateEvent::Value {
+                    key: "windows".to_owned(),
+                    value: windows
+                }
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn store_continues_when_the_link_to_farglassd_breaks() {
+        let mut store = farglass_session::state::StateStore::default();
+        store.set("theme", json!("dark")).unwrap();
+        let (ours, theirs) = UnixStream::pair().unwrap();
+        drop(ours);
+        // The link stops at once. The store stays with the caller.
+        let _ = farglass_session::link::serve_with(theirs, &mut store).await;
+        assert_eq!(store.get("theme"), json!("dark"));
+    }
+
+    #[tokio::test]
+    async fn request_that_is_not_valid_closes_the_channel() {
+        let mut link = Link::start().await;
+        link.send(Frame::open(ch(1), &Open::State).unwrap()).await;
+        link.recv().await;
+        link.send(Frame::new(ch(1), FrameType::Control, &br#"{"type":"delete"}"#[..]).unwrap())
+            .await;
+        let close = link.recv().await.parse::<Close>().unwrap();
+        assert_eq!(close.reason, CloseReason::ProtocolError);
+    }
+}

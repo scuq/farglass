@@ -92,6 +92,12 @@ impl SessionStore {
         (entry.expires > Instant::now()).then(|| entry.identity.clone())
     }
 
+    /// Removes all sessions and tickets of the user `uid`.
+    pub fn remove_user(&self, uid: u32) {
+        lock(&self.sessions).retain(|_, entry| entry.identity.uid != uid);
+        lock(&self.tickets).retain(|_, entry| entry.identity.uid != uid);
+    }
+
     /// Removes the session that the cookie in `headers` names.
     pub fn remove(&self, headers: &HeaderMap) {
         if let Some(token) = cookie_value(headers) {
@@ -182,6 +188,31 @@ mod tests {
         assert_eq!(store.user(&headers), Some(alice()));
         store.remove(&headers);
         assert_eq!(store.user(&headers), None);
+    }
+
+    #[test]
+    fn remove_user_removes_each_session_of_the_user() {
+        let store = SessionStore::default();
+        let first = store.redeem(&store.ticket(alice())).unwrap();
+        let second = store.redeem(&store.ticket(alice())).unwrap();
+        let bob = Identity {
+            uid: 1001,
+            name: "bob".to_owned(),
+        };
+        let other = store.redeem(&store.ticket(bob.clone())).unwrap();
+        store.remove_user(1000);
+        assert_eq!(
+            store.user(&with_cookie(&format!("{COOKIE_NAME}={first}"))),
+            None
+        );
+        assert_eq!(
+            store.user(&with_cookie(&format!("{COOKIE_NAME}={second}"))),
+            None
+        );
+        assert_eq!(
+            store.user(&with_cookie(&format!("{COOKIE_NAME}={other}"))),
+            Some(bob)
+        );
     }
 
     #[test]

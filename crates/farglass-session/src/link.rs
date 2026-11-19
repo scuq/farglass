@@ -1,17 +1,21 @@
 //! The link from the agent to farglassd.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::Path;
 use std::time::Duration;
 
 use farglass_proto::codec::{CodecError, FrameCodec};
-use farglass_proto::message::{Close, CloseReason, LinkMessage, Open, Ready};
+use farglass_proto::message::{
+    Close, CloseReason, LinkMessage, Open, Ready, StateEvent, StateRequest,
+};
 use farglass_proto::{ChannelId, Frame, FrameError, FrameType, PROTOCOL_VERSION, Side};
 use futures_util::{SinkExt as _, StreamExt as _};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::UnixStream;
 use tokio_util::codec::Framed;
+
+use crate::state::StateStore;
 
 /// farglassd must send its hello message in this time.
 const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
@@ -41,20 +45,34 @@ impl From<CodecError> for LinkError {
 
 /// Connects to the agent socket at `path` and serves the link until farglassd closes it.
 ///
+/// `store` is the state store of the session. It continues after the link stops.
+///
 /// # Errors
 ///
 /// [`LinkError`] if the connection fails or farglassd breaks the protocol.
-pub async fn connect(path: &Path) -> Result<(), LinkError> {
+pub async fn connect(path: &Path, store: &mut StateStore) -> Result<(), LinkError> {
     let stream = UnixStream::connect(path).await?;
-    serve(stream).await
+    serve_with(stream, store).await
 }
 
-/// Serves the agent link on `stream` until farglassd closes it.
+/// Serves the agent link on `stream` with a new state store, until farglassd closes it.
 ///
 /// # Errors
 ///
 /// [`LinkError`] if the stream fails or farglassd breaks the protocol.
 pub async fn serve<S>(stream: S) -> Result<(), LinkError>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    serve_with(stream, &mut StateStore::default()).await
+}
+
+/// Serves the agent link on `stream` with the state store `store`, until farglassd closes it.
+///
+/// # Errors
+///
+/// [`LinkError`] if the stream fails or farglassd breaks the protocol.
+pub async fn serve_with<S>(stream: S, store: &mut StateStore) -> Result<(), LinkError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -91,6 +109,8 @@ where
     tracing::info!("connected to farglassd");
 
     let mut channels: HashMap<ChannelId, Channel> = HashMap::new();
+    // The state channels that asked for each key. They get each change of the key.
+    let mut watchers: HashMap<String, HashSet<ChannelId>> = HashMap::new();
     while let Some(frame) = link.next().await {
         let frame = frame?;
         let channel = frame.channel();
@@ -134,9 +154,59 @@ where
                         .await?;
                 }
                 channels.remove(&channel);
+                watchers.retain(|_, ids| {
+                    ids.remove(&channel);
+                    !ids.is_empty()
+                });
             }
             FrameType::Data | FrameType::Control if !state.closed_by_agent => match state.kind {
                 Kind::Echo => link.send(frame).await?,
+                Kind::State if frame.frame_type() == FrameType::Control => {
+                    let refusal = match frame.parse::<StateRequest>() {
+                        Ok(StateRequest::Get { key }) => {
+                            let value = store.get(&key);
+                            watchers.entry(key.clone()).or_default().insert(channel);
+                            let event = StateEvent::Value { key, value };
+                            link.send(Frame::json(channel, FrameType::Control, &event)?)
+                                .await?;
+                            None
+                        }
+                        Ok(StateRequest::Set { key, value }) => {
+                            match store.set(&key, value.clone()) {
+                                Ok(()) => {
+                                    let event = StateEvent::Value {
+                                        key: key.clone(),
+                                        value,
+                                    };
+                                    let others = watchers
+                                        .get(&key)
+                                        .into_iter()
+                                        .flatten()
+                                        .filter(|id| **id != channel);
+                                    for other in others {
+                                        link.send(Frame::json(*other, FrameType::Control, &event)?)
+                                            .await?;
+                                    }
+                                    None
+                                }
+                                Err(error) => Some((CloseReason::ResourceLimit, error.to_string())),
+                            }
+                        }
+                        Err(error) => Some((
+                            CloseReason::ProtocolError,
+                            format!("The state request is not valid: {error}"),
+                        )),
+                    };
+                    if let Some((reason, message)) = refusal {
+                        state.closed_by_agent = true;
+                        let close = Close {
+                            reason,
+                            message: Some(message),
+                        };
+                        link.send(Frame::close(channel, &close)?).await?;
+                    }
+                }
+                Kind::State => {}
             },
             // Frames that the opener sent before it got the refusal, or a ready frame
             // that farglassd does not send on a channel of the shell.
@@ -151,6 +221,8 @@ where
 enum Kind {
     /// Sends each data frame and each control frame back.
     Echo,
+    /// Gives the values of the state store of the session.
+    State,
 }
 
 /// One channel of the link.
@@ -168,6 +240,14 @@ fn open(channel: ChannelId, frame: &Frame) -> Result<(Channel, Frame), LinkError
             tracing::debug!(%channel, "opened an echo channel");
             let state = Channel {
                 kind: Kind::Echo,
+                closed_by_agent: false,
+            };
+            Ok((state, Frame::ready(channel, &Ready {})?))
+        }
+        Ok(Open::State) => {
+            tracing::debug!(%channel, "opened a state channel");
+            let state = Channel {
+                kind: Kind::State,
                 closed_by_agent: false,
             };
             Ok((state, Frame::ready(channel, &Ready {})?))

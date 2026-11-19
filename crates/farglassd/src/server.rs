@@ -106,6 +106,8 @@ impl Server {
                 loopback_only: dev_mode,
             },
             hsts,
+            idle_logout: (config.idle_logout_minutes > 0)
+                .then(|| Duration::from_secs(config.idle_logout_minutes * 60)),
             ..Context::new(registry.clone(), config.login_socket.clone())
         });
         Ok(Self {
@@ -164,12 +166,14 @@ impl Server {
             self.agent_listener,
             self.registry.clone(),
         ));
+        let idle_loop = tokio::spawn(idle_loop(self.context.clone()));
 
         tokio::pin!(shutdown);
         loop {
             let accepted = tokio::select! {
                 () = &mut shutdown => {
                     agent_loop.abort();
+                    idle_loop.abort();
                     return;
                 }
                 accepted = self.listener.accept() => accepted,
@@ -200,6 +204,32 @@ impl Server {
                 }
             });
         }
+    }
+}
+
+/// The interval between two examinations for the idle logout.
+const IDLE_INTERVAL: Duration = Duration::from_secs(60);
+
+/// Logs out each user who had no browser connection for the idle time.
+async fn idle_loop(context: Arc<Context>) {
+    let Some(timeout) = context.idle_logout else {
+        return;
+    };
+    let mut interval = tokio::time::interval(IDLE_INTERVAL);
+    loop {
+        interval.tick().await;
+        logout_idle(&context, timeout).await;
+    }
+}
+
+/// Logs out each user with an agent who had no browser connection for `timeout`.
+pub async fn logout_idle(context: &Context, timeout: Duration) {
+    let uids = context.registry.uids();
+    for uid in context
+        .presence
+        .idle_users(&uids, timeout, std::time::Instant::now())
+    {
+        crate::login::logout(context, uid, "idle").await;
     }
 }
 

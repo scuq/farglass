@@ -14,7 +14,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
-import { buildAll, echo, start, TIMEOUT_MS } from "./lib.mjs";
+import { buildAll, echo, relay, start, TIMEOUT_MS } from "./lib.mjs";
 
 const state = mkdtempSync(join(tmpdir(), "farglass-e2e-"));
 const children = [];
@@ -74,7 +74,10 @@ try {
     /listening on (https:\/\/\S+)/,
   );
   children.push(daemon.child);
-  const [, url] = await daemon.match;
+  const [, direct] = await daemon.match;
+  // The browser connects through a relay, thus the test can break the connection.
+  const link = await relay(new URL(direct).host);
+  const url = `https://localhost:${link.port}/`;
 
   const agent = start("farglass-session", "target/debug/farglass-session", [], { FARGLASS_AGENT_SOCKET: agentSocket }, /connected to farglassd/);
   children.push(agent.child);
@@ -125,11 +128,30 @@ try {
 
   await page.reload();
   await page.getByText(`Logged in as ${user}`).waitFor({ timeout: TIMEOUT_MS });
+  // The state store of the agent gives the echo log back after the reload.
+  await page.locator(".echo-log li").filter({ hasText: "hello after the login" }).first().waitFor({ timeout: TIMEOUT_MS });
+  console.log("PASS: the echo log comes back from the state store after a reload");
   const tab = await context.newPage();
   await tab.goto(url);
   await tab.getByText(`Logged in as ${user}`).waitFor({ timeout: TIMEOUT_MS });
   await echo(tab, "hello from a new tab");
   console.log("PASS: a reload and a new tab skip the login");
+
+  // A break of the network: the shell waits and connects again with no login.
+  link.cut();
+  await page.getByRole("heading", { name: "No connection to the host" }).waitFor({ timeout: TIMEOUT_MS });
+  link.restore();
+  await page.getByText(`Logged in as ${user}`).waitFor({ timeout: 30_000 });
+  await echo(page, "hello after the break");
+  console.log("PASS: after a break of the network, the shell connects again with no login");
+
+  // A logout in one tab reaches the other tab.
+  await page.getByRole("button", { name: "Log out" }).click();
+  for (const each of [page, tab]) {
+    await each.getByText("You logged out.").waitFor({ timeout: TIMEOUT_MS });
+    await each.getByRole("heading", { name: /Log in to/ }).waitFor({ timeout: TIMEOUT_MS });
+  }
+  console.log("PASS: the logout reaches each tab of the user");
 
   // A different browser profile has no cookie and must log in.
   const other = await (await browser.newContext({ ignoreHTTPSErrors: true })).newPage();

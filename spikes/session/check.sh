@@ -11,6 +11,7 @@
 #   1. It creates the temporary user farglass-test, which has no local session.
 #      A login through the shell must give a logind session of type web, with
 #      the agent as farglass-test. A second login must attach to the same session.
+#      The Log out button must end the web session and the agent.
 #   2. If the user who runs sudo has a local graphical session, a login as that
 #      user must show the confirm step. The script clicks Cancel only, and the
 #      local session must continue.
@@ -133,6 +134,25 @@ if browser "$TEST_USER" success; then
         pass "a second login attaches to the same session $sessions"
     else
         fail "the second login did not attach to session $sessions"
+    fi
+    if browser "$TEST_USER" logout; then
+        gone=no
+        for _ in $(seq 50); do
+            if [ -z "$(web_sessions "$TEST_UID")" ]; then gone=yes; break; fi
+            sleep 0.3
+        done
+        if [ "$gone" = yes ]; then
+            pass "the logout ended the web session of $TEST_USER"
+        else
+            fail "the web session of $TEST_USER continues after the logout"
+        fi
+        if pgrep -u "$TEST_USER" -f "$DIR/bin/farglass-session" >/dev/null; then
+            fail "the agent of $TEST_USER runs after the logout"
+        else
+            pass "the agent of $TEST_USER stopped"
+        fi
+    else
+        fail "the logout of $TEST_USER failed"
     fi
 else
     fail "the login of $TEST_USER failed"

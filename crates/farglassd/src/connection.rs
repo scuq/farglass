@@ -20,6 +20,7 @@ use crate::agents::{Agent, ConnectionId, Registry, ToAgent};
 use crate::cookie::SessionStore;
 use crate::login::{Identity, LoginTask, SharedUser};
 use crate::origin::OriginPolicy;
+use crate::presence::{IDLE_LOGOUT, Presence};
 
 /// The frames from the agent that wait for the browser. When the queue is
 /// full, the agent link of the user waits. Flow control comes with F014.
@@ -43,6 +44,10 @@ pub struct Context {
     pub sessions: Arc<SessionStore>,
     /// The Origin check.
     pub origin: OriginPolicy,
+    /// The browser connections of each user, and the logout announcement.
+    pub presence: Arc<Presence>,
+    /// The time with no browser connection before the idle logout. `None` turns it off.
+    pub idle_logout: Option<Duration>,
     /// Reports whether responses get Strict-Transport-Security. Only with a
     /// certificate of the administrator: with a self-signed certificate, the
     /// header stops the user from accepting the next certificate.
@@ -60,6 +65,8 @@ impl Context {
             agent_wait: AGENT_WAIT,
             sessions: Arc::new(SessionStore::default()),
             origin: OriginPolicy::default(),
+            presence: Arc::new(Presence::default()),
+            idle_logout: Some(IDLE_LOGOUT),
             hsts: false,
         }
     }
@@ -192,7 +199,7 @@ where
     I: Stream<Item = Result<Frame, Violation>> + Unpin,
     O: Sink<Frame, Error = E> + Unpin,
 {
-    let user = SharedUser::new(user);
+    let user = SharedUser::new(user, context.presence.clone());
     let hello = ConnectionMessage::Hello {
         version: PROTOCOL_VERSION,
         user: user.get().map(|identity| identity.name),
@@ -212,6 +219,7 @@ where
                 ConnectionMessage::Hello { version, .. } => {
                     return Err(Violation::Version(version));
                 }
+                ConnectionMessage::LoggedOut => return Err(Violation::NoHello),
             }
         }
     }
@@ -246,10 +254,21 @@ where
     where
         I: Stream<Item = Result<Frame, Violation>> + Unpin,
     {
+        let mut logouts = self.context.presence.subscribe();
         loop {
             tokio::select! {
                 // Frames to the browser first: they free the queue of the agent link.
                 biased;
+                logout = logouts.recv() => {
+                    if let Ok(uid) = logout
+                        && self.user.get().is_some_and(|user| user.uid == uid)
+                    {
+                        if let Ok(frame) = Frame::connection(&ConnectionMessage::LoggedOut) {
+                            let _ = self.outgoing.send(frame).await;
+                        }
+                        return Ok(());
+                    }
+                }
                 Some(frame) = from_agents.recv() => {
                     self.note_peer_frame(&frame);
                     if self.outgoing.send(frame).await.is_err() {
@@ -281,6 +300,8 @@ where
         if channel.is_connection() {
             return match frame.parse::<ConnectionMessage>()? {
                 ConnectionMessage::Hello { .. } => Err(Violation::SecondHello),
+                // Only farglassd sends this message.
+                ConnectionMessage::LoggedOut => Err(Violation::SecondHello),
             };
         }
 

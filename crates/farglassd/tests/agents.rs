@@ -35,16 +35,12 @@ impl Browser {
         let (to_server, server_in) = mpsc::channel(16);
         let (server_out, from_server) = mpsc::channel(16);
         let context = Context {
-            registry: registry.clone(),
-            login_socket: "/nonexistent/login.sock".into(),
             dev_user: user.map(|uid| Identity {
                 uid,
                 name: format!("user{uid}"),
             }),
             agent_wait: Duration::ZERO,
-            sessions: Default::default(),
-            origin: Default::default(),
-            hsts: false,
+            ..Context::new(registry.clone(), "/nonexistent/login.sock".into())
         };
         let task = tokio::spawn(async move {
             let mut incoming = stream::unfold(server_in, |mut rx| async move {
@@ -210,7 +206,7 @@ async fn real_agent_connects_and_farglassd_knows_its_uid_from_the_kernel() {
     let uid = std::fs::metadata(dir.path()).unwrap().uid();
     let session = tokio::spawn({
         let path = path.clone();
-        async move { farglass_session::link::connect(&path).await }
+        async move { farglass_session::link::connect(&path, &mut Default::default()).await }
     });
     tokio::time::timeout(WAIT, async {
         while registry.uids() != [uid] {

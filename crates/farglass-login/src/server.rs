@@ -109,8 +109,10 @@ impl Service {
             .await
             .map_err(|_| "no start message")?
             .ok_or("the connection closed before the start message")??;
-        let LoginRequest::Start { user, rhost } = request(&start)? else {
-            return Err("the first message was not a start message".into());
+        let (user, rhost) = match request(&start)? {
+            LoginRequest::Start { user, rhost } => (user, rhost),
+            LoginRequest::Logout { uid } => return self.logout(&mut link, uid, peer).await,
+            _ => return Err("the first message was not a start message".into()),
         };
         let address = Key::Address(rhost.clone());
         let user_key = user.clone().map(Key::User);
@@ -170,7 +172,9 @@ impl Service {
                         LoginRequest::Answer { prompt, text } => {
                             let _ = answers.send((prompt, text));
                         }
-                        LoginRequest::Start { .. } => return Err("a second start message".into()),
+                        LoginRequest::Start { .. } | LoginRequest::Logout { .. } => {
+                            return Err("a second start message".into());
+                        }
                         // A confirm before the question. Ignore it.
                         LoginRequest::Confirm { .. } => {}
                     },
@@ -293,6 +297,27 @@ impl Service {
             },
         )
         .await
+    }
+
+    /// Ends the web sessions of `uid`. Local sessions continue.
+    async fn logout(
+        &self,
+        link: &mut Framed<UnixStream, FrameCodec>,
+        uid: u32,
+        peer: Option<u32>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let host = self.settings.host.clone();
+        match blocking(move || host.end_web_sessions(uid)).await {
+            Ok(sessions) => {
+                tracing::info!(uid, sessions, ?peer, "logout");
+                send(link, &LoginEvent::LoggedOut { sessions }).await
+            }
+            Err(error) => {
+                tracing::error!(uid, %error, "the web sessions did not end");
+                let message = "The session did not end. Tell the administrator.".to_owned();
+                send(link, &LoginEvent::Failure { message }).await
+            }
+        }
     }
 
     /// Waits for the answer to a confirm event. Returns `false` for a decline, a timeout,

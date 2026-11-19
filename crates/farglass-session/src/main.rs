@@ -12,6 +12,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use farglass_session::state::StateStore;
 use farglass_session::{DEFAULT_AGENT_SOCKET, link};
 use tracing_subscriber::EnvFilter;
 
@@ -29,9 +30,11 @@ async fn main() {
 
     let path = std::env::var_os("FARGLASS_AGENT_SOCKET")
         .map_or_else(|| PathBuf::from(DEFAULT_AGENT_SOCKET), PathBuf::from);
+    // The state store lives as long as the agent, also when the link to farglassd breaks.
+    let mut store = StateStore::default();
     let mut wait = RETRY_MIN;
     loop {
-        match link::connect(&path).await {
+        match link::connect(&path, &mut store).await {
             Ok(()) => {
                 tracing::info!("farglassd closed the link");
                 wait = RETRY_MIN;

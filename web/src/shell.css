@@ -85,7 +85,14 @@ body {
 }
 
 .shell-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 1.5rem;
+  color: var(--muted);
+}
+
+.notice {
   color: var(--muted);
 }
 

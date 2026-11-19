@@ -22,6 +22,9 @@ pub enum ConnectionMessage {
         #[ts(optional)]
         user: Option<String>,
     },
+    /// From farglassd: the user logged out, in this tab or in a different one.
+    /// farglassd closes the connection after this message.
+    LoggedOut,
 }
 
 /// A message on channel 0 of the agent link, between farglassd and an agent.
@@ -55,12 +58,52 @@ pub enum LinkMessage {
 pub enum Open {
     /// A channel that sends each data frame back to the sender.
     Echo,
+    /// The state store of the session in the agent. The shell keeps its state
+    /// there, for example the open windows, and gets it back after it connects again.
+    ///
+    /// The shell sends [`StateRequest`] and gets [`StateEvent`], as control messages.
+    State,
     /// A PAM login. farglassd serves this channel itself.
     ///
     /// farglassd sends each [`crate::login::LoginEvent`] as a control message.
     /// The shell answers a prompt with [`crate::login::LoginAnswer`].
     /// After the result, farglassd closes the channel.
     Login,
+}
+
+/// A request of the shell on a state channel.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum StateRequest {
+    /// Asks for the value of `key`. After this request, the channel also gets each change of the key.
+    Get {
+        /// The key, for example `windows`.
+        key: String,
+    },
+    /// Sets the value of `key`. `null` removes the key.
+    ///
+    /// Each other state channel that asked for the key gets the new value.
+    Set {
+        /// The key.
+        key: String,
+        /// The value, any JSON value.
+        #[ts(type = "unknown")]
+        value: serde_json::Value,
+    },
+}
+
+/// A message of the agent on a state channel.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum StateEvent {
+    /// The value of `key`: the answer to a get request, or a change from a different channel.
+    Value {
+        /// The key.
+        key: String,
+        /// The value, or `null` if the key has no value.
+        #[ts(type = "unknown")]
+        value: serde_json::Value,
+    },
 }
 
 /// The payload of a ready frame. The receiver of the open frame accepts the channel.

@@ -26,6 +26,12 @@ pub enum LoginRequest {
         /// The text that the user typed. farglass-login clears it from memory after use.
         text: Zeroizing<String>,
     },
+    /// Ends the web sessions of the user `uid`, instead of a login. It is the first
+    /// and only message of the connection. Local sessions continue.
+    Logout {
+        /// The uid of the user.
+        uid: u32,
+    },
     /// Answers [`LoginEvent::Confirm`].
     Confirm {
         /// `true` ends the local graphical sessions and starts the web session.
@@ -94,6 +100,11 @@ pub enum LoginEvent {
     Failure {
         /// The text for the user. It does not tell if the user exists.
         message: String,
+    },
+    /// The answer to [`LoginRequest::Logout`]. The connection ends after this message.
+    LoggedOut {
+        /// The number of web sessions that ended.
+        sessions: u32,
     },
     /// Too many failures from the address or for the user. The connection ends after this message.
     Blocked {

@@ -13,12 +13,12 @@ version: number,
  * From farglassd: the user of the connection, if it has one.
  * With no user, the shell must log in on a channel of kind login.
  */
-user?: string, };
+user?: string, } | { "type": "logged-out" };
 
 /**
  * The payload of an open frame. It selects the kind of the channel.
  */
-export type Open = { "kind": "echo" } | { "kind": "login" };
+export type Open = { "kind": "echo" } | { "kind": "state" } | { "kind": "login" };
 
 /**
  * The payload of a ready frame. The receiver of the open frame accepts the channel.
@@ -42,6 +42,36 @@ message?: string, };
  * The cause of a close frame.
  */
 export type CloseReason = "done" | "cancelled" | "not-supported" | "not-found" | "access-denied" | "resource-limit" | "protocol-error" | "internal-error";
+
+/**
+ * A request of the shell on a state channel.
+ */
+export type StateRequest = { "type": "get", 
+/**
+ * The key, for example `windows`.
+ */
+key: string, } | { "type": "set", 
+/**
+ * The key.
+ */
+key: string, 
+/**
+ * The value, any JSON value.
+ */
+value: unknown, };
+
+/**
+ * A message of the agent on a state channel.
+ */
+export type StateEvent = { "type": "value", 
+/**
+ * The key.
+ */
+key: string, 
+/**
+ * The value, or `null` if the key has no value.
+ */
+value: unknown, };
 
 /**
  * A message from farglass-login to farglassd. farglassd gives it to the shell on the login channel.
@@ -87,7 +117,11 @@ ticket?: string, } | { "type": "failure",
 /**
  * The text for the user. It does not tell if the user exists.
  */
-message: string, } | { "type": "blocked", 
+message: string, } | { "type": "logged-out", 
+/**
+ * The number of web sessions that ended.
+ */
+sessions: number, } | { "type": "blocked", 
 /**
  * The time in seconds until the next attempt can start.
  */

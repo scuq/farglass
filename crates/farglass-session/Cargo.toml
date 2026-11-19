@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 farglass-proto = { workspace = true, features = ["codec"] }
 futures-util.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util"] }
 tokio-util.workspace = true

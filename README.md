@@ -120,6 +120,18 @@ For the Vite development server, add its origin to the configuration file:
 allowed_origins = ["http://localhost:5173"]
 ```
 
+## Connect again and log out
+
+If the connection to the host breaks, the shell connects again after 1, 2, 4, 8, and then each 15 seconds.
+It connects at once when the network comes back, or when you select **Connect now**.
+The session continues on the host during the break.
+The session cookie and the state store of the agent give the desktop back with no login.
+
+**Log out** ends the web session on the host and shows the login screen in each tab of the user.
+If you have no browser connection for 8 hours, farglassd logs you out in the same way.
+Programs in the session, for example terminals, continue until then.
+To change the time, set `idle_logout_minutes` in the configuration file. The value 0 turns the idle logout off.
+
 ## Login service
 
 farglass-login does the PAM login and runs as root.
@@ -197,6 +209,7 @@ sudo spikes/session/check.sh
 
 The script creates the temporary user `farglass-test` and removes it at the end.
 It logs in as that user through Chromium. Then it examines the logind session of type `web` and the agent.
+Then it selects **Log out** and examines that the web session and the agent stopped.
 If your user has a local graphical session, the script also logs in as your user and selects Cancel at the confirm step.
 It never ends your local session.
 

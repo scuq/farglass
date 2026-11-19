@@ -1,5 +1,24 @@
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import type { Channel, Close, Connection } from "./proto";
+import { StateClient } from "./state";
+
+/**
+ * Returns the id of this tab. The id survives a reload of the tab, and a new tab gets a new id.
+ * The state store keeps the echo log of each tab under its own key.
+ */
+function tabId(): string {
+  try {
+    let id = sessionStorage.getItem("farglass.tab");
+    if (!id) {
+      id = crypto.randomUUID();
+      sessionStorage.setItem("farglass.tab", id);
+    }
+    return id;
+  } catch {
+    // With no session storage, the log does not survive a reload.
+    return crypto.randomUUID();
+  }
+}
 
 /** One line of the log of the echo panel. */
 interface Line {
@@ -31,8 +50,23 @@ export function Echo(props: { connection: Connection }) {
   let channel: Channel | undefined;
   const sentAt: number[] = [];
 
-  const log = (kind: Line["kind"], text: string) =>
-    setLines((old) => [...old.slice(-49), { id: nextLine++, text, kind }]);
+  // The log is in the state store of the agent: a reload of the tab shows the same lines.
+  const store = new StateClient(props.connection);
+  const logKey = `echo.log.${tabId()}`;
+  const log = (kind: Line["kind"], text: string) => {
+    const next = [...lines().slice(-49), { id: nextLine++, text, kind }];
+    setLines(next);
+    if (kind === "sent" || kind === "echo") {
+      store.set(logKey, next.filter((line) => line.kind === "sent" || line.kind === "echo"));
+    }
+  };
+  store.watch(logKey, (value: unknown) => {
+    if (Array.isArray(value)) {
+      const restored = value as Line[];
+      nextLine = Math.max(nextLine, ...restored.map((line) => line.id + 1));
+      setLines(restored);
+    }
+  });
 
   const closed = (close: Close) => {
     if (state() === "connecting") {
@@ -64,7 +98,10 @@ export function Echo(props: { connection: Connection }) {
     () => {},
   );
 
-  onCleanup(() => channel?.close());
+  onCleanup(() => {
+    channel?.close();
+    store.close();
+  });
 
   const send = (event: SubmitEvent) => {
     event.preventDefault();

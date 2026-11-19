@@ -2,9 +2,10 @@
 //
 // Usage: node session-browser.mjs URL USER EXPECT
 //
-// EXPECT is "success" or "decline".
+// EXPECT is "success", "logout", or "decline".
 // With "success", the login must succeed with no confirm step, and the echo
-// channel must work. With "decline", the login must show the confirm step for
+// channel must work. With "logout", the login must succeed, and then the Log out
+// button must give the login screen. With "decline", the login must show the confirm step for
 // a local session. The script clicks Cancel, never the other button, and
 // expects the message that the local session continues.
 //
@@ -53,6 +54,11 @@ try {
     console.log(`PASS: ${user} logged in`);
     const time = await echo(page, `hello from the web session of ${user}`);
     console.log(`PASS: the agent in the web session answers, round trip ${time} ms`);
+    if (expect === "logout") {
+      await page.getByRole("button", { name: "Log out" }).click();
+      await page.getByText("You logged out.").waitFor({ timeout: TIMEOUT_MS });
+      console.log(`PASS: ${user} logged out in the shell`);
+    }
   }
 } catch (error) {
   failed = true;

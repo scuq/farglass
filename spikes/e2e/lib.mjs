@@ -1,6 +1,7 @@
 // lib.mjs - helpers of the end-to-end tests
 
 import { spawn, spawnSync } from "node:child_process";
+import net from "node:net";
 import { resolve } from "node:path";
 
 export const root = resolve(import.meta.dirname, "../..");
@@ -58,4 +59,44 @@ export async function echo(page, text) {
   const line = page.locator('.echo-log li[data-kind="echo"]').filter({ hasText: text });
   await line.waitFor({ timeout: TIMEOUT_MS });
   return (await line.textContent()).match(/\(([\d.]+) ms\)/)?.[1];
+}
+
+/**
+ * Starts a TCP relay on a free loopback port to `target` (host:port).
+ * `cut()` closes each connection and refuses new ones until `restore()`.
+ * Returns the port and the two functions.
+ */
+export async function relay(target) {
+  const [host, port] = [target.slice(0, target.lastIndexOf(":")), Number(target.slice(target.lastIndexOf(":") + 1))];
+  const sockets = new Set();
+  let open = true;
+  const server = net.createServer((client) => {
+    if (!open) {
+      client.destroy();
+      return;
+    }
+    const upstream = net.connect(port, host);
+    for (const socket of [client, upstream]) {
+      sockets.add(socket);
+      socket.on("close", () => sockets.delete(socket));
+      socket.on("error", () => {});
+    }
+    client.pipe(upstream).pipe(client);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return {
+    port: server.address().port,
+    cut() {
+      open = false;
+      for (const socket of sockets) {
+        socket.destroy();
+      }
+    },
+    restore() {
+      open = true;
+    },
+    close() {
+      server.close();
+    },
+  };
 }

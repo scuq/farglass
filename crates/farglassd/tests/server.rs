@@ -514,7 +514,9 @@ async fn hello_user(server: &TestServer, cookie: &str) -> Option<String> {
     let mut ws = try_websocket(server, &[("origin", ORIGIN), ("cookie", cookie)])
         .await
         .unwrap();
-    let ConnectionMessage::Hello { user, .. } = next_frame(&mut ws).await.parse().unwrap();
+    let ConnectionMessage::Hello { user, .. } = next_frame(&mut ws).await.parse().unwrap() else {
+        panic!("the first message was not a hello message");
+    };
     user
 }
 
@@ -550,7 +552,12 @@ async fn ticket_gives_a_cookie_and_the_cookie_gives_the_user_to_a_new_connection
         StatusCode::FORBIDDEN
     );
 
-    // DELETE /session removes the session, and the cookie no longer works.
+    // DELETE /session logs out: an open tab gets the logout message, and the cookie no longer works.
+    let mut tab = try_websocket(&server, &[("origin", ORIGIN), ("cookie", &cookie)])
+        .await
+        .unwrap();
+    next_frame(&mut tab).await;
+    send_frame(&mut tab, hello(PROTOCOL_VERSION)).await;
     let headers = [
         (ORIGIN_HEADER, ORIGIN),
         (hyper::header::COOKIE, cookie.as_str()),
@@ -560,6 +567,13 @@ async fn ticket_gives_a_cookie_and_the_cookie_gives_the_user_to_a_new_connection
         .await;
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
     assert!(header(&response, SET_COOKIE).contains("Max-Age=0"));
+    assert_eq!(
+        next_frame(&mut tab)
+            .await
+            .parse::<ConnectionMessage>()
+            .unwrap(),
+        ConnectionMessage::LoggedOut
+    );
     assert_eq!(hello_user(&server, &cookie).await, None);
 }
 

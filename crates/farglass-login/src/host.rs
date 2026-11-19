@@ -49,6 +49,13 @@ pub trait Host: fmt::Debug + Send + Sync {
     ///
     /// An I/O error if the session does not start.
     fn start_session(&self, user: &str, uid: u32) -> io::Result<Started>;
+
+    /// Ends the web sessions of `uid`. Local sessions continue. Returns the number of sessions that ended.
+    ///
+    /// # Errors
+    ///
+    /// An I/O error if logind refuses the request.
+    fn end_web_sessions(&self, uid: u32) -> io::Result<u32>;
 }
 
 /// A host with no sessions. For development and tests with no root.
@@ -66,6 +73,10 @@ impl Host for NoSessions {
 
     fn start_session(&self, _user: &str, _uid: u32) -> io::Result<Started> {
         Ok(Started::Attached)
+    }
+
+    fn end_web_sessions(&self, _uid: u32) -> io::Result<u32> {
+        Ok(0)
     }
 }
 
@@ -176,17 +187,18 @@ impl Systemd {
         Ok(out)
     }
 
-    /// Returns the open web session of `uid` that farglass started.
-    fn web_session(&self, uid: u32) -> io::Result<Option<String>> {
+    /// Returns the open web sessions of `uid` that farglass started.
+    fn web_sessions(&self, uid: u32) -> io::Result<Vec<String>> {
         Ok(self
             .sessions(uid)?
             .into_iter()
-            .find_map(|(id, properties)| {
-                (properties.kind == "web"
+            .filter(|(_, properties)| {
+                properties.kind == "web"
                     && properties.service == self.worker.pam_service
-                    && properties.state != "closing")
-                    .then_some(id)
-            }))
+                    && properties.state != "closing"
+            })
+            .map(|(id, _)| id)
+            .collect())
     }
 }
 
@@ -228,7 +240,7 @@ impl Host for Systemd {
     }
 
     fn start_session(&self, user: &str, uid: u32) -> io::Result<Started> {
-        if self.web_session(uid)?.is_some() {
+        if !self.web_sessions(uid)?.is_empty() {
             return Ok(Started::Attached);
         }
         let mut command = Command::new("systemd-run");
@@ -252,7 +264,7 @@ impl Host for Systemd {
 
         let start = Instant::now();
         while start.elapsed() < START_TIMEOUT {
-            if self.web_session(uid)?.is_some() {
+            if !self.web_sessions(uid)?.is_empty() {
                 return Ok(Started::New);
             }
             std::thread::sleep(Duration::from_millis(100));
@@ -261,6 +273,15 @@ impl Host for Systemd {
             "the web session of {user} did not show in logind in {} s",
             START_TIMEOUT.as_secs()
         )))
+    }
+
+    fn end_web_sessions(&self, uid: u32) -> io::Result<u32> {
+        let ids = self.web_sessions(uid)?;
+        for id in &ids {
+            tracing::info!(session = id, uid, "ending a web session");
+            loginctl(&["terminate-session", id])?;
+        }
+        Ok(u32::try_from(ids.len()).unwrap_or(u32::MAX))
     }
 }
 

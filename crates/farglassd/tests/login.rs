@@ -117,7 +117,9 @@ impl Browser {
             .await
             .unwrap()
             .unwrap();
-        let ConnectionMessage::Hello { user, .. } = hello.parse().unwrap();
+        let ConnectionMessage::Hello { user, .. } = hello.parse().unwrap() else {
+            panic!("the first message was not a hello message");
+        };
         let browser = Self {
             hello_user: user,
             to_server,
@@ -345,13 +347,8 @@ async fn shell_that_closes_the_login_channel_gets_a_close_answer() {
 async fn missing_login_service_closes_the_channel_with_an_error() {
     let dir = tempfile::tempdir().unwrap();
     let context = Arc::new(Context {
-        registry: Registry::new(),
-        login_socket: dir.path().join("missing.sock"),
-        dev_user: None,
         agent_wait: Duration::ZERO,
-        sessions: Default::default(),
-        origin: Default::default(),
-        hsts: false,
+        ..Context::new(Registry::new(), dir.path().join("missing.sock"))
     });
     let mut browser = Browser::connect(&context).await;
     browser
@@ -369,13 +366,9 @@ async fn missing_login_service_closes_the_channel_with_an_error() {
 async fn dev_user_sends_the_user_in_the_hello_message() {
     let uid = std::fs::metadata(Path::new("/proc/self")).unwrap().uid();
     let context = Arc::new(Context {
-        registry: Registry::new(),
-        login_socket: "/nonexistent".into(),
         dev_user: Some(farglassd::login::Identity::from_uid(uid)),
         agent_wait: Duration::ZERO,
-        sessions: Default::default(),
-        origin: Default::default(),
-        hsts: false,
+        ..Context::new(Registry::new(), "/nonexistent".into())
     });
     let browser = Browser::connect(&context).await;
     assert_eq!(browser.hello_user, Some(current_user().0));
@@ -407,6 +400,10 @@ impl farglass_login::host::Host for OneLocalSession {
         _uid: u32,
     ) -> std::io::Result<farglass_login::host::Started> {
         Ok(farglass_login::host::Started::New)
+    }
+
+    fn end_web_sessions(&self, _uid: u32) -> std::io::Result<u32> {
+        Ok(0)
     }
 }
 
@@ -469,4 +466,104 @@ async fn success_waits_for_the_agent_of_the_new_session() {
         "the success came before the agent"
     );
     let _agent = late_agent.await.unwrap();
+}
+
+/// A host that records the logouts.
+#[derive(Debug, Default)]
+struct LogoutHost(std::sync::Mutex<Vec<u32>>);
+
+impl farglass_login::host::Host for LogoutHost {
+    fn local_sessions(
+        &self,
+        _uid: u32,
+    ) -> std::io::Result<Vec<farglass_proto::login::LocalSession>> {
+        Ok(Vec::new())
+    }
+
+    fn end_sessions(&self, _ids: &[String]) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn start_session(
+        &self,
+        _user: &str,
+        _uid: u32,
+    ) -> std::io::Result<farglass_login::host::Started> {
+        Ok(farglass_login::host::Started::New)
+    }
+
+    fn end_web_sessions(&self, uid: u32) -> std::io::Result<u32> {
+        self.0.lock().unwrap().push(uid);
+        Ok(1)
+    }
+}
+
+/// Waits for the logout message of farglassd on a connection.
+async fn logged_out(browser: &mut Browser) {
+    loop {
+        let frame = browser.recv().await;
+        if frame.channel().is_connection() {
+            assert_eq!(
+                frame.parse::<ConnectionMessage>().unwrap(),
+                ConnectionMessage::LoggedOut
+            );
+            return;
+        }
+    }
+}
+
+#[tokio::test]
+async fn logout_reaches_each_tab_of_the_user_and_ends_the_web_session() {
+    let host = Arc::new(LogoutHost::default());
+    let service = LoginService::start_with(host.clone(), Duration::ZERO).await;
+    let (name, uid) = current_user();
+    let mut first = Browser::connect(&service.context).await;
+    let mut second = Browser::connect(&service.context).await;
+    first.login(1, &name, "secret").await;
+    second.login(1, &name, "secret").await;
+
+    // A connection of a different user, here one with no login, continues.
+    let mut other = Browser::connect(&service.context).await;
+
+    farglassd::login::logout(&service.context, uid, "test").await;
+    logged_out(&mut first).await;
+    logged_out(&mut second).await;
+    assert_eq!(*host.0.lock().unwrap(), [uid]);
+
+    other.send(Frame::open(ch(1), &Open::Echo).unwrap()).await;
+    assert_eq!(
+        other.recv().await.parse::<Close>().unwrap().reason,
+        CloseReason::AccessDenied
+    );
+}
+
+#[tokio::test]
+async fn idle_logout_ends_a_session_with_no_tab_and_keeps_a_session_with_a_tab() {
+    let host = Arc::new(LogoutHost::default());
+    let service = LoginService::start_with(host.clone(), Duration::ZERO).await;
+    let (name, uid) = current_user();
+    let _agent = fake_agent(&service.registry, uid).await;
+
+    let mut browser = Browser::connect(&service.context).await;
+    browser.login(1, &name, "secret").await;
+    farglassd::server::logout_idle(&service.context, Duration::ZERO).await;
+    assert!(
+        host.0.lock().unwrap().is_empty(),
+        "a user with a tab is not idle"
+    );
+
+    drop(browser);
+    // The connection task ends after the transport closes.
+    tokio::time::timeout(WAIT, async {
+        loop {
+            farglassd::server::logout_idle(&service.context, Duration::ZERO).await;
+            if !host.0.lock().unwrap().is_empty() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the idle logout did not end the session");
+    assert_eq!(*host.0.lock().unwrap(), [uid]);
 }
