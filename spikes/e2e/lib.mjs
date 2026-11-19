@@ -100,3 +100,15 @@ export async function relay(target) {
     },
   };
 }
+
+/** Logs out through the session menu of the panel. */
+export async function logout(page, user) {
+  await page.getByRole("button", { name: `Logged in as ${user}` }).click();
+  await page.getByRole("menuitem", { name: "Log out" }).click();
+}
+
+/** Opens an app through the launcher of the panel. */
+export async function launch(page, title) {
+  await page.getByRole("button", { name: "Apps" }).click();
+  await page.getByRole("option", { name: new RegExp(`^${title}`) }).click();
+}

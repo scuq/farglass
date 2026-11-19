@@ -129,15 +129,7 @@ export function App(props: AppServices) {
           {(current) => {
             const { connection, user } = current() as Extract<Stage, { kind: "desktop" }>;
             return (
-              <>
-                <header class="shell-header wm-header">
-                  <span>Logged in as {user}</span>
-                  <button type="button" onClick={() => void (props.logout ?? logout)()}>
-                    Log out
-                  </button>
-                </header>
-                <Desktop connection={connection} />
-              </>
+              <Desktop connection={connection} user={user} onlogout={() => void (props.logout ?? logout)()} />
             );
           }}
         </Match>

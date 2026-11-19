@@ -149,20 +149,3 @@ button.danger {
   color: var(--bad);
   border: 1px solid var(--bad);
 }
-
-/* On the desktop, the header is the first row of the window manager. */
-.wm-header {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 1;
-  height: 2rem;
-  margin: 0;
-  padding: 0 0.5rem;
-  background: var(--bar);
-  border-bottom: 1px solid var(--line);
-}
-.wm {
-  top: 2rem;
-}

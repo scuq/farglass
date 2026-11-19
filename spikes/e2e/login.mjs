@@ -14,7 +14,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
-import { buildAll, echo, relay, start, TIMEOUT_MS } from "./lib.mjs";
+import { buildAll, echo, logout, relay, start, TIMEOUT_MS } from "./lib.mjs";
 
 const state = mkdtempSync(join(tmpdir(), "farglass-e2e-"));
 const children = [];
@@ -146,7 +146,7 @@ try {
   console.log("PASS: after a break of the network, the shell connects again with no login");
 
   // A logout in one tab reaches the other tab.
-  await page.getByRole("button", { name: "Log out" }).click();
+  await logout(page, user);
   for (const each of [page, tab]) {
     await each.getByText("You logged out.").waitFor({ timeout: TIMEOUT_MS });
     await each.getByRole("heading", { name: /Log in to/ }).waitFor({ timeout: TIMEOUT_MS });

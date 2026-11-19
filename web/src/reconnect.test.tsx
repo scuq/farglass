@@ -88,7 +88,9 @@ describe("App after a break", () => {
       />
     ));
     await settle();
-    [...host.querySelectorAll("button")].find((b) => b.textContent === "Log out")!.click();
+    [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("alice"))!.click();
+    await settle();
+    [...host.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].find((b) => b.textContent === "Log out")!.click();
     expect(calls).toBe(1);
   });
 });

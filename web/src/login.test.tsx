@@ -191,6 +191,6 @@ describe("App", () => {
     const host = mount(() => <App connect={() => Promise.resolve(connection)} />);
     await settle();
     expect(host.textContent).toContain("Logged in as alice");
-    expect(host.querySelector("nav[aria-label='Workspaces and windows']")).not.toBeNull();
+    expect(host.querySelector("nav[aria-label='Workspaces']")).not.toBeNull();
   });
 });

@@ -12,7 +12,7 @@
 // Exit status: 0 if the result is as expected, 1 if not.
 
 import { chromium } from "playwright";
-import { echo, TIMEOUT_MS } from "./lib.mjs";
+import { echo, logout, TIMEOUT_MS } from "./lib.mjs";
 
 const [url, user, expect] = process.argv.slice(2);
 let failed = false;
@@ -55,7 +55,7 @@ try {
     const time = await echo(page, `hello from the web session of ${user}`);
     console.log(`PASS: the agent in the web session answers, round trip ${time} ms`);
     if (expect === "logout") {
-      await page.getByRole("button", { name: "Log out" }).click();
+      await logout(page, user);
       await page.getByText("You logged out.").waitFor({ timeout: TIMEOUT_MS });
       console.log(`PASS: ${user} logged out in the shell`);
     }

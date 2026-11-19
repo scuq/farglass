@@ -126,6 +126,17 @@ The desktop has windows that you can move, snap, resize, maximize, and minimize,
 The state of the desktop is in the state store of the session.
 A reload, a different tab, or a different browser of the same user shows the same windows.
 
+The panel at the top has these parts, from left to right:
+
+- **Apps** opens the launcher. Type to search the apps, select one with the arrow keys, and press Enter.
+- The workspace buttons and a button for each window of the workspace. A click on the window with the focus minimizes it.
+- **Tile** places the windows of the workspace in columns.
+- The clock, with the date in its tooltip. It shows the time of the client.
+- Your username opens the session menu with **Log out**. **Lock** comes with the lock screen in a later version.
+
+A tap of the Super key opens the launcher when the shell has Keyboard Lock.
+Alt+F1 opens it on each client.
+
 To move a window, drag its title bar.
 To snap a window, drag it to an edge of the desktop:
 
@@ -137,7 +148,6 @@ To snap a window, drag it to an edge of the desktop:
 
 To change the size, drag an edge or a corner of the window.
 Press Escape during a drag to stop it.
-**Tile** in the bar at the bottom places the windows of the workspace in columns.
 
 | Keys | Action |
 |---|---|
@@ -148,6 +158,7 @@ Press Escape during a drag to stop it.
 | Super+Left, Super+Right | Snap to the left or the right half |
 | Super+1 to Super+4 | Show a workspace |
 | Super+T | Tile the windows of the workspace |
+| Super (tap), or Alt+F1 | Open or close the launcher |
 
 NOTE: The operating system of the client keeps Alt+Tab and the Super key, unless the shell is in fullscreen mode with Keyboard Lock.
 Alt+` and the Ctrl+Alt keys reach the shell on each client.
@@ -159,7 +170,7 @@ It connects at once when the network comes back, or when you select **Connect no
 The session continues on the host during the break.
 The session cookie and the state store of the agent give the desktop back with no login.
 
-**Log out** ends the web session on the host and shows the login screen in each tab of the user.
+**Log out** in the session menu ends the web session on the host and shows the login screen in each tab of the user.
 If you have no browser connection for 8 hours, farglassd logs you out in the same way.
 Programs in the session, for example terminals, continue until then.
 To change the time, set `idle_logout_minutes` in the configuration file. The value 0 turns the idle logout off.
@@ -221,7 +232,7 @@ npm --prefix spikes/e2e test
 
 `npm --prefix spikes/e2e run wm` tests the window manager.
 It drags a window and measures the frames during the drag, and it fails if the 95th percentile of the frame interval is 25 ms or more.
-It also tests a snap, a size change, Alt+Tab, the channel of an app after the moves, and a reload.
+It also tests a snap, a size change, Alt+Tab, the channel of an app after the moves, the launcher, the session menu, and a reload.
 
 `npm --prefix spikes/e2e run echo` starts farglassd in development mode.
 It opens the shell in two tabs and sends a message on the echo channel of each tab.

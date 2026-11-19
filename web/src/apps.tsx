@@ -4,6 +4,7 @@
  */
 
 import type { JSX } from "@solidjs/web";
+import { About } from "./About";
 import { Echo } from "./Echo";
 import type { Connection } from "./proto";
 
@@ -18,6 +19,10 @@ export interface AppContext {
 export interface App {
   readonly id: string;
   readonly title: string;
+  /** One line for the launcher. */
+  readonly description?: string;
+  /** More words that the search of the launcher finds. */
+  readonly keywords?: readonly string[];
   /** The size of a new window. */
   readonly size: { readonly w: number; readonly h: number };
   readonly render: (context: AppContext) => JSX.Element;
@@ -25,9 +30,19 @@ export interface App {
 
 /** The apps, by id. */
 export const APPS: Readonly<Record<string, App>> = {
+  about: {
+    id: "about",
+    title: "About farglass",
+    description: "The version and the connection",
+    keywords: ["version", "info", "help"],
+    size: { w: 420, h: 300 },
+    render: (context) => <About connection={context.connection} />,
+  },
   echo: {
     id: "echo",
     title: "Echo",
+    description: "Send a message to the agent and back",
+    keywords: ["test", "channel", "ping"],
     size: { w: 520, h: 380 },
     render: (context) => <Echo connection={context.connection} stateKey={`echo.log.${context.windowId}`} />,
   },

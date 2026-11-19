@@ -32,7 +32,7 @@ async function mountDesktop(value: unknown): Promise<{ host: HTMLElement; server
   const { server, connection } = await fakeConnection("alice");
   const host = document.createElement("div");
   document.body.append(host);
-  dispose = render(() => <Desktop connection={connection} />, host);
+  dispose = render(() => <Desktop connection={connection} user="alice" onlogout={() => {}} />, host);
   const channel = stateChannelOf(server.take());
   server.push(readyFrame(channel));
   server.push(encodeJsonFrame(channel, FrameType.Control, { type: "value", key: "desktop", value }));
@@ -142,7 +142,9 @@ describe("Desktop and its apps", () => {
 
   test("a second window of an app gets a number in its title", async () => {
     const { host } = await mountDesktop(null);
-    [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "New Echo")!.click();
+    [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Apps")!.click();
+    await settle();
+    [...host.querySelectorAll<HTMLElement>("#launcher [role=option]")].find((li) => li.textContent?.startsWith("Echo"))!.click();
     await settle();
     expect([...host.querySelectorAll(".wm-window")].map((w) => w.getAttribute("aria-label"))).toEqual(["Echo", "Echo 2"]);
   });

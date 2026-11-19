@@ -52,3 +52,46 @@ export function actionFor(event: Pick<KeyboardEvent, "code" | "altKey" | "ctrlKe
   }
   return null;
 }
+
+/**
+ * Detects a tap of the Super key: Super goes down and up with no other key between.
+ * The tap opens the launcher. It reaches the browser only with Keyboard Lock.
+ */
+export class SuperTap {
+  #down = false;
+  #other = false;
+
+  /** Handles a keydown event. */
+  down(event: Pick<KeyboardEvent, "key">): void {
+    if (isSuper(event.key)) {
+      this.#down = true;
+      this.#other = false;
+    } else if (this.#down) {
+      this.#other = true;
+    }
+  }
+
+  /** Handles a keyup event. Returns `true` if it ends a tap of Super. */
+  up(event: Pick<KeyboardEvent, "key">): boolean {
+    if (!isSuper(event.key)) {
+      return false;
+    }
+    const tap = this.#down && !this.#other;
+    this.#down = false;
+    return tap;
+  }
+
+  /** Forgets a press, for example when the window loses the focus. */
+  reset(): void {
+    this.#down = false;
+  }
+}
+
+function isSuper(key: string): boolean {
+  return key === "Meta" || key === "OS" || key === "Super";
+}
+
+/** Reports whether a key press opens the launcher with no Keyboard Lock: Alt+F1. */
+export function isLauncherKey(event: Pick<KeyboardEvent, "code" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey">): boolean {
+  return event.code === "F1" && event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+}

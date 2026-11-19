@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
-import { buildAll, start, TIMEOUT_MS } from "./lib.mjs";
+import { buildAll, launch, start, TIMEOUT_MS } from "./lib.mjs";
 
 const SHOTS = process.env.FARGLASS_SHOTS;
 const state = mkdtempSync(join(tmpdir(), "farglass-e2e-"));
@@ -118,7 +118,7 @@ try {
   );
 
   // 3. A second window, a size change, and Alt+Tab.
-  await page.getByRole("button", { name: "New Echo" }).click();
+  await launch(page, "Echo");
   await page.locator(".wm-window").nth(1).waitFor({ timeout: TIMEOUT_MS });
   const second = await page.locator(".wm-window.wm-focused").getAttribute("data-window");
   const corner = await page.locator(`[data-window="${second}"] .wm-edge-se`).boundingBox();
@@ -143,6 +143,50 @@ try {
   await firstWindow.getByRole("button", { name: "Send" }).click();
   await firstWindow.locator('.echo-log li[data-kind="echo"]').filter({ hasText: "hello from a moved window" }).waitFor({ timeout: TIMEOUT_MS });
   check((await firstWindow.getByText(/^Channel \d+ is open\.$/).count()) === 1, "the app in a window keeps its channel through moves and snaps");
+
+  // 5. The panel: the launcher and the session menu are popovers at their buttons.
+  const appsButton = await page.getByRole("button", { name: "Apps" }).boundingBox();
+  await page.getByRole("button", { name: "Apps" }).click();
+  const launcher = page.locator("#launcher");
+  await launcher.getByRole("combobox", { name: "Search apps" }).waitFor({ timeout: TIMEOUT_MS });
+  check(await launcher.evaluate((el) => el.matches(":popover-open")), "the launcher is a popover in the top layer");
+  const launcherBox = await launcher.boundingBox();
+  check(
+    launcherBox.y >= appsButton.y + appsButton.height && launcherBox.y <= appsButton.y + appsButton.height + 12 && Math.abs(launcherBox.x - appsButton.x) <= 2,
+    "CSS anchor positioning puts the launcher under the Apps button",
+  );
+  check(await launcher.getByRole("combobox").evaluate((el) => el === document.activeElement), "the search field has the keyboard focus");
+  if (SHOTS) await page.screenshot({ path: join(SHOTS, "launcher.png") });
+  await page.keyboard.type("abou");
+  await page.keyboard.press("Enter");
+  await page.locator('.wm-window[aria-label="About farglass"]').waitFor({ timeout: TIMEOUT_MS });
+  check(!(await launcher.evaluate((el) => el.matches(":popover-open"))), "Enter opens the app and closes the launcher");
+
+  await page.keyboard.press("Alt+F1");
+  await launcher.getByRole("combobox").waitFor({ timeout: TIMEOUT_MS });
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(100);
+  check(!(await launcher.evaluate((el) => el.matches(":popover-open"))), "Alt+F1 opens the launcher and Escape closes it");
+  await page.keyboard.down("Meta");
+  await page.keyboard.up("Meta");
+  await launcher.getByRole("combobox").waitFor({ timeout: TIMEOUT_MS });
+  await page.mouse.click(900, 500);
+  await page.waitForTimeout(100);
+  check(!(await launcher.evaluate((el) => el.matches(":popover-open"))), "a tap of Super opens the launcher and a click outside closes it");
+
+  const session = page.locator(".panel-session");
+  const sessionBox = await session.boundingBox();
+  await session.click();
+  const menu = page.locator("#session-menu");
+  await menu.getByRole("menuitem", { name: "Log out" }).waitFor({ timeout: TIMEOUT_MS });
+  const menuBox = await menu.boundingBox();
+  check(
+    menuBox.y >= sessionBox.y + sessionBox.height && Math.abs(menuBox.x + menuBox.width - (sessionBox.x + sessionBox.width)) <= 2,
+    "the session menu is under the user button, at its right edge",
+  );
+  check((await menu.getByRole("menuitem", { name: "Lock" }).getAttribute("aria-disabled")) === "true", "the session menu has Lock, not available yet, and Log out");
+  if (SHOTS) await page.screenshot({ path: join(SHOTS, "session.png") });
+  await page.keyboard.press("Escape");
 
   if (SHOTS) await page.screenshot({ path: join(SHOTS, "desktop.png") });
 

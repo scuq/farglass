@@ -1,0 +1,143 @@
+/* The panel at the top and its menus. */
+
+.panel {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 2.25rem;
+  padding: 0 0.5rem;
+  background: var(--bar);
+  border-bottom: 1px solid var(--line);
+  /* The button names of the panel are anchors for the menus. */
+}
+.panel button {
+  font: inherit;
+}
+.panel-apps {
+  anchor-name: --panel-apps;
+  font-weight: 600;
+}
+.panel-session {
+  anchor-name: --panel-session;
+}
+.panel-workspaces,
+.panel-tasks {
+  display: flex;
+  gap: 0.25rem;
+}
+.panel-tasks {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.panel-tasks button {
+  max-width: 12rem;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.panel button[aria-pressed="true"] {
+  outline: 2px solid var(--focus);
+}
+.wm-task[data-minimized="true"] {
+  font-style: italic;
+  opacity: 0.7;
+}
+.panel-clock {
+  font-variant-numeric: tabular-nums;
+}
+
+.popover {
+  margin: 0;
+  padding: 0.5rem;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.3);
+}
+/* CSS anchor positioning puts each menu under its button. */
+.panel-launcher {
+  position-anchor: --panel-apps;
+  position-area: bottom span-right;
+  margin-top: 4px;
+  width: min(24rem, calc(100vw - 1rem));
+}
+.panel-session-menu {
+  position-anchor: --panel-session;
+  position-area: bottom span-left;
+  margin-top: 4px;
+  min-width: 10rem;
+}
+/* A browser with no anchor positioning puts the menus at the corners under the panel. */
+@supports not (position-area: bottom) {
+  .panel-launcher {
+    position: fixed;
+    inset: 2.5rem auto auto 0.5rem;
+  }
+  .panel-session-menu {
+    position: fixed;
+    inset: 2.5rem 0.5rem auto auto;
+  }
+}
+
+.panel-session-menu [role="menu"] {
+  display: flex;
+  flex-direction: column;
+}
+.panel-session-menu [role="menuitem"] {
+  padding: 0.4rem 0.75rem;
+  text-align: left;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+.panel-session-menu [role="menuitem"]:hover,
+.panel-session-menu [role="menuitem"]:focus-visible {
+  background: var(--line);
+}
+.panel-session-menu [role="menuitem"][aria-disabled="true"] {
+  color: var(--muted);
+}
+
+.launcher-search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem;
+  font: inherit;
+}
+.launcher-results {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  max-height: 60vh;
+  overflow: auto;
+}
+.launcher-results li {
+  display: flex;
+  flex-direction: column;
+  padding: 0.4rem 0.6rem;
+  border-radius: 4px;
+  cursor: default;
+}
+.launcher-results li[aria-selected="true"] {
+  background: var(--focus);
+  color: var(--bg);
+}
+.launcher-description {
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+.launcher-empty {
+  color: var(--muted);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
