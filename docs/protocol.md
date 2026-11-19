@@ -132,7 +132,7 @@ The session is valid for 12 hours.
 farglassd keeps only the SHA-256 hash of each ticket and token, in memory.
 After a restart of farglassd, each browser must log in again.
 
-## Origin check
+## Origin rule
 
 farglassd accepts a WebSocket handshake, `POST /session`, and `DELETE /session` only if the `Origin` header is `https://HOST`.
 `HOST` is the host of the request, with the port.

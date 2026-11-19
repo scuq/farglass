@@ -102,7 +102,7 @@ To use a different farglassd, set `FARGLASSD_URL`.
 After a login, the shell gets the session cookie `__Host-farglass`.
 The cookie is HttpOnly, Secure, and SameSite=Strict, and scripts cannot read it.
 A reload or a new tab uses the cookie and skips the login for 12 hours.
-`docs/protocol.md` describes the cookie and the Origin check.
+`docs/protocol.md` describes the cookie and the Origin rule.
 
 farglassd accepts a WebSocket and a session request only from a page of the same origin.
 Each response has these headers:
