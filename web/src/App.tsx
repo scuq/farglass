@@ -3,7 +3,7 @@ import { ContextMenuHost } from "./menu/ContextMenuHost";
 import { Desktop } from "./wm/Desktop";
 import { LoginScreen } from "./LoginScreen";
 import type { Connection } from "./proto";
-import { connectBest } from "./proto/webtransport";
+import { connectBest, markWebTransportFailed } from "./proto/webtransport";
 import { reconnectDelay } from "./reconnect";
 import { storeSession } from "./session";
 
@@ -62,6 +62,11 @@ export function App(props: AppServices) {
             open();
           } else if (connection.lockedNow || connection.unlocked) {
             // Connect again at once: the new connection gets the lock screen, or the desktop after an unlock.
+            open();
+          } else if (connection.transport === "webtransport") {
+            // The WebTransport session ended with no cause from farglassd: connect again at once, through the WebSocket.
+            console.info(`farglass leaves WebTransport: ${reason}`);
+            markWebTransportFailed();
             open();
           } else {
             wait(reason);

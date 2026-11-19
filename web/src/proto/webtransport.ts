@@ -154,6 +154,15 @@ export function webTransportUrl(offer: TransportOffer, location: Location = wind
 let failedAt = Number.NEGATIVE_INFINITY;
 
 /**
+ * Marks WebTransport as failed: the next connections use the WebSocket for
+ * {@link WEBTRANSPORT_RETRY_MS}. For a session that opened and then ended with no
+ * cause from farglassd, for example a network that drops QUIC after the handshake.
+ */
+export function markWebTransportFailed(): void {
+  failedAt = performance.now();
+}
+
+/**
  * Connects through WebTransport.
  *
  * @throws Error if the browser has no WebTransport, the host has no HTTP/3, or the session does not open in time.
