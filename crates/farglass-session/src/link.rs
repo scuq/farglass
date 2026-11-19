@@ -3,12 +3,14 @@
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
 use farglass_proto::codec::{CodecError, FrameCodec};
 use farglass_proto::message::{
-    Close, CloseReason, LinkMessage, Open, PtyEvent, PtyRequest, Ready, StateEvent, StateRequest,
+    Bus, Close, CloseReason, DbusEvent, DbusRequest, LinkMessage, Open, PtyEvent, PtyRequest,
+    Ready, StateEvent, StateRequest,
 };
 use farglass_proto::{ChannelId, Frame, FrameError, FrameType, PROTOCOL_VERSION, Side};
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -17,6 +19,7 @@ use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use tokio_util::codec::Framed;
 
+use crate::dbus::{self, Buses, DbusOptions, Filter, Subscriptions};
 use crate::state::StateStore;
 use crate::terminal::{
     AttachError, Output, Sink, TerminalLink, TerminalOptions, Terminals, ViewerId,
@@ -56,6 +59,8 @@ pub struct Session {
     pub store: StateStore,
     /// The terminals.
     pub terminals: Terminals,
+    /// The connections to the D-Bus buses.
+    pub buses: Arc<Buses>,
 }
 
 impl Default for Session {
@@ -63,6 +68,7 @@ impl Default for Session {
         Self {
             store: StateStore::default(),
             terminals: Terminals::new(TerminalOptions::from_env()),
+            buses: Buses::new(DbusOptions::default()),
         }
     }
 }
@@ -139,6 +145,8 @@ where
     // The output of the terminals, with the channel of each attach.
     let (sink, mut output) = mpsc::unbounded_channel::<(ViewerId, Output)>();
     let mut viewers: HashMap<ViewerId, ChannelId> = HashMap::new();
+    // The frames of the tasks of the dbus channels: replies and signals.
+    let (events, mut frames) = mpsc::unbounded_channel::<Frame>();
 
     loop {
         let frame = tokio::select! {
@@ -146,6 +154,13 @@ where
                 Some(frame) => frame?,
                 None => return Ok(()),
             },
+            Some(event) = frames.recv() => {
+                // A frame of a channel that closed in the meantime goes nowhere.
+                if let Some(Channel { closed_by_agent: false, .. }) = channels.get(&event.channel()) {
+                    link.send(event).await?;
+                }
+                continue;
+            }
             Some((viewer, out)) = output.recv() => {
                 let Some(&channel) = viewers.get(&viewer) else { continue };
                 if let Some(Channel { closed_by_agent: false, .. }) = channels.get(&channel) {
@@ -216,12 +231,26 @@ where
                 });
             }
             FrameType::Data | FrameType::Control if !state.closed_by_agent => {
-                let refusal = match &state.kind {
+                let refusal = match &mut state.kind {
                     Kind::Echo => {
                         link.send(frame).await?;
                         None
                     }
                     Kind::Pty(terminal) => pty_frame(terminal, frame),
+                    Kind::Dbus { bus, subscriptions }
+                        if frame.frame_type() == FrameType::Control =>
+                    {
+                        dbus_request(
+                            &session.buses,
+                            *bus,
+                            subscriptions,
+                            channel,
+                            &frame,
+                            &events,
+                        )
+                        .await
+                    }
+                    Kind::Dbus { .. } => None,
                     Kind::State if frame.frame_type() == FrameType::Control => {
                         state_request(
                             &mut link,
@@ -271,6 +300,91 @@ fn pty_frame(terminal: &TerminalLink, frame: Frame) -> Refusal {
                 CloseReason::ProtocolError,
                 format!("The pty request is not valid: {error}"),
             ));
+        }
+    }
+    None
+}
+
+/// Handles a request on a dbus channel. A call runs in its own task, thus a slow
+/// service, for example one that waits for a polkit prompt, does not stop the link.
+async fn dbus_request(
+    buses: &Arc<Buses>,
+    bus: Bus,
+    subscriptions: &mut Subscriptions,
+    channel: ChannelId,
+    frame: &Frame,
+    events: &mpsc::UnboundedSender<Frame>,
+) -> Refusal {
+    let request = match frame.parse::<DbusRequest>() {
+        Ok(request) => request,
+        Err(error) => {
+            return Some((
+                CloseReason::ProtocolError,
+                format!("The dbus request is not valid: {error}"),
+            ));
+        }
+    };
+    let send = {
+        let events = events.clone();
+        move |event: DbusEvent| {
+            if let Ok(frame) = Frame::json(channel, FrameType::Control, &event) {
+                let _ = events.send(frame);
+            }
+        }
+    };
+    match request {
+        DbusRequest::Call {
+            id,
+            destination,
+            path,
+            interface,
+            method,
+            signature,
+            args,
+            interactive,
+        } => {
+            let buses = buses.clone();
+            let call = dbus::Call {
+                destination,
+                path,
+                interface,
+                method,
+                signature,
+                args,
+                interactive,
+            };
+            tokio::spawn(async move { send(dbus::call(&buses, bus, id, call).await) });
+        }
+        DbusRequest::Subscribe {
+            id,
+            sender,
+            path,
+            interface,
+            member,
+        } => {
+            let filter = Filter {
+                sender,
+                path,
+                interface,
+                member,
+            };
+            match dbus::subscribe(buses, bus, id, filter, send.clone()).await {
+                Ok(task) => {
+                    subscriptions.insert(id, task);
+                    send(DbusEvent::Reply {
+                        id,
+                        values: Vec::new(),
+                    });
+                }
+                Err(error) => send(error),
+            }
+        }
+        DbusRequest::Unsubscribe { id } => {
+            subscriptions.remove(id);
+            send(DbusEvent::Reply {
+                id,
+                values: Vec::new(),
+            });
         }
     }
     None
@@ -374,6 +488,12 @@ enum Kind {
     State,
     /// Is attached to a terminal.
     Pty(TerminalLink),
+    /// Calls methods and gets signals on a D-Bus bus.
+    Dbus {
+        bus: Bus,
+        /// Dropping the channel ends its subscriptions.
+        subscriptions: Subscriptions,
+    },
     /// The agent refused or closed the channel.
     Closed,
 }
@@ -418,6 +538,10 @@ fn open(
     match frame.parse::<Open>() {
         Ok(Open::Echo) => accept(Kind::Echo),
         Ok(Open::State) => accept(Kind::State),
+        Ok(Open::Dbus { bus }) => accept(Kind::Dbus {
+            bus,
+            subscriptions: Subscriptions::default(),
+        }),
         Ok(Open::Pty {
             terminal,
             cols,

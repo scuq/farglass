@@ -14,12 +14,14 @@ nix = { workspace = true, features = ["signal", "user"] }
 pty-process.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+zbus.workspace = true
 tokio = { workspace = true, features = ["io-util", "process", "time"] }
 tokio-util.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
+serde_json.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "rt"] }
 

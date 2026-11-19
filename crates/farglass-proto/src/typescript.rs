@@ -9,8 +9,8 @@ use ts_rs::{Config, TS};
 
 use crate::login::{LocalSession, LoginEvent, LoginReply};
 use crate::message::{
-    Close, CloseReason, ConnectionMessage, Open, PtyEvent, PtyRequest, Ready, StateEvent,
-    StateRequest,
+    Bus, Close, CloseReason, ConnectionMessage, DbusEvent, DbusRequest, Open, PtyEvent, PtyRequest,
+    Ready, StateEvent, StateRequest,
 };
 use crate::{
     ChannelId, FrameError, FrameType, HEADER_LEN, MAX_PAYLOAD_LEN, PROTOCOL_VERSION,
@@ -87,6 +87,9 @@ fn messages() -> String {
     declare::<Ready>(&cfg, &mut out);
     declare::<Close>(&cfg, &mut out);
     declare::<CloseReason>(&cfg, &mut out);
+    declare::<Bus>(&cfg, &mut out);
+    declare::<DbusRequest>(&cfg, &mut out);
+    declare::<DbusEvent>(&cfg, &mut out);
     declare::<PtyRequest>(&cfg, &mut out);
     declare::<PtyEvent>(&cfg, &mut out);
     declare::<StateRequest>(&cfg, &mut out);

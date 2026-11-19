@@ -30,7 +30,11 @@ cols: number,
 /**
  * The number of rows.
  */
-rows: number, } | { "kind": "state" } | { "kind": "login" };
+rows: number, } | { "kind": "dbus", 
+/**
+ * The bus.
+ */
+bus: Bus, } | { "kind": "state" } | { "kind": "login" };
 
 /**
  * The payload of a ready frame. The receiver of the open frame accepts the channel.
@@ -54,6 +58,121 @@ message?: string, };
  * The cause of a close frame.
  */
 export type CloseReason = "done" | "cancelled" | "not-supported" | "not-found" | "access-denied" | "resource-limit" | "protocol-error" | "internal-error";
+
+/**
+ * A D-Bus bus.
+ */
+export type Bus = "system" | "session";
+
+/**
+ * A request of the shell on a dbus channel.
+ *
+ * Values use this JSON form: numbers, strings, and booleans as they are;
+ * arrays and structures as JSON arrays; dictionaries as JSON objects; a
+ * variant as `{"type": "<signature>", "value": <value>}`.
+ */
+export type DbusRequest = { "type": "call", 
+/**
+ * The number of the request, chosen by the shell.
+ */
+id: number, 
+/**
+ * The bus name of the service.
+ */
+destination: string, 
+/**
+ * The object path.
+ */
+path: string, 
+/**
+ * The interface.
+ */
+interface: string, 
+/**
+ * The method.
+ */
+method: string, 
+/**
+ * The D-Bus signature of the arguments, for example `sb`. Empty for no arguments.
+ */
+signature: string, 
+/**
+ * The arguments, in the JSON form.
+ */
+args: unknown[], 
+/**
+ * Lets the service ask polkit for an interactive authentication.
+ */
+interactive: boolean, } | { "type": "subscribe", 
+/**
+ * The number of the subscription, chosen by the shell.
+ */
+id: number, 
+/**
+ * The bus name of the sender.
+ */
+sender: string, 
+/**
+ * The object path, or all paths.
+ */
+path?: string, 
+/**
+ * The interface, or all interfaces.
+ */
+interface?: string, 
+/**
+ * The signal name, or all signals.
+ */
+member?: string, } | { "type": "unsubscribe", 
+/**
+ * The number of the subscription.
+ */
+id: number, };
+
+/**
+ * A message of the agent on a dbus channel.
+ */
+export type DbusEvent = { "type": "reply", 
+/**
+ * The number of the request.
+ */
+id: number, 
+/**
+ * The values.
+ */
+values: unknown[], } | { "type": "error", 
+/**
+ * The number of the request.
+ */
+id: number, 
+/**
+ * The D-Bus error name, for example `org.freedesktop.DBus.Error.AccessDenied`.
+ */
+name: string, 
+/**
+ * The error message.
+ */
+message: string, } | { "type": "signal", 
+/**
+ * The number of the subscription.
+ */
+subscription: number, 
+/**
+ * The object path.
+ */
+path: string, 
+/**
+ * The interface.
+ */
+interface: string, 
+/**
+ * The signal name.
+ */
+member: string, 
+/**
+ * The values, in the JSON form.
+ */
+values: unknown[], };
 
 /**
  * A control message of the shell on a pty channel.

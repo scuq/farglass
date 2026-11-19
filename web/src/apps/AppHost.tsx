@@ -37,6 +37,7 @@ export function AppHost(props: {
   const context: AppContext = {
     windowId: props.windowId,
     user: c.connection.user,
+    connection: c.connection,
     openChannel(open, handlers = {}) {
       const channel = c.connection.openChannel(open, {
         ...handlers,

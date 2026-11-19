@@ -177,6 +177,45 @@ If no channel is attached at that time, the next attach gets the scrollback and 
 A close frame from the shell only detaches the channel.
 To end a terminal, send `terminate`.
 
+## Dbus channel
+
+A dbus channel gives the shell a D-Bus connection of the agent, as the user:
+
+```json
+{"kind":"dbus","bus":"system"}
+```
+
+`bus` is `system` or `session`.
+The agent permits only the bus names of its allowlist, as the destination of a call and as the sender of a subscription.
+The default allowlist of the system bus has `org.freedesktop.DBus`, `hostname1`, `locale1`, `login1`, `NetworkManager`, `timedate1`, and `UPower`.
+The default allowlist of the session bus has `org.freedesktop.DBus`.
+
+The shell sends these control messages:
+
+| Request | Meaning |
+|---|---|
+| `{"type":"call","id":1,"destination":"…","path":"…","interface":"…","method":"…","signature":"ss","args":[…],"interactive":false}` | Calls a method. With `interactive`, the service can ask polkit for an authentication. |
+| `{"type":"subscribe","id":2,"sender":"…","path":"…","interface":"…","member":"…"}` | Subscribes to signals. `path`, `interface`, and `member` are optional. |
+| `{"type":"unsubscribe","id":2}` | Ends a subscription. |
+
+The agent answers each request with `{"type":"reply","id":1,"values":[…]}` or `{"type":"error","id":1,"name":"…","message":"…"}`.
+`name` is the D-Bus error name, for example `org.freedesktop.DBus.Error.AccessDenied` for a name outside the allowlist.
+Each signal of a subscription comes as `{"type":"signal","subscription":2,"path":"…","interface":"…","member":"…","values":[…]}`.
+The subscriptions end with the channel.
+
+A call runs in its own task in the agent, thus a slow service does not stop other channels.
+
+The values use this JSON form:
+
+| D-Bus type | JSON |
+|---|---|
+| Numbers, strings, object paths, signatures, booleans | As they are. A 64-bit number can come as a string. |
+| Array, structure | Array |
+| Dictionary | Object. A number key is its text form. |
+| Variant | `{"type":"s","value":"…"}` |
+
+A property is a call of `org.freedesktop.DBus.Properties`, for example `Get` with the signature `ss`.
+
 ## Session cookie
 
 A WebSocket message cannot set a cookie.
@@ -260,6 +299,7 @@ Version 1 has one kind:
 | `login` | A PAM login, served by farglassd. See the section on the login channel. |
 | `state` | The state store of the session in the agent. See the section on the state channel. |
 | `pty` | A terminal in the agent. See the section on the pty channel. |
+| `dbus` | Method calls and signals on the system bus or the session bus, as the user. See the section on the dbus channel. |
 
 `Ready` is an empty object.
 

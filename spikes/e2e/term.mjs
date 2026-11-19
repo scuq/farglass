@@ -195,6 +195,11 @@ try {
   const about = page.locator('.wm-window[aria-label="About farglass"]');
   await about.waitFor({ timeout: TIMEOUT_MS });
   check(true, "the menu of the empty desktop opens an app");
+  // About reads hostname1 on the system bus through the dbus channel of the agent.
+  const osRelease = (await import("node:fs")).readFileSync("/etc/os-release", "utf8");
+  const pretty = /^PRETTY_NAME="?([^"\n]*)"?$/m.exec(osRelease)?.[1];
+  await about.locator('[data-field="os"]').filter({ hasText: pretty }).waitFor({ timeout: TIMEOUT_MS });
+  check(true, `About shows the operating system of the host from D-Bus (${pretty})`);
   await about.getByRole("button", { name: "Close" }).click();
 
   // 5. A reload attaches to the same shell, with its scrollback.

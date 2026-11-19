@@ -72,6 +72,14 @@ pub enum Open {
         /// The number of rows.
         rows: u16,
     },
+    /// A D-Bus connection of the agent, as the user.
+    ///
+    /// The shell sends [`DbusRequest`] and gets [`DbusEvent`], as control messages.
+    /// The agent permits only the bus names of its allowlist.
+    Dbus {
+        /// The bus.
+        bus: Bus,
+    },
     /// The state store of the session in the agent. The shell keeps its state
     /// there, for example the open windows, and gets it back after it connects again.
     ///
@@ -83,6 +91,111 @@ pub enum Open {
     /// The shell answers a prompt with [`crate::login::LoginAnswer`].
     /// After the result, farglassd closes the channel.
     Login,
+}
+
+/// A D-Bus bus.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "kebab-case")]
+pub enum Bus {
+    /// The system bus.
+    System,
+    /// The session bus of the user.
+    Session,
+}
+
+/// A request of the shell on a dbus channel.
+///
+/// Values use this JSON form: numbers, strings, and booleans as they are;
+/// arrays and structures as JSON arrays; dictionaries as JSON objects; a
+/// variant as `{"type": "<signature>", "value": <value>}`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum DbusRequest {
+    /// Calls a method. The agent answers with [`DbusEvent::Reply`] or [`DbusEvent::Error`].
+    Call {
+        /// The number of the request, chosen by the shell.
+        id: u32,
+        /// The bus name of the service.
+        destination: String,
+        /// The object path.
+        path: String,
+        /// The interface.
+        interface: String,
+        /// The method.
+        method: String,
+        /// The D-Bus signature of the arguments, for example `sb`. Empty for no arguments.
+        #[serde(default)]
+        signature: String,
+        /// The arguments, in the JSON form.
+        #[serde(default)]
+        #[ts(type = "unknown[]")]
+        args: Vec<serde_json::Value>,
+        /// Lets the service ask polkit for an interactive authentication.
+        #[serde(default)]
+        interactive: bool,
+    },
+    /// Subscribes to signals. The agent sends [`DbusEvent::Signal`] for each one
+    /// until [`DbusRequest::Unsubscribe`] or the end of the channel.
+    Subscribe {
+        /// The number of the subscription, chosen by the shell.
+        id: u32,
+        /// The bus name of the sender.
+        sender: String,
+        /// The object path, or all paths.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        path: Option<String>,
+        /// The interface, or all interfaces.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        interface: Option<String>,
+        /// The signal name, or all signals.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        member: Option<String>,
+    },
+    /// Ends a subscription.
+    Unsubscribe {
+        /// The number of the subscription.
+        id: u32,
+    },
+}
+
+/// A message of the agent on a dbus channel.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum DbusEvent {
+    /// The return values of a call, in the JSON form.
+    Reply {
+        /// The number of the request.
+        id: u32,
+        /// The values.
+        #[ts(type = "unknown[]")]
+        values: Vec<serde_json::Value>,
+    },
+    /// A call or a subscription failed.
+    Error {
+        /// The number of the request.
+        id: u32,
+        /// The D-Bus error name, for example `org.freedesktop.DBus.Error.AccessDenied`.
+        name: String,
+        /// The error message.
+        message: String,
+    },
+    /// A signal of a subscription.
+    Signal {
+        /// The number of the subscription.
+        subscription: u32,
+        /// The object path.
+        path: String,
+        /// The interface.
+        interface: String,
+        /// The signal name.
+        member: String,
+        /// The values, in the JSON form.
+        #[ts(type = "unknown[]")]
+        values: Vec<serde_json::Value>,
+    },
 }
 
 /// A control message of the shell on a pty channel.

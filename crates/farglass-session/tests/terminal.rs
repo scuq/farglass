@@ -7,7 +7,6 @@ use farglass_proto::codec::FrameCodec;
 use farglass_proto::message::{Close, CloseReason, LinkMessage, Open, PtyEvent, PtyRequest};
 use farglass_proto::{ChannelId, Frame, FrameType, PROTOCOL_VERSION, PTY_WINDOW};
 use farglass_session::link::Session;
-use farglass_session::state::StateStore;
 use farglass_session::terminal::{TerminalOptions, Terminals};
 use futures_util::{SinkExt as _, StreamExt as _};
 use tokio::net::UnixStream;
@@ -35,8 +34,8 @@ fn agent(scope: bool) -> mpsc::UnboundedSender<UnixStream> {
     let (streams, mut next) = mpsc::unbounded_channel::<UnixStream>();
     tokio::spawn(async move {
         let mut session = Session {
-            store: StateStore::default(),
             terminals: Terminals::new(options(scope)),
+            ..Session::default()
         };
         while let Some(stream) = next.recv().await {
             let _ = farglass_session::link::serve_with(stream, &mut session).await;

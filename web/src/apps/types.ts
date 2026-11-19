@@ -11,7 +11,7 @@
 
 import type { JSX } from "@solidjs/web";
 import type { MenuProvider } from "../menu/menu";
-import type { Channel, ChannelHandlers, Open } from "../proto";
+import type { Channel, ChannelHandlers, Connection, Open } from "../proto";
 
 /** The state store of the session, for an app. */
 export interface AppState {
@@ -35,6 +35,8 @@ export interface AppContext {
   readonly windowId: string;
   /** The user of the session. */
   readonly user: string | null;
+  /** The connection to the host. Use it for clients that open their own channels, for example DbusClient. */
+  readonly connection: Connection;
   /** Opens a channel to the agent. Closing the window closes the channel. */
   openChannel(open: Open, handlers?: ChannelHandlers): Channel;
   /** The state store of the session. */
