@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -f .project/pmm ] && python3 .project/pmm brief || true"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -f .project/pmm ] || exit 0; python3 .project/pmm check --hook"
+          }
+        ]
+      }
+    ]
+  }
+}

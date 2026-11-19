@@ -1,0 +1,5 @@
+# pmm settings, one "key: value" per line.
+# test: the command that "pmm done" runs before it commits.
+# read: files that every task must know, comma-separated; brief prints them.
+test: cargo test --workspace && npm --prefix web test
+read: 
