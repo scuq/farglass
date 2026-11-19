@@ -42,6 +42,15 @@ export interface AppContext {
   setTitle(title: string): void;
   /** Opens a new window of the app `appId`. */
   openApp(appId: string): void;
+  /**
+   * Calls `handler` when the user closes the window. A reload or a reconnect does
+   * not close the window, thus it does not call `handler`.
+   */
+  onClose(handler: () => void): void;
+  /** Calls `handler` when the window gets the focus, for example to focus an input element. */
+  onFocus(handler: () => void): void;
+  /** Reports whether the window has the focus now. */
+  isFocused(): boolean;
 }
 
 /** The component of an app window: the default export of the app module. */

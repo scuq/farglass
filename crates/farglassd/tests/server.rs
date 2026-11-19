@@ -470,8 +470,24 @@ async fn each_response_has_the_security_headers_and_no_hsts_with_a_self_signed_c
         let csp = header(&response, "content-security-policy".parse().unwrap());
         assert!(csp.contains("script-src 'self'"), "{path}: {csp}");
         assert!(csp.contains("frame-ancestors 'none'"), "{path}: {csp}");
-        assert!(
-            !csp.contains("unsafe-inline") && !csp.contains("unsafe-eval"),
+        let directive = |name: &str| {
+            csp.split(';')
+                .map(str::trim)
+                .find(|d| d.split_whitespace().next() == Some(name))
+                .unwrap_or_default()
+                .to_owned()
+        };
+        assert_eq!(
+            directive("script-src"),
+            "script-src 'self'",
+            "{path}: {csp}"
+        );
+        assert!(!csp.contains("unsafe-eval"), "{path}: {csp}");
+        // Only <style> elements can be inline (ADR-027), not style attributes.
+        assert_eq!(directive("style-src"), "style-src 'self'", "{path}: {csp}");
+        assert_eq!(
+            directive("style-src-elem"),
+            "style-src-elem 'self' 'unsafe-inline'",
             "{path}: {csp}"
         );
         assert_eq!(

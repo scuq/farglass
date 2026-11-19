@@ -1,0 +1,25 @@
+/* The terminal fills the content area of its window. */
+.term-app {
+  position: absolute;
+  inset: 0;
+  padding: 4px 0 0 6px;
+  background: var(--term-bg, #fbfbf9);
+}
+@media (prefers-color-scheme: dark) {
+  .term-app {
+    --term-bg: #1a1a19;
+  }
+}
+.term-app .xterm {
+  height: 100%;
+}
+.wm-content:has(> .term-app) {
+  position: relative;
+  padding: 0;
+  overflow: hidden;
+}
+/* The space below the last full row has the background of the terminal, not the black of xterm.css. */
+.term-app .xterm-viewport,
+.term-app .xterm-scrollable-element {
+  background-color: var(--term-bg, #fbfbf9) !important;
+}

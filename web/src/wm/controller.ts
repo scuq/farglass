@@ -48,6 +48,11 @@ export interface DesktopController {
   trackKey(id: string, key: string): void;
   /** Changes the title of a window. */
   setTitle(id: string, title: string): void;
+  /**
+   * Adds a handler that runs when the window `id` closes, or gets the focus.
+   * Returns a function that removes the handler.
+   */
+  addHook(id: string, event: "close" | "focus", handler: () => void): () => void;
   readonly desktop: Accessor<Desktop>;
   readonly area: Accessor<Rect>;
   readonly preview: Accessor<SnapZone | null>;
@@ -85,6 +90,13 @@ export function createDesktopController(connection: Connection): DesktopControll
   let surface: HTMLElement | undefined;
   /** The state keys of each window. */
   const windowKeys = new Map<string, Set<string>>();
+  /** The handlers of each window, by event. */
+  const hooks = new Map<string, Set<() => void>>();
+  const runHooks = (id: string, event: "close" | "focus") => {
+    for (const handler of [...(hooks.get(`${event}:${id}`) ?? [])]) {
+      handler();
+    }
+  };
 
   /** Applies an action, and saves the result after a short wait. */
   const apply = (change: (state: Desktop) => Desktop) => {
@@ -133,6 +145,7 @@ export function createDesktopController(connection: Connection): DesktopControll
     if (element && !element.contains(document.activeElement)) {
       element.focus({ preventScroll: true });
     }
+    runHooks(id, "focus");
   };
 
   const controller: DesktopController = {
@@ -147,6 +160,16 @@ export function createDesktopController(connection: Connection): DesktopControll
       keys.add(key);
     },
     setTitle: (id, title) => apply((state) => retitleWindow(state, id, title)),
+    addHook(id, event, handler) {
+      const key = `${event}:${id}`;
+      let set = hooks.get(key);
+      if (!set) {
+        set = new Set();
+        hooks.set(key, set);
+      }
+      set.add(handler);
+      return () => set.delete(handler);
+    },
     desktop,
     area,
     preview,
@@ -168,6 +191,8 @@ export function createDesktopController(connection: Connection): DesktopControll
       queueMicrotask(() => focusElement(id));
     },
     close(id) {
+      // The app gets the close before its window goes, for example to end its terminal.
+      runHooks(id, "close");
       apply((state) => closeWindow(state, id));
       // A closed window does not come back, thus its state goes. A reconnect does not close windows.
       for (const key of windowKeys.get(id) ?? []) {

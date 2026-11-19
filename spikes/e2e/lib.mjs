@@ -16,10 +16,14 @@ export function build(command, args) {
   }
 }
 
-/** Builds the three programs and the shell. */
-export function buildAll() {
-  build("cargo", ["build", "-p", "farglassd", "-p", "farglass-session", "-p", "farglass-login"]);
+/**
+ * Builds the three programs and the shell. Returns the directory of the programs.
+ * `release` builds with optimizations, for measurements of speed.
+ */
+export function buildAll(release = false) {
+  build("cargo", ["build", ...(release ? ["--release"] : []), "-p", "farglassd", "-p", "farglass-session", "-p", "farglass-login"]);
   build("npm", ["--prefix", "web", "run", "build"]);
+  return release ? "target/release" : "target/debug";
 }
 
 /** Starts a program and returns it with the first match of `pattern` in its log. */

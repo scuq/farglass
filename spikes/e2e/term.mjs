@@ -1,0 +1,182 @@
+// term.mjs - end-to-end test of the terminal app in Chromium
+//
+// Usage: npm --prefix spikes/e2e run term
+//
+// The script builds the programs with optimizations, starts farglassd in
+// dev_user mode and the agent, and opens terminals in the shell. It measures
+// the delay from a key press to its echo with the Performance API, and tests
+// the clipboard, a size change, a reload, a closed tab, and the close of a window.
+//
+// Exit status: 0 if all steps pass, 1 if a step fails.
+
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { chromium } from "playwright";
+import { buildAll, launch, start, TIMEOUT_MS } from "./lib.mjs";
+
+const SHOTS = process.env.FARGLASS_SHOTS;
+const state = mkdtempSync(join(tmpdir(), "farglass-e2e-"));
+const children = [];
+let browser;
+let failed = false;
+
+function check(condition, text) {
+  if (!condition) throw new Error(text);
+  console.log(`PASS: ${text}`);
+}
+
+/** Returns the text of the terminal in the window `id`. */
+function text(page, id) {
+  return page.locator(`[data-window="${id}"] .term-app`).evaluate((el) => el.farglassTerminal.text());
+}
+
+/** Waits until the terminal in the window `id` shows `pattern`. Returns the text. */
+async function until(page, id, pattern, timeout = TIMEOUT_MS) {
+  const end = Date.now() + timeout;
+  for (;;) {
+    const current = await text(page, id);
+    if (pattern.test(current)) return current;
+    if (Date.now() > end) throw new Error(`The terminal does not show ${pattern}:\n${current.split("\n").slice(-15).join("\n")}`);
+    await page.waitForTimeout(50);
+  }
+}
+
+/** Types a command in the terminal of the window `id`. */
+async function run(page, id, command) {
+  await page.locator(`[data-window="${id}"] .term-app`).click();
+  await page.keyboard.type(command);
+  await page.keyboard.press("Enter");
+}
+
+/** Opens a terminal window and returns its id when its shell runs. */
+async function openTerminal(page) {
+  const before = await page.locator(".wm-window").evaluateAll((els) => els.map((el) => el.dataset.window));
+  await launch(page, "Terminal");
+  const window = page.locator(".wm-window").filter({ has: page.locator('.term-app[data-status="running"]') });
+  for (;;) {
+    const ids = await window.evaluateAll((els) => els.map((el) => el.dataset.window));
+    const id = ids.find((each) => !before.includes(each));
+    if (id) return id;
+    await page.waitForTimeout(50);
+  }
+}
+
+try {
+  const bin = buildAll(true);
+  const socket = join(state, "agent.sock");
+  const daemon = start(
+    "farglassd",
+    `${bin}/farglassd`,
+    ["--listen", "127.0.0.1:0", "--web-root", "web/dist", "--state-dir", state, "--agent-socket", socket, "--dev-user", String(process.getuid())],
+    {},
+    /listening on (https:\/\/\S+)/,
+  );
+  children.push(daemon.child);
+  const [, url] = await daemon.match;
+  const agent = start("farglass-session", `${bin}/farglass-session`, [], { FARGLASS_AGENT_SOCKET: socket }, /connected to farglassd/);
+  children.push(agent.child);
+  await agent.match;
+
+  browser = await chromium.launch();
+  const context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1280, height: 800 } });
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: new URL(url).origin });
+  const cspViolations = [];
+  context.on("console", (message) => {
+    if (message.text().includes("Content Security Policy")) cspViolations.push(message.text());
+  });
+  let page = await context.newPage();
+  await page.goto(url);
+  await page.locator(".wm-window").first().waitFor({ timeout: TIMEOUT_MS });
+
+  // 1. A shell in a terminal window.
+  const id = await openTerminal(page);
+  const renderer = await page.locator(`[data-window="${id}"] .term-app`).getAttribute("data-renderer");
+  console.log(`INFO: the terminal uses the ${renderer} renderer`);
+  await run(page, id, "MARK=kept-$((6*7)); echo shell-$MARK; echo pid=$$");
+  const first = await until(page, id, /shell-kept-42/);
+  const pid = Number(/pid=(\d+)/.exec(first)[1]);
+  check(pid > 0, `the terminal runs a shell (pid ${pid})`);
+
+  // 2. The delay from a key press to its echo.
+  await page.evaluate(() => performance.clearMeasures("farglass:terminal-echo"));
+  for (const key of "abcdefghijklmnopqrstuvwxyzabcdefghijklmn") {
+    await page.keyboard.press(key);
+    await page.waitForTimeout(25);
+  }
+  await page.keyboard.press("Control+U");
+  const delays = (await page.evaluate(() => performance.getEntriesByName("farglass:terminal-echo").map((m) => m.duration))).sort(
+    (a, b) => a - b,
+  );
+  const p50 = delays[Math.floor(delays.length / 2)];
+  const p95 = delays[Math.floor(delays.length * 0.95)];
+  console.log(`INFO: ${delays.length} echoes, median ${p50.toFixed(2)} ms, p95 ${p95.toFixed(2)} ms, max ${delays.at(-1).toFixed(2)} ms`);
+  check(delays.length >= 35, "the Performance API has a measurement for each key press");
+  check(p95 < 5, `the echo of a key press comes in less than 5 ms on loopback (p95 ${p95.toFixed(2)} ms)`);
+
+  // 3. The clipboard: OSC 52 from the host, and Ctrl+Shift+V.
+  await run(page, id, "printf '\\033]52;c;%s\\a' \"$(printf from-osc52 | base64)\"");
+  await page.waitForFunction(async () => (await navigator.clipboard.readText()) === "from-osc52", null, { timeout: TIMEOUT_MS });
+  check(true, "a program on the host sets the clipboard of the browser with OSC 52");
+  await page.evaluate(() => navigator.clipboard.writeText("echo pasted-$((6*7))"));
+  await page.locator(`[data-window="${id}"] .term-app`).click();
+  await page.keyboard.press("Control+Shift+V");
+  await page.keyboard.press("Enter");
+  await until(page, id, /pasted-42/);
+  check(true, "Ctrl+Shift+V pastes the clipboard of the browser, and Enter right after it comes after the pasted text");
+
+  // 4. The size of the window gives the size of the terminal.
+  await page.locator(`[data-window="${id}"]`).getByRole("button", { name: "Maximize" }).click();
+  await page.waitForTimeout(300);
+  await run(page, id, "stty size");
+  const size = /\n(\d+) (\d+)\s*$/m.exec(await until(page, id, /\n\d+ \d+\s*$/m));
+  check(Number(size[2]) > 120, `a larger window gives more columns (stty size: ${size[1]} ${size[2]})`);
+  if (SHOTS) await page.screenshot({ path: join(SHOTS, "terminal.png") });
+
+  // 5. A reload attaches to the same shell, with its scrollback.
+  await page.waitForTimeout(400);
+  await page.reload();
+  await page.locator(`[data-window="${id}"] .term-app[data-status="running"]`).waitFor({ timeout: TIMEOUT_MS });
+  await until(page, id, /shell-kept-42/);
+  await run(page, id, "echo again-$MARK");
+  await until(page, id, /again-kept-42/);
+  check(true, "a reload attaches to the same shell, with its scrollback and its variables");
+
+  // 6. A job continues when the tab closes.
+  await run(page, id, "sleep 1; echo job-finished-$MARK");
+  await page.close();
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+  page = await context.newPage();
+  await page.goto(url);
+  await page.locator(`[data-window="${id}"] .term-app[data-status="running"]`).waitFor({ timeout: TIMEOUT_MS });
+  await until(page, id, /job-finished-kept-42/);
+  check(true, "a job continues with no tab, and its output is there after the next connection");
+
+  // 7. More than one window, and the close of a window ends its shell.
+  const second = await openTerminal(page);
+  await run(page, second, "echo pid=$$");
+  const secondPid = Number(/pid=(\d+)/.exec(await until(page, second, /pid=\d+/))[1]);
+  check(secondPid !== pid, "a second terminal window has its own shell");
+  await page.locator(`[data-window="${second}"]`).getByRole("button", { name: "Close" }).click();
+  const end = Date.now() + TIMEOUT_MS;
+  let alive = true;
+  while (alive && Date.now() < end) {
+    try {
+      process.kill(secondPid, 0);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    } catch {
+      alive = false;
+    }
+  }
+  check(!alive, "closing a terminal window ends its shell");
+  check(cspViolations.length === 0, `no Content Security Policy violation ${cspViolations.join("; ")}`);
+} catch (error) {
+  failed = true;
+  console.error(`FAIL: ${error.message}`);
+} finally {
+  await browser?.close();
+  for (const child of children) child.kill("SIGTERM");
+  rmSync(state, { recursive: true, force: true });
+}
+
+process.exit(failed ? 1 : 0);

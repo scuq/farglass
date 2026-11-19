@@ -16,7 +16,10 @@ function isLoadError(error: unknown): boolean {
  * of the app.
  */
 export function AppHost(props: {
-  controller: Pick<DesktopController, "connection" | "state" | "trackKey" | "setTitle" | "openApp">;
+  controller: Pick<
+    DesktopController,
+    "connection" | "state" | "trackKey" | "setTitle" | "openApp" | "addHook" | "focusedId"
+  >;
   app: App | undefined;
   windowId: string;
   appId: string;
@@ -29,6 +32,7 @@ export function AppHost(props: {
   const c = props.controller;
   const channels = new Set<Channel>();
   const unwatch: (() => void)[] = [];
+  const hooks: (() => void)[] = [];
   const context: AppContext = {
     windowId: props.windowId,
     user: c.connection.user,
@@ -56,10 +60,13 @@ export function AppHost(props: {
     },
     setTitle: (title) => c.setTitle(props.windowId, title),
     openApp: (appId) => c.openApp(appId),
+    onClose: (handler) => hooks.push(c.addHook(props.windowId, "close", handler)),
+    onFocus: (handler) => hooks.push(c.addHook(props.windowId, "focus", handler)),
+    isFocused: () => c.focusedId() === props.windowId,
   };
 
   onCleanup(() => {
-    for (const stop of unwatch) {
+    for (const stop of [...unwatch, ...hooks]) {
       stop();
     }
     for (const channel of channels) {

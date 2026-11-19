@@ -34,6 +34,8 @@ async function host(component: () => Promise<{ default: AppComponent }>) {
     trackKey: (_id: string, key: string) => keys.push(key),
     setTitle: (_id: string, title: string) => titles.push(title),
     openApp: (id: string) => opened.push(id),
+    addHook: () => () => {},
+    focusedId: () => "w1",
   };
   const element = document.createElement("div");
   document.body.append(element);
@@ -43,7 +45,7 @@ async function host(component: () => Promise<{ default: AppComponent }>) {
 
 describe("registry", () => {
   test("the shell finds each app by its manifest", () => {
-    expect(Object.keys(APPS).sort()).toEqual(["about", "echo"]);
+    expect(Object.keys(APPS).sort()).toEqual(["about", "echo", "terminal"]);
     for (const app of Object.values(APPS)) {
       expect(app.icon).toBeTruthy();
       expect(typeof app.component.preload).toBe("function");

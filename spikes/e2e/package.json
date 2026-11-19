@@ -11,7 +11,8 @@
     "echo": "node echo.mjs",
     "login": "node login.mjs",
     "wm": "node wm.mjs",
-    "test": "node echo.mjs && node login.mjs && node wm.mjs"
+    "test": "node echo.mjs && node login.mjs && node wm.mjs && node term.mjs",
+    "term": "node term.mjs"
   },
   "devDependencies": {
     "playwright": "^1.65.1"

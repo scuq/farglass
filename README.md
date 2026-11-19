@@ -107,7 +107,7 @@ A reload or a new tab uses the cookie and skips the login for 12 hours.
 farglassd accepts a WebSocket and a session request only from a page of the same origin.
 Each response has these headers:
 
-- `Content-Security-Policy` with only files of this server, no inline script, and no frames
+- `Content-Security-Policy` with only files of this server, no inline script, and no frames. The policy permits inline `<style>` elements, because the terminal makes them.
 - `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`
 - `Strict-Transport-Security`, only with a certificate from `cert` and `key`
 
@@ -162,6 +162,30 @@ Press Escape during a drag to stop it.
 
 NOTE: The operating system of the client keeps Alt+Tab and the Super key, unless the shell is in fullscreen mode with Keyboard Lock.
 Alt+` and the Ctrl+Alt keys reach the shell on each client.
+
+## Terminal
+
+**Terminal** in the launcher opens a shell on the host, as your user.
+Each terminal window has its own shell in its own systemd user scope.
+The shell continues when you close the tab or when the connection breaks.
+After a reload or the next connection, the window shows the same shell with its output.
+Closing the window ends the shell and its jobs.
+If the shell stops, press Enter in the window to start a new shell.
+
+| Keys | Action |
+|---|---|
+| Ctrl+Shift+C | Copy the selected text |
+| Ctrl+Shift+V, or Shift+Insert | Paste |
+
+A program on the host can put text on the clipboard of your browser with OSC 52, for example vim or tmux.
+A program cannot read your clipboard.
+
+NOTE: The browser keeps some keys that terminal programs use, for example Ctrl+W, Ctrl+T, and Ctrl+N.
+In fullscreen mode with Keyboard Lock (F017), these keys go to the terminal.
+
+`npm --prefix spikes/e2e run term` tests the terminal in Chromium with optimized programs.
+It measures the delay from each key press to its echo with the Performance API.
+It fails at a 95th percentile of 5 ms or more.
 
 ## Write an app
 

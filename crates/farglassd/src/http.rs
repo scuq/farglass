@@ -28,9 +28,13 @@ pub const SESSION_PATH: &str = "/session";
 ///
 /// Only files of this server can run. No inline script, no eval, no frames,
 /// and no connection to a different host.
-const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; \
-font-src 'self'; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; \
-form-action 'self'; frame-ancestors 'none'";
+///
+/// `style-src-elem` permits inline `<style>` elements: xterm.js makes them for
+/// each terminal, and its DOM renderer needs them (ADR-027). Inline `style`
+/// attributes in markup stay blocked.
+const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; \
+style-src-elem 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; \
+worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
 /// The headers that all responses get, with their values.
 const SECURITY_HEADERS: [(&str, &str); 6] = [
