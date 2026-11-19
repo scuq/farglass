@@ -17,5 +17,6 @@ The shortcuts follow the conventions that the user knows, and the shell teaches 
 - A binding never takes a key that input methods, screen readers, or apps use
 - When the browser keeps a shortcut, the scheme has a second binding
 - An interactive tour of the shortcuts
+- Shortcuts for a new terminal window, a new window of the focused app, and closing the focused window that the browser does not reserve. The browser keeps Cmd/Ctrl+T, Cmd/Ctrl+W, and Cmd/Ctrl+Shift+T (reopen the closed tab). Candidates: Option/Alt+Shift+T, N, and W on each client, or Ctrl+Shift+T, N, and W on a Mac client. With Keyboard Lock, Cmd/Ctrl+T and Cmd/Ctrl+W work too
 
 ## Acceptance
