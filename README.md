@@ -231,7 +231,8 @@ npm --prefix spikes/e2e test
 ```
 
 `npm --prefix spikes/e2e run wm` tests the window manager.
-It drags a window and measures the frames during the drag, and it fails if the 95th percentile of the frame interval is 25 ms or more.
+It drags a window and measures the frames during the drag.
+It fails if the 95th percentile of the frame interval is 25 ms or more.
 It also tests a snap, a size change, Alt+Tab, the channel of an app after the moves, the launcher, the session menu, and a reload.
 
 `npm --prefix spikes/e2e run echo` starts farglassd in development mode.
