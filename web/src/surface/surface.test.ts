@@ -8,6 +8,7 @@ class Canvas {
   height = 0;
   rgba = new Uint8ClampedArray(0);
   ended: number[] = [];
+  jpegs: number[][] = [];
   readonly target = {
     resize: (w: number, h: number) => {
       this.width = w;
@@ -23,6 +24,10 @@ class Canvas {
       const block = [];
       for (let row = 0; row < h; row++) block.push(this.rgba.slice(((y + row) * this.width + x) * 4, ((y + row) * this.width + x + w) * 4));
       block.forEach((line, row) => this.rgba.set(line, ((y + row + dy) * this.width + x) * 4));
+    },
+    jpeg: async (x: number, y: number, w: number, h: number, jpeg: Uint8Array) => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      this.jpegs.push([x, y, w, h, jpeg[0]!, jpeg[1]!]);
     },
     end: (seq: number) => this.ended.push(seq),
   };
@@ -69,7 +74,7 @@ describe("surface decoder", () => {
     expect([...bgraToRgba(new Uint8Array([10, 20, 30, 255, 0, 0, 64, 128, 0, 0, 0, 0]))]).toEqual([30, 20, 10, 255, 128, 0, 0, 128, 0, 0, 0, 0]);
   });
 
-  test("a frame with a tile and a fill, split over data frames, draws and ends", () => {
+  test("a frame with a tile and a fill, split over data frames, draws and ends", async () => {
     const canvas = new Canvas();
     const decoder = new SurfaceDecoder(canvas.target);
     const tile = literalBlock([1, 2, 3, 255, 4, 5, 6, 255]);
@@ -81,7 +86,7 @@ describe("surface decoder", () => {
     s.u8(Code.END).u32(1);
     const all = s.array;
     for (let i = 0; i < all.length; i += 5) {
-      decoder.push(all.subarray(i, i + 5));
+      await decoder.push(all.subarray(i, i + 5));
     }
     expect(decoder.slots).toBe(2048);
     expect([canvas.width, canvas.height]).toEqual([4, 2]);
@@ -92,7 +97,7 @@ describe("surface decoder", () => {
     expect(canvas.ended).toEqual([1]);
   });
 
-  test("a tile takes the next cache slot, a reference draws it, and a keep copies it to the next slot", () => {
+  test("a tile takes the next cache slot, a reference draws it, and a keep copies it to the next slot", async () => {
     const canvas = new Canvas();
     const decoder = new SurfaceDecoder(canvas.target);
     const red = literalBlock([0, 0, 255, 255]);
@@ -107,16 +112,16 @@ describe("surface decoder", () => {
     s.u8(Code.KEEP).u16(0);
     s.u8(Code.REF).u16(2).u16(0).u16(0);
     s.u8(Code.END).u32(1);
-    decoder.push(s.array);
+    await decoder.push(s.array);
     expect([canvas.pixel(0, 0), canvas.pixel(1, 0), canvas.pixel(2, 0)]).toEqual([
       [255, 0, 0, 255],
       [0, 255, 0, 255],
       [255, 0, 0, 255],
     ]);
-    expect(() => decoder.push(new Stream().u8(Code.REF).u16(0).u16(0).u16(1).array)).not.toThrow();
+    await expect(decoder.push(new Stream().u8(Code.REF).u16(0).u16(0).u16(1).array)).resolves.toBeUndefined();
   });
 
-  test("a move copies a block of the canvas up, as a scroll does", () => {
+  test("a move copies a block of the canvas up, as a scroll does", async () => {
     const canvas = new Canvas();
     const decoder = new SurfaceDecoder(canvas.target);
     const s = new Stream().u8(Code.FRAME).u32(1).u16(1).u16(3);
@@ -125,7 +130,7 @@ describe("surface decoder", () => {
     // Rows 1 and 2 go one row up.
     s.u8(Code.MOVE).u16(0).u16(1).u16(1).u16(2).u16(0xffff);
     s.u8(Code.END).u32(1);
-    decoder.push(s.array);
+    await decoder.push(s.array);
     // The fills are BGRA: 0xff0000ff is blue.
     expect([canvas.pixel(0, 0), canvas.pixel(0, 1)]).toEqual([
       [0, 0, 255, 255],
@@ -133,8 +138,20 @@ describe("surface decoder", () => {
     ]);
   });
 
-  test("an unknown message stops the stream", () => {
+  test("a lossy tile draws before the next message", async () => {
+    const canvas = new Canvas();
+    const decoder = new SurfaceDecoder(canvas.target);
+    const s = new Stream().u8(Code.FRAME).u32(1).u16(64).u16(64);
+    s.u8(Code.JPEG).u16(0).u16(0).u8(64).u8(64).u32(2);
+    s.bytes.push(0xff, 0xd8);
+    s.u8(Code.END).u32(1);
+    await decoder.push(s.array);
+    expect(canvas.jpegs).toEqual([[0, 0, 64, 64, 0xff, 0xd8]]);
+    expect(canvas.ended).toEqual([1]);
+  });
+
+  test("an unknown message stops the stream", async () => {
     const decoder = new SurfaceDecoder(new Canvas().target);
-    expect(() => decoder.push(new Uint8Array([99]))).toThrow("unknown message 99");
+    await expect(decoder.push(new Uint8Array([99]))).rejects.toThrow("unknown message 99");
   });
 });

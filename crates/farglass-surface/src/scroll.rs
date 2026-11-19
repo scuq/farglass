@@ -81,11 +81,11 @@ pub fn detect(
     }
     // The largest block of rows that equal the old rows at the offset.
     let (mut best_start, mut best_len, mut start, mut len) = (0, 0, 0, 0);
-    for index in 0..new.len() {
+    for (index, hash) in new.iter().enumerate() {
         let from = isize::try_from(index).ok()? - dy;
         let same = usize::try_from(from)
             .ok()
-            .is_some_and(|from| from < old.len() && old[from] == new[index]);
+            .is_some_and(|from| from < old.len() && old[from] == *hash);
         if same {
             if len == 0 {
                 start = index;

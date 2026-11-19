@@ -17,6 +17,7 @@
 #![deny(unsafe_code)]
 
 pub mod cache;
+pub mod classify;
 pub mod scroll;
 mod state;
 pub mod tiles;

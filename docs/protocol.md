@@ -352,6 +352,7 @@ Each message starts with a code byte. The fields are little-endian:
 | 4 | move | x u16, y u16, w u16, h u16, dy i16: copies the block of the canvas `dy` rows down, or up if negative |
 | 5 | keep | slot u16: copies a cache slot to the next slot, with no drawing |
 | 6 | fill | x u16, y u16, w u8, h u8, BGRA u32 |
+| 7 | jpeg | x u16, y u16, w u8, h u8, length u32, JPEG of the tile. It takes no cache slot. |
 | 8 | end | sequence u32 |
 
 The tiles are 64 x 64 pixels on a grid from the top-left corner. Tiles at the right and bottom edges are smaller.
@@ -369,6 +370,10 @@ Each channel starts with an empty cache. A lost message breaks the cache, thus t
 
 For a scroll, the agent sends a move first: it hashes each row of the damaged region in the old and the new frame, and finds the vertical offset that most rows agree on.
 The tiles that follow give only the new strip.
+
+A tile with more than 256 colors is an image, for example a photo or a gradient: it goes as a JPEG of quality 70 first.
+When the tile did not change for 300 ms, the agent sends it again, exact, in a frame of its own.
+The client must draw a JPEG tile before the next message.
 
 The agent sends only the tiles in the damage of the Wayland client that differ from what the client shows.
 A tile of one color goes as a fill. While the encoder works, the commits wait, and their damage adds up: the client gets the newest pixels only.

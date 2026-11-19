@@ -8,6 +8,7 @@ repository.workspace = true
 description = "The headless Wayland compositor of a farglass session"
 
 [dependencies]
+jpeg-encoder.workspace = true
 lz4_flex.workspace = true
 smithay.workspace = true
 xxhash-rust.workspace = true

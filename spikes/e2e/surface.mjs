@@ -123,6 +123,26 @@ try {
   const end = Date.now() + TIMEOUT_MS;
   while (exited === null && Date.now() < end) await new Promise((resolve) => setTimeout(resolve, 100));
   check(exited === 0, "the close button stops the app");
+
+  // 5. A photo goes as lossy tiles first, and the lossless pass makes it exact (F028).
+  const viewer = "/usr/bin/eog";
+  const photo = "/usr/share/backgrounds/gnome/adwaita-l.jpg";
+  if (existsSync(viewer) && existsSync(photo)) {
+    const eog = spawn(viewer, [photo], {
+      env: { ...process.env, WAYLAND_DISPLAY: wayland, GDK_BACKEND: "wayland", DBUS_SESSION_BUS_ADDRESS: "disabled:", DISPLAY: "" },
+      stdio: "ignore",
+    });
+    children.push(eog);
+    await page.locator(".wm-window").filter({ has: page.locator(".linux-app") }).waitFor({ timeout: 30_000 });
+    const sum = (name) => [...agent.log().matchAll(new RegExp(`${name}: (\\d+)`, "g"))].reduce((total, match) => total + Number(match[1]), 0);
+    const until = Date.now() + 20_000;
+    while ((sum("lossy") === 0 || sum("refined") < sum("lossy")) && Date.now() < until) await page.waitForTimeout(200);
+    check(sum("lossy") > 0, `the photo went as ${sum("lossy")} lossy tiles`);
+    check(sum("refined") >= sum("lossy"), `the lossless pass made ${sum("refined")} tiles exact`);
+    if (SHOTS) await page.screenshot({ path: join(SHOTS, "surface-photo.png") });
+  } else {
+    console.log("INFO: no eog or no photo, the lossy step is not tested");
+  }
   check(errors.length === 0, `no page error ${errors.join("; ")}`);
 } catch (error) {
   failed = true;

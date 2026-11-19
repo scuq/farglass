@@ -7,7 +7,7 @@
 import { decodeLz4Block } from "./lz4";
 
 /** The message codes. They are the same as in crates/farglass-surface/src/tiles.rs. */
-export const Code = { HELLO: 0, FRAME: 1, TILE: 2, REF: 3, MOVE: 4, KEEP: 5, FILL: 6, END: 8 } as const;
+export const Code = { HELLO: 0, FRAME: 1, TILE: 2, REF: 3, MOVE: 4, KEEP: 5, FILL: 6, JPEG: 7, END: 8 } as const;
 
 /** One cache slot: the pixels of a tile, ready for the target. */
 interface Slot {
@@ -24,6 +24,8 @@ export interface SurfaceTarget {
   put(x: number, y: number, width: number, height: number, rgba: Uint8ClampedArray<ArrayBuffer>): void;
   /** Copies the block (x, y, width, height) of the canvas `dy` rows down, or up if negative: a scroll. */
   move(x: number, y: number, width: number, height: number, dy: number): void;
+  /** Draws a lossy tile. The decoder waits for it before the next message. */
+  jpeg(x: number, y: number, width: number, height: number, jpeg: Uint8Array<ArrayBuffer>): Promise<void>;
   /** The frame is complete. */
   end(seq: number): void;
 }
@@ -56,6 +58,7 @@ const FIXED: Record<number, number> = {
   [Code.MOVE]: 10,
   [Code.KEEP]: 2,
   [Code.FILL]: 10,
+  [Code.JPEG]: 10,
   [Code.END]: 4,
 };
 
@@ -81,8 +84,11 @@ export class SurfaceDecoder {
     this.#target = target;
   }
 
-  /** Takes the payload of one data frame. */
-  push(chunk: Uint8Array): void {
+  /**
+   * Takes the payload of one data frame. Each call must wait for the one before it:
+   * a lossy tile draws after its decode.
+   */
+  async push(chunk: Uint8Array): Promise<void> {
     let bytes: Uint8Array;
     if (this.#pending.length === 0) {
       bytes = chunk;
@@ -97,13 +103,18 @@ export class SurfaceDecoder {
       if (used === 0) {
         break;
       }
+      if (typeof used !== "number") {
+        await used.wait;
+        offset += used.length;
+        continue;
+      }
       offset += used;
     }
     this.#pending = bytes.slice(offset);
   }
 
   /** Handles the message at `offset`. Returns its length, or 0 if it is not complete. */
-  #message(bytes: Uint8Array, offset: number): number {
+  #message(bytes: Uint8Array, offset: number): number | { length: number; wait: Promise<void> } {
     if (offset >= bytes.length) {
       return 0;
     }
@@ -143,6 +154,15 @@ export class SurfaceDecoder {
         this.#store({ width: w, height: h, rgba });
         this.#target.put(x, y, w, h, rgba);
         return end - offset;
+      }
+      case Code.JPEG: {
+        const length = view.getUint32(6, true);
+        const end = offset + 1 + fixed + length;
+        if (bytes.length < end) {
+          return 0;
+        }
+        const [x, y, w, h] = [view.getUint16(0, true), view.getUint16(2, true), view.getUint8(4), view.getUint8(5)];
+        return { length: end - offset, wait: this.#target.jpeg(x, y, w, h, bytes.slice(offset + 1 + fixed, end)) };
       }
       case Code.REF: {
         const slot = this.#ring[view.getUint16(4, true)];

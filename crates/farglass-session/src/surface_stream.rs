@@ -26,6 +26,14 @@ impl Drop for SurfaceStream {
     }
 }
 
+/// The work of one step of the encoder.
+enum Job {
+    /// A commit, or several commits with their damage.
+    Frame(FrameUpdate),
+    /// The lossless pass of the lossy tiles.
+    Refine,
+}
+
 /// Adds `update` to the update that waits.
 fn merge(waiting: &mut Option<FrameUpdate>, update: FrameUpdate) {
     match waiting {
@@ -65,21 +73,35 @@ impl SurfaceStream {
             }
             let mut encoder = Encoder::new();
             loop {
-                notify.notified().await;
-                let Some(update) = waiting
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .take()
-                else {
-                    continue;
+                // The lossless pass of the lossy tiles comes when they did not change for a time (F028).
+                let refine_at = encoder.next_refine();
+                let sleep = async {
+                    match refine_at {
+                        Some(at) => {
+                            tokio::time::sleep_until(tokio::time::Instant::from_std(at)).await
+                        }
+                        None => std::future::pending().await,
+                    }
+                };
+                let job: Job = tokio::select! {
+                    () = notify.notified() => match waiting.lock().unwrap_or_else(PoisonError::into_inner).take() {
+                        Some(update) => Job::Frame(update),
+                        None => continue,
+                    },
+                    () = sleep => Job::Refine,
                 };
                 let Ok((back, encoded)) = tokio::task::spawn_blocking(move || {
-                    let image = Image {
-                        width: update.width,
-                        height: update.height,
-                        pixels: &update.pixels,
+                    let encoded = match job {
+                        Job::Frame(update) => {
+                            let image = Image {
+                                width: update.width,
+                                height: update.height,
+                                pixels: &update.pixels,
+                            };
+                            encoder.encode(&image, &update.damage)
+                        }
+                        Job::Refine => encoder.refine(std::time::Instant::now()),
                     };
-                    let encoded = encoder.encode(&image, &update.damage);
                     (encoder, encoded)
                 })
                 .await

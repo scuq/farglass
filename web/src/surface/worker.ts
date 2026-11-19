@@ -11,6 +11,11 @@ import { SurfaceDecoder } from "./decoder";
 let context: OffscreenCanvasRenderingContext2D | null = null;
 let canvas: OffscreenCanvas | null = null;
 const waiting: Uint8Array[] = [];
+// The data frames decode one after the other: a lossy tile waits for its decode.
+let queue: Promise<void> = Promise.resolve();
+const push = (bytes: Uint8Array) => {
+  queue = queue.then(() => decoder.push(bytes)).catch((error: unknown) => console.error("surface stream", error));
+};
 
 const decoder = new SurfaceDecoder({
   resize(width, height) {
@@ -28,6 +33,12 @@ const decoder = new SurfaceDecoder({
       context.putImageData(context.getImageData(x, y, width, height), x, y + dy);
     }
   },
+  async jpeg(x, y, width, height, jpeg) {
+    const bitmap = await createImageBitmap(new Blob([jpeg], { type: "image/jpeg" }));
+    context?.clearRect(x, y, width, height);
+    context?.drawImage(bitmap, x, y, width, height);
+    bitmap.close();
+  },
   end(seq) {
     postMessage({ type: "end", seq });
   },
@@ -38,14 +49,14 @@ onmessage = (event: MessageEvent<{ canvas?: OffscreenCanvas; bytes?: ArrayBuffer
     canvas = event.data.canvas;
     context = canvas.getContext("2d", { alpha: true });
     for (const bytes of waiting.splice(0)) {
-      decoder.push(bytes);
+      push(bytes);
     }
     return;
   }
   if (event.data.bytes) {
     const bytes = new Uint8Array(event.data.bytes);
     if (context) {
-      decoder.push(bytes);
+      push(bytes);
     } else {
       waiting.push(bytes);
     }

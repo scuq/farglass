@@ -15,17 +15,18 @@
 //! | 4 | move | x u16, y u16, w u16, h u16, dy i16: copies a block of the canvas `dy` rows down (up if negative) |
 //! | 5 | keep | slot u16: copies a cache slot to the next slot, with no drawing |
 //! | 6 | fill | x u16, y u16, w u8, h u8, BGRA u32 |
+//! | 7 | jpeg | x u16, y u16, w u8, h u8, length u32, JPEG of the tile. It takes no cache slot. |
 //! | 8 | end | sequence u32 |
 //!
 //! A new size in a frame message clears the canvas of the client to
 //! transparent black. The client shows the canvas at the end message, and
 //! acknowledges the sequence.
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::Rect;
 use crate::cache::{Cache, Hit, SLOTS};
-use crate::scroll;
+use crate::{classify, scroll};
 
 /// The version of the message stream.
 pub const VERSION: u8 = 1;
@@ -49,6 +50,8 @@ pub mod code {
     pub const KEEP: u8 = 5;
     /// A tile of one color.
     pub const FILL: u8 = 6;
+    /// A lossy tile as a JPEG.
+    pub const JPEG: u8 = 7;
     /// The end of a frame.
     pub const END: u8 = 8;
 }
@@ -66,6 +69,10 @@ pub struct Stats {
     pub cached: u32,
     /// The rows that a move message copied on the client.
     pub moved_rows: u32,
+    /// The tiles that went as a JPEG.
+    pub lossy: u32,
+    /// The lossy tiles that the lossless pass made exact.
+    pub refined: u32,
     /// The tiles in the damage that did not change.
     pub unchanged: u32,
     /// The bytes of the frame.
@@ -105,6 +112,77 @@ pub struct Encoder {
     cache: Cache,
     /// Reports whether the encoder looks for scrolls (F027).
     pub scroll: bool,
+    /// Reports whether image tiles go as JPEG first (F028).
+    pub lossy: bool,
+    /// For each tile: the time of its last lossy send, until the lossless pass.
+    lossy_since: Vec<Option<Instant>>,
+}
+
+/// The time with no change after which a lossy tile goes again, exact.
+pub const REFINE_AFTER: Duration = Duration::from_millis(300);
+
+/// Writes one tile that differs from the client: a fill, a cache reference, a JPEG, or LZ4.
+/// Returns `true` if the tile went lossy.
+#[allow(clippy::too_many_arguments)]
+fn write_tile(
+    out: &mut Out,
+    stats: &mut Stats,
+    cache: &mut Cache,
+    (x, y, w, h): (usize, usize, usize, usize),
+    current: &[u8],
+    cleared: bool,
+    lossy: bool,
+) -> bool {
+    let header = |out: &mut Out, code: u8| {
+        out.u8(code);
+        out.u16(x);
+        out.u16(y);
+        out.u8(u8::try_from(w).unwrap_or(64));
+        out.u8(u8::try_from(h).unwrap_or(64));
+    };
+    if let Some(color) = single_color(current) {
+        // A cleared canvas is transparent black already.
+        if !(cleared && color == [0; 4]) {
+            header(out, code::FILL);
+            out.0.extend_from_slice(&color);
+        }
+        stats.fills += 1;
+        return false;
+    }
+    let hash = Cache::hash(current, w, h);
+    if let Some(hit) = cache.find(hash) {
+        let slot = match hit {
+            Hit::Slot(slot) => slot,
+            Hit::Keep { from, to } => {
+                out.u8(code::KEEP);
+                out.u16(usize::from(from));
+                to
+            }
+        };
+        out.u8(code::REF);
+        out.u16(x);
+        out.u16(y);
+        out.u16(usize::from(slot));
+        stats.cached += 1;
+        return false;
+    }
+    if lossy
+        && classify::is_image(current)
+        && let Some(jpeg) = classify::jpeg(current, w, h)
+    {
+        header(out, code::JPEG);
+        out.u32(u32::try_from(jpeg.len()).unwrap_or(u32::MAX));
+        out.0.extend_from_slice(&jpeg);
+        stats.lossy += 1;
+        return true;
+    }
+    cache.add(hash);
+    let compressed = lz4_flex::block::compress(current);
+    header(out, code::TILE);
+    out.u32(u32::try_from(compressed.len()).unwrap_or(u32::MAX));
+    out.0.extend_from_slice(&compressed);
+    stats.tiles += 1;
+    false
 }
 
 impl Default for Encoder {
@@ -114,6 +192,8 @@ impl Default for Encoder {
             seq: 0,
             cache: Cache::new(SLOTS),
             scroll: true,
+            lossy: true,
+            lossy_since: Vec::new(),
         }
     }
 }
@@ -159,6 +239,38 @@ fn single_color(bytes: &[u8]) -> Option<[u8; 4]> {
         .iter()
         .all(|pixel| pixel == first)
         .then_some(*first)
+}
+
+/// Moves the lossy marks with the rows of a scroll: a tile that gets rows of a lossy tile is lossy too.
+fn shift_lossy(marks: &mut [Option<Instant>], columns: usize, step: scroll::Move) {
+    let before: Vec<(usize, Instant)> = marks
+        .iter()
+        .enumerate()
+        .filter_map(|(i, m)| m.map(|m| (i, m)))
+        .collect();
+    for (index, since) in before {
+        let (column, row) = (index % columns, index / columns);
+        let (x0, x1) = (column * TILE, column * TILE + TILE);
+        if x1 <= step.x || x0 >= step.x + step.width {
+            continue;
+        }
+        let top = (row * TILE).max(step.y);
+        let bottom = (row * TILE + TILE).min(step.y + step.height);
+        if bottom <= top {
+            continue;
+        }
+        let (Some(to_top), Some(to_bottom)) = (
+            top.checked_add_signed(step.dy),
+            bottom.checked_add_signed(step.dy),
+        ) else {
+            continue;
+        };
+        for to_row in to_top / TILE..to_bottom.div_ceil(TILE) {
+            if let Some(mark) = marks.get_mut(to_row * columns + column) {
+                *mark = Some(mark.map_or(since, |old| old.min(since)));
+            }
+        }
+    }
 }
 
 /// Returns the bounding box of the damage in the buffer, as left, top, right, and bottom.
@@ -213,11 +325,12 @@ impl Encoder {
         let started = Instant::now();
         let (width, height) = (image.width, image.height);
         let resized = !matches!(&self.shown, Some((w, h, _)) if *w == width && *h == height);
-        if resized {
-            self.shown = Some((width, height, vec![0; width * height * 4]));
-        }
         let columns = width.div_ceil(TILE);
         let rows = height.div_ceil(TILE);
+        if resized {
+            self.shown = Some((width, height, vec![0; width * height * 4]));
+            self.lossy_since = vec![None; columns * rows];
+        }
         let mut dirty = vec![resized; columns * rows];
         if !resized {
             for rect in damage {
@@ -249,6 +362,7 @@ impl Encoder {
             out.0
                 .extend_from_slice(&i16::try_from(step.dy).unwrap_or(0).to_le_bytes());
             scroll::apply(shown, width, step);
+            shift_lossy(&mut self.lossy_since, columns, step);
             stats.moved_rows = u32::try_from(step.height).unwrap_or(u32::MAX);
             // The move changed the copy of the client in the whole region, also between the damage rectangles.
             let region = Rect {
@@ -289,50 +403,94 @@ impl Encoder {
                         continue;
                     }
                 }
-                if let Some(color) = single_color(&current) {
-                    // A cleared canvas is transparent black already.
-                    if !(resized && color == [0; 4]) {
-                        out.u8(code::FILL);
-                        out.u16(x);
-                        out.u16(y);
-                        out.u8(u8::try_from(w).unwrap_or(64));
-                        out.u8(u8::try_from(h).unwrap_or(64));
-                        out.0.extend_from_slice(&color);
-                    }
-                    stats.fills += 1;
-                } else if let Some(hit) = self.cache.find(Cache::hash(&current, w, h)) {
-                    let slot = match hit {
-                        Hit::Slot(slot) => slot,
-                        Hit::Keep { from, to } => {
-                            out.u8(code::KEEP);
-                            out.u16(usize::from(from));
-                            to
-                        }
-                    };
-                    out.u8(code::REF);
-                    out.u16(x);
-                    out.u16(y);
-                    out.u16(usize::from(slot));
-                    stats.cached += 1;
-                } else {
-                    self.cache.add(Cache::hash(&current, w, h));
-                    let compressed = lz4_flex::block::compress(&current);
-                    out.u8(code::TILE);
-                    out.u16(x);
-                    out.u16(y);
-                    out.u8(u8::try_from(w).unwrap_or(64));
-                    out.u8(u8::try_from(h).unwrap_or(64));
-                    out.u32(u32::try_from(compressed.len()).unwrap_or(u32::MAX));
-                    out.0.extend_from_slice(&compressed);
-                    stats.tiles += 1;
-                }
+                let went_lossy = write_tile(
+                    &mut out,
+                    &mut stats,
+                    &mut self.cache,
+                    (x, y, w, h),
+                    &current,
+                    resized,
+                    self.lossy,
+                );
+                self.lossy_since[row * columns + column] = went_lossy.then_some(started);
                 for (line, chunk) in current.chunks_exact(w * 4).enumerate() {
                     let start = ((y + line) * width + x) * 4;
                     shown[start..start + w * 4].copy_from_slice(chunk);
                 }
             }
         }
-        if stats.tiles + stats.fills + stats.cached + stats.moved_rows == 0 && !resized {
+        if stats.tiles + stats.fills + stats.cached + stats.lossy + stats.moved_rows == 0
+            && !resized
+        {
+            return None;
+        }
+        self.seq = next;
+        out.u8(code::END);
+        out.u32(next);
+        stats.bytes = u32::try_from(out.0.len()).unwrap_or(u32::MAX);
+        stats.micros = u32::try_from(started.elapsed().as_micros()).unwrap_or(u32::MAX);
+        Some(Encoded {
+            seq: next,
+            bytes: out.0,
+            stats,
+        })
+    }
+
+    /// Returns the time of the next lossless pass, if a lossy tile waits for it.
+    #[must_use]
+    pub fn next_refine(&self) -> Option<Instant> {
+        self.lossy_since
+            .iter()
+            .flatten()
+            .min()
+            .map(|since| *since + REFINE_AFTER)
+    }
+
+    /// The lossless pass: sends each lossy tile that did not change for [`REFINE_AFTER`] again, exact.
+    pub fn refine(&mut self, now: Instant) -> Option<Encoded> {
+        let started = Instant::now();
+        let (width, height, shown) = self.shown.as_ref()?;
+        let (width, height) = (*width, *height);
+        let columns = width.div_ceil(TILE);
+        let mut out = Out(Vec::new());
+        let mut stats = Stats::default();
+        let next = self.seq.wrapping_add(1);
+        out.u8(code::FRAME);
+        out.u32(next);
+        out.u16(width);
+        out.u16(height);
+        let mut current = Vec::with_capacity(TILE * TILE * 4);
+        for (index, since) in self.lossy_since.iter_mut().enumerate() {
+            if !since.is_some_and(|since| now.duration_since(since) >= REFINE_AFTER) {
+                continue;
+            }
+            *since = None;
+            let (x, y) = ((index % columns) * TILE, (index / columns) * TILE);
+            let (w, h) = (TILE.min(width - x), TILE.min(height - y));
+            tile_bytes(
+                &Image {
+                    width,
+                    height,
+                    pixels: shown,
+                },
+                x,
+                y,
+                w,
+                h,
+                &mut current,
+            );
+            write_tile(
+                &mut out,
+                &mut stats,
+                &mut self.cache,
+                (x, y, w, h),
+                &current,
+                false,
+                false,
+            );
+            stats.refined += 1;
+        }
+        if stats.refined == 0 {
             return None;
         }
         self.seq = next;
@@ -366,6 +524,7 @@ pub(crate) mod tests {
         pub acked: Vec<u32>,
         pub slots: Vec<Option<(usize, usize, Vec<u8>)>>,
         pub next: usize,
+        pub lossy_tiles: usize,
     }
 
     impl Canvas {
@@ -452,6 +611,21 @@ pub(crate) mod tests {
                         };
                         self.draw(x, y, w, h, &pixels);
                     }
+                    code::JPEG => {
+                        let f = take(&mut bytes, 10);
+                        let len = u32::from_le_bytes([f[6], f[7], f[8], f[9]]) as usize;
+                        let jpeg = take(&mut bytes, len);
+                        assert_eq!(&jpeg[..2], &[0xFF, 0xD8]);
+                        self.lossy_tiles += 1;
+                        // The reference decoder does not decode JPEG: it marks the tile with a color that no test image has.
+                        let (x, y, w, h) = (
+                            u16_(&f[0..2]),
+                            u16_(&f[2..4]),
+                            usize::from(f[4]),
+                            usize::from(f[5]),
+                        );
+                        self.draw(x, y, w, h, &[1, 2, 3, 4].repeat(w * h));
+                    }
                     code::END => {
                         let seq = u32::from_le_bytes(take(&mut bytes, 4).try_into().unwrap());
                         self.acked.push(seq);
@@ -488,7 +662,11 @@ pub(crate) mod tests {
     #[test]
     fn each_frame_gives_the_exact_pixels_and_only_changed_tiles_go() {
         let (w, h) = (300, 200);
-        let mut encoder = Encoder::new();
+        // Exact pixels: no lossy tiles in these tests.
+        let mut encoder = Encoder {
+            lossy: false,
+            ..Encoder::new()
+        };
         let mut canvas = Canvas::default();
         canvas.apply(&hello(SLOTS));
         let first = image(w, h, 0);
@@ -567,7 +745,11 @@ pub(crate) mod tests {
 
     #[test]
     fn a_new_size_clears_the_canvas_and_sends_each_tile() {
-        let mut encoder = Encoder::new();
+        // Exact pixels: no lossy tiles in these tests.
+        let mut encoder = Encoder {
+            lossy: false,
+            ..Encoder::new()
+        };
         let mut canvas = Canvas::default();
         canvas.apply(&hello(SLOTS));
         let small = image(100, 70, 1);
@@ -777,5 +959,142 @@ mod scroll_tests {
             with * 3 < without,
             "{with} bytes with the move, {without} without"
         );
+    }
+}
+
+#[cfg(test)]
+mod lossy_tests {
+    use super::tests::Canvas;
+    use super::*;
+
+    /// A photo: noise in each pixel, on a background with text.
+    fn frame(seed: u32) -> Vec<u8> {
+        let (w, h) = (256, 128);
+        let mut pixels = vec![240; w * h * 4];
+        for y in 0..h {
+            for x in 0..w {
+                let p = &mut pixels[(y * w + x) * 4..][..4];
+                if x < 128 {
+                    let v = u32::try_from(y * w + x)
+                        .unwrap()
+                        .wrapping_mul(2_654_435_761)
+                        .wrapping_add(seed)
+                        >> 8;
+                    p.copy_from_slice(&[
+                        (v & 255) as u8,
+                        ((v >> 8) & 255) as u8,
+                        ((v >> 16) & 255) as u8,
+                        255,
+                    ]);
+                } else if (x + y) % 9 < 2 {
+                    p.copy_from_slice(&[10, 10, 10, 255]);
+                }
+            }
+        }
+        pixels
+    }
+
+    #[test]
+    fn image_tiles_go_lossy_and_become_exact_when_they_stop_changing() {
+        let mut encoder = Encoder::new();
+        let mut canvas = Canvas::default();
+        canvas.apply(&hello(SLOTS));
+        let image = frame(0);
+        let full = [Rect {
+            x: 0,
+            y: 0,
+            width: 256,
+            height: 128,
+        }];
+        let first = encoder
+            .encode(
+                &Image {
+                    width: 256,
+                    height: 128,
+                    pixels: &image,
+                },
+                &full,
+            )
+            .unwrap();
+        canvas.apply(&first.bytes);
+        assert_eq!(first.stats.lossy, 4, "the 4 photo tiles go as JPEG");
+        assert_eq!(canvas.lossy_tiles, 4);
+        // The text tiles are exact at once.
+        assert_eq!(
+            canvas.pixels[(10 * 256 + 200) * 4..][..4],
+            image[(10 * 256 + 200) * 4..][..4]
+        );
+        let due = encoder.next_refine().unwrap();
+        assert!(
+            encoder.refine(due - Duration::from_millis(1)).is_none(),
+            "not before 300 ms"
+        );
+        let refined = encoder.refine(due).unwrap();
+        canvas.apply(&refined.bytes);
+        assert_eq!(refined.stats.refined, 4);
+        assert_eq!(
+            canvas.pixels, image,
+            "after the lossless pass, the canvas is exact"
+        );
+        assert!(encoder.next_refine().is_none());
+
+        let mut lossless = Encoder {
+            lossy: false,
+            ..Encoder::new()
+        };
+        let exact = lossless
+            .encode(
+                &Image {
+                    width: 256,
+                    height: 128,
+                    pixels: &image,
+                },
+                &full,
+            )
+            .unwrap();
+        eprintln!(
+            "4 photo tiles and 4 text tiles: {} bytes with JPEG, {} bytes lossless",
+            first.bytes.len(),
+            exact.bytes.len()
+        );
+        assert!(first.bytes.len() * 2 < exact.bytes.len());
+    }
+
+    #[test]
+    fn a_tile_that_changes_again_waits_for_its_lossless_pass() {
+        let mut encoder = Encoder::new();
+        let full = [Rect {
+            x: 0,
+            y: 0,
+            width: 256,
+            height: 128,
+        }];
+        let first = encoder
+            .encode(
+                &Image {
+                    width: 256,
+                    height: 128,
+                    pixels: &frame(0),
+                },
+                &full,
+            )
+            .unwrap();
+        let start = encoder.next_refine().unwrap();
+        std::thread::sleep(Duration::from_millis(5));
+        encoder
+            .encode(
+                &Image {
+                    width: 256,
+                    height: 128,
+                    pixels: &frame(7),
+                },
+                &full,
+            )
+            .unwrap();
+        assert!(
+            encoder.next_refine().unwrap() > start,
+            "the new lossy send starts the time again"
+        );
+        assert!(first.stats.lossy > 0);
     }
 }
