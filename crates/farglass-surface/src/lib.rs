@@ -16,6 +16,7 @@
 // names its reason.
 #![deny(unsafe_code)]
 
+pub mod cache;
 mod state;
 pub mod tiles;
 

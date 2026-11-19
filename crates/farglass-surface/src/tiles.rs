@@ -10,7 +10,9 @@
 //! |---|---|---|
 //! | 0 | hello | version u8, tile size u8, cache slots u16 |
 //! | 1 | frame | sequence u32, width u16, height u16 |
-//! | 2 | tile | x u16, y u16, w u8, h u8, length u32, LZ4 block of `w * h * 4` BGRA bytes |
+//! | 2 | tile | x u16, y u16, w u8, h u8, length u32, LZ4 block of `w * h * 4` BGRA bytes. It takes the next cache slot. |
+//! | 3 | ref | x u16, y u16, slot u16: draws the tile of a cache slot |
+//! | 5 | keep | slot u16: copies a cache slot to the next slot, with no drawing |
 //! | 6 | fill | x u16, y u16, w u8, h u8, BGRA u32 |
 //! | 8 | end | sequence u32 |
 //!
@@ -21,6 +23,7 @@
 use std::time::Instant;
 
 use crate::Rect;
+use crate::cache::{Cache, Hit, SLOTS};
 
 /// The version of the message stream.
 pub const VERSION: u8 = 1;
@@ -36,6 +39,10 @@ pub mod code {
     pub const FRAME: u8 = 1;
     /// A tile as an LZ4 block.
     pub const TILE: u8 = 2;
+    /// A tile from a cache slot.
+    pub const REF: u8 = 3;
+    /// A copy of a cache slot to the next slot.
+    pub const KEEP: u8 = 5;
     /// A tile of one color.
     pub const FILL: u8 = 6;
     /// The end of a frame.
@@ -51,6 +58,8 @@ pub struct Stats {
     pub tiles: u32,
     /// The tiles that went as a fill.
     pub fills: u32,
+    /// The tiles that the client had in its cache.
+    pub cached: u32,
     /// The tiles in the damage that did not change.
     pub unchanged: u32,
     /// The bytes of the frame.
@@ -82,11 +91,22 @@ pub struct Image<'a> {
 }
 
 /// The encoder of one surface channel.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Encoder {
     /// What the client shows: the size and the pixels.
     shown: Option<(usize, usize, Vec<u8>)>,
     seq: u32,
+    cache: Cache,
+}
+
+impl Default for Encoder {
+    fn default() -> Self {
+        Self {
+            shown: None,
+            seq: 0,
+            cache: Cache::new(SLOTS),
+        }
+    }
 }
 
 /// Writes the little-endian bytes of the fields.
@@ -105,7 +125,7 @@ impl Out {
     }
 }
 
-/// Returns the hello message of a stream with `slots` cache slots.
+/// Returns the hello message of a stream with `slots` cache slots. An encoder uses [`SLOTS`].
 #[must_use]
 pub fn hello(slots: u16) -> Vec<u8> {
     let mut out = vec![code::HELLO, VERSION, u8::try_from(TILE).unwrap_or(64)];
@@ -225,7 +245,22 @@ impl Encoder {
                         out.0.extend_from_slice(&color);
                     }
                     stats.fills += 1;
+                } else if let Some(hit) = self.cache.find(Cache::hash(&current, w, h)) {
+                    let slot = match hit {
+                        Hit::Slot(slot) => slot,
+                        Hit::Keep { from, to } => {
+                            out.u8(code::KEEP);
+                            out.u16(usize::from(from));
+                            to
+                        }
+                    };
+                    out.u8(code::REF);
+                    out.u16(x);
+                    out.u16(y);
+                    out.u16(usize::from(slot));
+                    stats.cached += 1;
                 } else {
+                    self.cache.add(Cache::hash(&current, w, h));
                     let compressed = lz4_flex::block::compress(&current);
                     out.u8(code::TILE);
                     out.u16(x);
@@ -242,7 +277,7 @@ impl Encoder {
                 }
             }
         }
-        if stats.tiles + stats.fills == 0 && !resized {
+        if stats.tiles + stats.fills + stats.cached == 0 && !resized {
             return None;
         }
         self.seq = next;
@@ -274,9 +309,25 @@ pub(crate) mod tests {
         pub height: usize,
         pub pixels: Vec<u8>,
         pub acked: Vec<u32>,
+        pub slots: Vec<Option<(usize, usize, Vec<u8>)>>,
+        pub next: usize,
     }
 
     impl Canvas {
+        fn draw(&mut self, x: usize, y: usize, w: usize, h: usize, pixels: &[u8]) {
+            for line in 0..h {
+                let start = ((y + line) * self.width + x) * 4;
+                self.pixels[start..start + w * 4]
+                    .copy_from_slice(&pixels[line * w * 4..(line + 1) * w * 4]);
+            }
+        }
+
+        fn take_slot(&mut self) -> usize {
+            let next = self.next;
+            self.next = (next + 1) % self.slots.len();
+            next
+        }
+
         pub(crate) fn apply(&mut self, mut bytes: &[u8]) {
             let take = |bytes: &mut &[u8], n: usize| {
                 let (head, tail) = bytes.split_at(n);
@@ -287,18 +338,31 @@ pub(crate) mod tests {
             while let Some((&code, rest)) = bytes.split_first() {
                 bytes = rest;
                 match code {
-                    code::HELLO => drop(take(&mut bytes, 4)),
+                    code::HELLO => {
+                        let f = take(&mut bytes, 4);
+                        self.slots = vec![None; u16_(&f[2..4]).max(1)];
+                        self.next = 0;
+                    }
                     code::FRAME => {
                         let f = take(&mut bytes, 8);
                         let (w, h) = (u16_(&f[4..6]), u16_(&f[6..8]));
                         if (w, h) != (self.width, self.height) {
-                            *self = Self {
-                                width: w,
-                                height: h,
-                                pixels: vec![0; w * h * 4],
-                                acked: std::mem::take(&mut self.acked),
-                            };
+                            self.width = w;
+                            self.height = h;
+                            self.pixels = vec![0; w * h * 4];
                         }
+                    }
+                    code::KEEP => {
+                        let slot = u16_(&take(&mut bytes, 2));
+                        let copy = self.slots[slot].clone();
+                        let next = self.take_slot();
+                        self.slots[next] = copy;
+                    }
+                    code::REF => {
+                        let f = take(&mut bytes, 6);
+                        let (x, y, slot) = (u16_(&f[0..2]), u16_(&f[2..4]), u16_(&f[4..6]));
+                        let (w, h, pixels) = self.slots[slot].clone().expect("a slot with a tile");
+                        self.draw(x, y, w, h, &pixels);
                     }
                     code::TILE | code::FILL => {
                         let f = take(&mut bytes, 6);
@@ -311,15 +375,16 @@ pub(crate) mod tests {
                         let pixels = if code == code::TILE {
                             let len = u32::from_le_bytes(take(&mut bytes, 4).try_into().unwrap())
                                 as usize;
-                            lz4_flex::block::decompress(&take(&mut bytes, len), w * h * 4).unwrap()
+                            let pixels =
+                                lz4_flex::block::decompress(&take(&mut bytes, len), w * h * 4)
+                                    .unwrap();
+                            let next = self.take_slot();
+                            self.slots[next] = Some((w, h, pixels.clone()));
+                            pixels
                         } else {
                             take(&mut bytes, 4).repeat(w * h)
                         };
-                        for line in 0..h {
-                            let start = ((y + line) * self.width + x) * 4;
-                            self.pixels[start..start + w * 4]
-                                .copy_from_slice(&pixels[line * w * 4..(line + 1) * w * 4]);
-                        }
+                        self.draw(x, y, w, h, &pixels);
                     }
                     code::END => {
                         let seq = u32::from_le_bytes(take(&mut bytes, 4).try_into().unwrap());
@@ -359,6 +424,7 @@ pub(crate) mod tests {
         let (w, h) = (300, 200);
         let mut encoder = Encoder::new();
         let mut canvas = Canvas::default();
+        canvas.apply(&hello(SLOTS));
         let first = image(w, h, 0);
         let full = Rect {
             x: 0,
@@ -437,6 +503,7 @@ pub(crate) mod tests {
     fn a_new_size_clears_the_canvas_and_sends_each_tile() {
         let mut encoder = Encoder::new();
         let mut canvas = Canvas::default();
+        canvas.apply(&hello(SLOTS));
         let small = image(100, 70, 1);
         canvas.apply(
             &encoder
@@ -466,5 +533,101 @@ pub(crate) mod tests {
         canvas.apply(&encoded.bytes);
         assert_eq!((canvas.width, canvas.height), (130, 90));
         assert_eq!(canvas.pixels, large);
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::tests::Canvas;
+    use super::*;
+
+    /// A page of text: a few glyph tiles that repeat, as a text page and a toolbar have.
+    fn text_page(width: usize, height: usize, offset: usize) -> Vec<u8> {
+        let mut pixels = vec![255; width * height * 4];
+        for y in 0..height {
+            for x in 0..width {
+                let glyph = ((x / TILE) * 7 + (y / TILE + offset) * 3) % 5;
+                if (x % TILE + glyph * 5) % 11 < 3 && (y % TILE) % 9 < 6 {
+                    pixels[(y * width + x) * 4..][..3].copy_from_slice(&[20, 20, 20]);
+                }
+            }
+        }
+        pixels
+    }
+
+    #[test]
+    fn repeated_tiles_come_from_the_cache_and_the_pixels_stay_exact() {
+        let (w, h) = (640, 640);
+        let mut encoder = Encoder::new();
+        let mut canvas = Canvas::default();
+        canvas.apply(&hello(SLOTS));
+        let full = [Rect {
+            x: 0,
+            y: 0,
+            width: 640,
+            height: 640,
+        }];
+        let mut cached = 0;
+        let mut sent = 0;
+        for page in 0..6 {
+            let pixels = text_page(w, h, page);
+            let encoded = encoder
+                .encode(
+                    &Image {
+                        width: w,
+                        height: h,
+                        pixels: &pixels,
+                    },
+                    &full,
+                )
+                .unwrap();
+            canvas.apply(&encoded.bytes);
+            assert_eq!(canvas.pixels, pixels, "page {page}");
+            cached += encoded.stats.cached;
+            sent += encoded.stats.tiles + encoded.stats.cached;
+        }
+        let rate = f64::from(cached) / f64::from(sent);
+        eprintln!("hit rate on a text page: {:.0} %", rate * 100.0);
+        assert!(rate > 0.8, "hit rate {rate}");
+    }
+
+    #[test]
+    fn a_full_ring_keeps_the_tiles_in_use() {
+        let (w, h) = (64, 64);
+        let mut encoder = Encoder {
+            cache: Cache::new(8),
+            ..Encoder::new()
+        };
+        let mut canvas = Canvas::default();
+        canvas.apply(&hello(8));
+        let full = [Rect {
+            x: 0,
+            y: 0,
+            width: 64,
+            height: 64,
+        }];
+        // Tile A, then many new tiles, with tile A again and again: it must stay in the ring.
+        let tile = |seed: u8| -> Vec<u8> {
+            (0..64 * 64 * 4)
+                .map(|i| u8::try_from(i % 251).unwrap() ^ seed)
+                .collect()
+        };
+        let mut hits = 0;
+        for round in 0..40_u8 {
+            let pixels = if round % 3 == 0 { tile(0) } else { tile(round) };
+            if let Some(encoded) = encoder.encode(
+                &Image {
+                    width: w,
+                    height: h,
+                    pixels: &pixels,
+                },
+                &full,
+            ) {
+                canvas.apply(&encoded.bytes);
+                hits += encoded.stats.cached;
+            }
+            assert_eq!(canvas.pixels, pixels, "round {round}");
+        }
+        assert!(hits >= 12, "tile A came from the cache {hits} times");
     }
 }

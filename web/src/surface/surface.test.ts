@@ -87,6 +87,30 @@ describe("surface decoder", () => {
     expect(canvas.ended).toEqual([1]);
   });
 
+  test("a tile takes the next cache slot, a reference draws it, and a keep copies it to the next slot", () => {
+    const canvas = new Canvas();
+    const decoder = new SurfaceDecoder(canvas.target);
+    const red = literalBlock([0, 0, 255, 255]);
+    const green = literalBlock([0, 255, 0, 255]);
+    const s = new Stream().u8(Code.HELLO).u8(1).u8(64).u16(2);
+    s.u8(Code.FRAME).u32(1).u16(3).u16(1);
+    s.u8(Code.TILE).u16(0).u16(0).u8(1).u8(1).u32(red.length);
+    s.bytes.push(...red);
+    s.u8(Code.TILE).u16(1).u16(0).u8(1).u8(1).u32(green.length);
+    s.bytes.push(...green);
+    // The ring has 2 slots: red in 0, green in 1. A keep of slot 0 copies red to slot 0 again (the next slot).
+    s.u8(Code.KEEP).u16(0);
+    s.u8(Code.REF).u16(2).u16(0).u16(0);
+    s.u8(Code.END).u32(1);
+    decoder.push(s.array);
+    expect([canvas.pixel(0, 0), canvas.pixel(1, 0), canvas.pixel(2, 0)]).toEqual([
+      [255, 0, 0, 255],
+      [0, 255, 0, 255],
+      [255, 0, 0, 255],
+    ]);
+    expect(() => decoder.push(new Stream().u8(Code.REF).u16(0).u16(0).u16(1).array)).not.toThrow();
+  });
+
   test("an unknown message stops the stream", () => {
     const decoder = new SurfaceDecoder(new Canvas().target);
     expect(() => decoder.push(new Uint8Array([99]))).toThrow("unknown message 99");

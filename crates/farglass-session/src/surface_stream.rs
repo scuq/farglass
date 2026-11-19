@@ -13,9 +13,6 @@ use tokio::task::JoinHandle;
 
 use crate::surfaces::{FrameUpdate, Surfaces, WatchGuard};
 
-/// The number of cache slots of a stream (F026).
-pub const CACHE_SLOTS: u16 = 0;
-
 /// One open surface channel. Dropping it stops the encoder and the watch.
 #[derive(Debug)]
 pub struct SurfaceStream {
@@ -63,7 +60,7 @@ impl SurfaceStream {
             })
         };
         let task = tokio::spawn(async move {
-            if let Ok(hello) = Frame::data(channel, tiles::hello(CACHE_SLOTS)) {
+            if let Ok(hello) = Frame::data(channel, tiles::hello(farglass_surface::cache::SLOTS)) {
                 let _ = frames.send(hello);
             }
             let mut encoder = Encoder::new();

@@ -7,7 +7,14 @@
 import { decodeLz4Block } from "./lz4";
 
 /** The message codes. They are the same as in crates/farglass-surface/src/tiles.rs. */
-export const Code = { HELLO: 0, FRAME: 1, TILE: 2, FILL: 6, END: 8 } as const;
+export const Code = { HELLO: 0, FRAME: 1, TILE: 2, REF: 3, KEEP: 5, FILL: 6, END: 8 } as const;
+
+/** One cache slot: the pixels of a tile, ready for the target. */
+interface Slot {
+  readonly width: number;
+  readonly height: number;
+  readonly rgba: Uint8ClampedArray<ArrayBuffer>;
+}
 
 /** Where the decoder draws. */
 export interface SurfaceTarget {
@@ -39,15 +46,33 @@ export function bgraToRgba(bgra: Uint8Array): Uint8ClampedArray<ArrayBuffer> {
 }
 
 /** Sizes of the fixed fields after the code byte. */
-const FIXED: Record<number, number> = { [Code.HELLO]: 4, [Code.FRAME]: 8, [Code.TILE]: 10, [Code.FILL]: 10, [Code.END]: 4 };
+const FIXED: Record<number, number> = {
+  [Code.HELLO]: 4,
+  [Code.FRAME]: 8,
+  [Code.TILE]: 10,
+  [Code.REF]: 6,
+  [Code.KEEP]: 2,
+  [Code.FILL]: 10,
+  [Code.END]: 4,
+};
 
 export class SurfaceDecoder {
   readonly #target: SurfaceTarget;
   #pending = new Uint8Array(0);
   width = 0;
   height = 0;
-  /** The cache slots that the host gave in its hello message. */
+  /** The cache slots that the host gave in its hello message (ADR-011). Both sides take the slots in the same order. */
   slots = 0;
+  #ring: (Slot | undefined)[] = [];
+  #next = 0;
+
+  #store(slot: Slot | undefined): void {
+    if (this.#ring.length === 0) {
+      return;
+    }
+    this.#ring[this.#next] = slot;
+    this.#next = (this.#next + 1) % this.#ring.length;
+  }
 
   constructor(target: SurfaceTarget) {
     this.#target = target;
@@ -91,6 +116,8 @@ export class SurfaceDecoder {
     switch (code) {
       case Code.HELLO:
         this.slots = view.getUint16(2, true);
+        this.#ring = new Array(this.slots);
+        this.#next = 0;
         return 1 + fixed;
       case Code.FRAME: {
         const width = view.getUint16(4, true);
@@ -109,10 +136,22 @@ export class SurfaceDecoder {
           return 0;
         }
         const [x, y, w, h] = [view.getUint16(0, true), view.getUint16(2, true), view.getUint8(4), view.getUint8(5)];
-        const bgra = decodeLz4Block(bytes.subarray(offset + 1 + fixed, end), w * h * 4);
-        this.#target.put(x, y, w, h, bgraToRgba(bgra));
+        const rgba = bgraToRgba(decodeLz4Block(bytes.subarray(offset + 1 + fixed, end), w * h * 4));
+        this.#store({ width: w, height: h, rgba });
+        this.#target.put(x, y, w, h, rgba);
         return end - offset;
       }
+      case Code.REF: {
+        const slot = this.#ring[view.getUint16(4, true)];
+        if (!slot) {
+          throw new Error("The surface stream names an empty cache slot.");
+        }
+        this.#target.put(view.getUint16(0, true), view.getUint16(2, true), slot.width, slot.height, slot.rgba);
+        return 1 + fixed;
+      }
+      case Code.KEEP:
+        this.#store(this.#ring[view.getUint16(0, true)]);
+        return 1 + fixed;
       case Code.FILL: {
         const [x, y, w, h] = [view.getUint16(0, true), view.getUint16(2, true), view.getUint8(4), view.getUint8(5)];
         const pixel = bgraToRgba(bytes.subarray(offset + 7, offset + 11));

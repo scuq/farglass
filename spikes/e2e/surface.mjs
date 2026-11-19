@@ -113,6 +113,9 @@ try {
   // 3. The encoder time of each frame on the host.
   const times = [...agent.log().matchAll(/micros: (\d+)/g)].map((match) => Number(match[1])).sort((a, b) => a - b);
   const bytes = [...agent.log().matchAll(/bytes: (\d+)/g)].map((match) => Number(match[1]));
+  const cached = [...agent.log().matchAll(/cached: (\d+)/g)].reduce((sum, match) => sum + Number(match[1]), 0);
+  const lz4 = [...agent.log().matchAll(/ tiles: (\d+)/g)].reduce((sum, match) => sum + Number(match[1]), 0);
+  console.log(`INFO: tile cache: ${cached} of ${cached + lz4} tiles from the cache (${Math.round((100 * cached) / Math.max(1, cached + lz4))} %)`);
   check(times.length > 0, `the encoder sent ${times.length} frames: p50 ${times[Math.floor(times.length / 2)]} µs, p95 ${times[Math.floor(times.length * 0.95)]} µs, ${Math.round(bytes.reduce((a, b) => a + b, 0) / 1024)} KiB`);
 
   // 4. The close button asks the app to close, and the app stops.

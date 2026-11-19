@@ -347,7 +347,9 @@ Each message starts with a code byte. The fields are little-endian:
 |---|---|---|
 | 0 | hello | version u8, tile size u8, cache slots u16 |
 | 1 | frame | sequence u32, width u16, height u16 |
-| 2 | tile | x u16, y u16, w u8, h u8, length u32, LZ4 block of `w * h * 4` BGRA bytes |
+| 2 | tile | x u16, y u16, w u8, h u8, length u32, LZ4 block of `w * h * 4` BGRA bytes. It takes the next cache slot. |
+| 3 | ref | x u16, y u16, slot u16: draws the tile of a cache slot |
+| 5 | keep | slot u16: copies a cache slot to the next slot, with no drawing |
 | 6 | fill | x u16, y u16, w u8, h u8, BGRA u32 |
 | 8 | end | sequence u32 |
 
@@ -355,6 +357,14 @@ The tiles are 64 x 64 pixels on a grid from the top-left corner. Tiles at the ri
 The pixels are BGRA with premultiplied alpha, as the Wayland client gives them.
 A frame with a new width or height clears the canvas to transparent black.
 The client shows the canvas at the end message.
+
+The cache is a ring of slots (ADR-011), 2048 by default, from the hello message.
+The two sides take the slots in the same order: slot 0 first, then the next one, and slot 0 again after the last one.
+A tile message and a keep message each take the next slot. A fill does not take a slot.
+Thus the agent knows each slot of the client with no acknowledgment, and no hash goes to the client.
+The agent finds equal tiles with its own hash table and sends a ref.
+A tile in the oldest quarter of the ring goes with a keep first, thus a tile in use does not leave the ring.
+Each channel starts with an empty cache. A lost message breaks the cache, thus the channel must be reliable and in sequence.
 
 The agent sends only the tiles in the damage of the Wayland client that differ from what the client shows.
 A tile of one color goes as a fill. While the encoder works, the commits wait, and their damage adds up: the client gets the newest pixels only.
