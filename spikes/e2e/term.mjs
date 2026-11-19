@@ -133,6 +133,45 @@ try {
   check(Number(size[2]) > 120, `a larger window gives more columns (stty size: ${size[1]} ${size[2]})`);
   if (SHOTS) await page.screenshot({ path: join(SHOTS, "terminal.png") });
 
+  // 4b. The context menus of the shell.
+  const menu = page.locator(".context-menu");
+  const item = (label) => menu.getByRole("menuitem", { name: new RegExp(`^${label}`) });
+  await page.locator(`[data-window="${id}"] .wm-title`).click({ button: "right" });
+  await item("Restore").waitFor({ timeout: TIMEOUT_MS });
+  check(await menu.evaluate((el) => el.matches(":popover-open")), "a right click on the title bar opens the menu of the shell");
+  await item("Restore").click();
+  await page.waitForFunction((windowId) => document.querySelector(`[data-window="${windowId}"]`).dataset.mode === "normal", id);
+  check(!(await menu.evaluate((el) => el.matches(":popover-open"))), "an item runs its action and closes the menu");
+
+  await page.evaluate(() => navigator.clipboard.writeText(""));
+  await page.locator(`[data-window="${id}"] .term-app`).click({ button: "right" });
+  await item("Select all").click();
+  await page.locator(`[data-window="${id}"] .term-app`).click({ button: "right" });
+  await item("Copy").click();
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  check(copied.includes("shell-kept-42"), "the terminal menu selects all and copies the text to the clipboard");
+  await page.evaluate(() => navigator.clipboard.writeText("echo menu-paste-$((7*6))"));
+  await page.locator(`[data-window="${id}"] .term-app`).click({ button: "right" });
+  await item("Paste").click();
+  await page.keyboard.press("Enter");
+  await until(page, id, /menu-paste-42/);
+  check(true, "the terminal menu pastes the clipboard");
+
+  await page.locator(`[data-window="${id}"] .term-app`).click();
+  await page.keyboard.press("Shift+F10");
+  await item("Copy").waitFor({ timeout: TIMEOUT_MS });
+  if (SHOTS) await page.screenshot({ path: join(SHOTS, "menu.png") });
+  await page.keyboard.press("Escape");
+  check(true, "Shift+F10 opens the menu of the focused terminal");
+
+  const surface = await page.locator(".wm-surface").boundingBox();
+  await page.mouse.click(surface.x + surface.width - 20, surface.y + surface.height - 20, { button: "right" });
+  await item("Open About farglass").click();
+  const about = page.locator('.wm-window[aria-label="About farglass"]');
+  await about.waitFor({ timeout: TIMEOUT_MS });
+  check(true, "the menu of the empty desktop opens an app");
+  await about.getByRole("button", { name: "Close" }).click();
+
   // 5. A reload attaches to the same shell, with its scrollback.
   await page.waitForTimeout(400);
   await page.reload();

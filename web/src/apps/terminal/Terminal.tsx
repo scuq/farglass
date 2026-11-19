@@ -105,6 +105,21 @@ export default function TerminalApp(props: { context: AppContext }) {
     term.fit();
 
     context.onFocus(() => term.focus());
+    context.contextMenu(element, () => {
+      const selection = term.selection();
+      return [
+        {
+          label: "Copy",
+          shortcut: "Ctrl+Shift+C",
+          disabled: selection === "",
+          action: () => void navigator.clipboard?.writeText(selection),
+        },
+        { label: "Paste", shortcut: "Ctrl+Shift+V", action: () => term.pasteClipboard() },
+        { separator: true },
+        { label: "Select all", action: () => term.selectAll() },
+        { label: "Clear the scrollback", action: () => term.clear() },
+      ];
+    });
     // Closing the window ends the shell. A reload or a break of the connection does not.
     context.onClose(() => control({ type: "terminate" }));
     if (context.isFocused()) {

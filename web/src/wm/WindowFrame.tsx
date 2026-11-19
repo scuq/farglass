@@ -1,5 +1,6 @@
 import type { JSX } from "@solidjs/web";
 import { type Accessor, onCleanup } from "solid-js";
+import { type MenuProvider, setContextMenu } from "../menu/menu";
 import { type Edge, type Rect, resizeRect, type SnapZone, snapZoneAt, unsnapRect } from "./geometry";
 import { shownRect, type Win } from "./model";
 
@@ -26,6 +27,8 @@ const EDGES: readonly Edge[] = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
  */
 export function WindowFrame(props: {
   icon: string | undefined;
+  /** The menu of the window, for the title bar and the edges. */
+  menu: MenuProvider;
   win: Accessor<Win>;
   area: Accessor<Rect>;
   focused: Accessor<boolean>;
@@ -55,7 +58,13 @@ export function WindowFrame(props: {
     }
   };
 
-  onCleanup(() => cancelAnimationFrame(frame));
+  const removers: (() => void)[] = [];
+  onCleanup(() => {
+    cancelAnimationFrame(frame);
+    for (const remove of removers) {
+      remove();
+    }
+  });
 
   /** Runs a pointer gesture with pointer capture. `move` returns the rectangle for the pointer. */
   const gesture = (
@@ -153,6 +162,7 @@ export function WindowFrame(props: {
     <section
       ref={(el) => {
         element = el;
+        removers.push(setContextMenu(el, props.menu));
       }}
       class={props.focused() ? "wm-window wm-focused" : "wm-window"}
       data-mode={props.win().snap ?? "normal"}
@@ -194,7 +204,10 @@ export function WindowFrame(props: {
           ✕
         </button>
       </header>
-      <div class="wm-content">{props.children}</div>
+      {/* An app with no menu gets no menu: the menu of the window is on its title bar. */}
+      <div class="wm-content" ref={(el) => removers.push(setContextMenu(el, () => []))}>
+        {props.children}
+      </div>
       {props.win().snap === null
         ? EDGES.map((edge) => <div class={`wm-edge wm-edge-${edge}`} onPointerDown={startResize(edge)} />)
         : null}

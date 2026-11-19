@@ -74,6 +74,10 @@ export interface DesktopController {
   openApp(appId: string): void;
   switchWorkspace(index: number): void;
   tile(): void;
+  /** Snaps a window to `zone`. */
+  snap(id: string, zone: SnapZone): void;
+  /** Moves a window to the workspace `index`. */
+  moveToWorkspace(id: string, index: number): void;
 }
 
 /** Creates the controller. Call it in a component: the cleanup of the component stops it. */
@@ -214,6 +218,8 @@ export function createDesktopController(connection: Connection): DesktopControll
     },
     switchWorkspace: (index) => apply((state) => switchWorkspace(state, index)),
     tile: () => apply((state) => tileWorkspace(state, area())),
+    snap: (id, zone) => apply((state) => focusWindow(snapWindow(state, id, zone), id)),
+    moveToWorkspace: (id, index) => apply((state) => moveToWorkspace(state, id, index)),
   };
 
   const onKeyDown = (event: KeyboardEvent) => {

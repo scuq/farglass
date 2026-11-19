@@ -1,14 +1,18 @@
-import { For, Show, untrack } from "solid-js";
+import { For, onCleanup, Show, untrack } from "solid-js";
+import { setContextMenu } from "../menu/menu";
 import { AppHost } from "../apps/AppHost";
 import { APPS } from "../apps/registry";
 import type { DesktopController } from "./controller";
 import { snapRect } from "./geometry";
+import { desktopMenu, windowMenu } from "./menus";
 import { type Win, windowById } from "./model";
 import { WindowFrame } from "./WindowFrame";
 
 /** The window surface: the windows of the desktop, the snap preview, and the window switcher. */
 export function Surface(props: { controller: DesktopController }) {
   const c = props.controller;
+  let removeMenu: (() => void) | undefined;
+  onCleanup(() => removeMenu?.());
   const order = (id: string) => c.desktop().windows.findIndex((win) => win.id === id);
   const title = (id: string) => windowById(c.desktop(), id)?.title ?? "";
   const actions = {
@@ -21,7 +25,13 @@ export function Surface(props: { controller: DesktopController }) {
   };
 
   return (
-    <div class="wm-surface" ref={(element) => c.attachSurface(element)}>
+    <div
+      class="wm-surface"
+      ref={(element) => {
+        c.attachSurface(element);
+        removeMenu = setContextMenu(element, () => desktopMenu(c));
+      }}
+    >
       <For each={c.desktop().windows} keyed={(win: Win) => win.id}>
         {(win) => {
           // The app renders one time for each window. A move, a snap, or a focus
@@ -32,6 +42,7 @@ export function Surface(props: { controller: DesktopController }) {
           return (
             <WindowFrame
               icon={APPS[appId]?.icon}
+              menu={() => windowMenu(c, windowId)}
               win={win}
               area={c.area}
               z={() => order(win().id) + 1}

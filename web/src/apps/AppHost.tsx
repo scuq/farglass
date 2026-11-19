@@ -1,4 +1,5 @@
 import { Errored, Loading, onCleanup } from "solid-js";
+import { setContextMenu } from "../menu/menu";
 import type { Channel } from "../proto";
 import type { DesktopController } from "../wm/controller";
 import type { App } from "./registry";
@@ -63,6 +64,7 @@ export function AppHost(props: {
     onClose: (handler) => hooks.push(c.addHook(props.windowId, "close", handler)),
     onFocus: (handler) => hooks.push(c.addHook(props.windowId, "focus", handler)),
     isFocused: () => c.focusedId() === props.windowId,
+    contextMenu: (element, provider) => hooks.push(setContextMenu(element, provider)),
   };
 
   onCleanup(() => {

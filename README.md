@@ -137,6 +137,19 @@ The panel at the top has these parts, from left to right:
 A tap of the Super key opens the launcher when the shell has Keyboard Lock.
 Alt+F1 opens it on each client.
 
+A right click opens the menu of the shell:
+
+| Place | Menu |
+|---|---|
+| The title bar of a window, or its button in the panel | Minimize, maximize, snap, move to a different workspace, close |
+| The empty desktop | Open each app, tile the windows |
+| A terminal | Copy, paste, select all, clear the scrollback |
+
+Shift+F10 and the ContextMenu key open the menu of the focused element.
+Use the arrow keys and Enter to select an item, and Escape to close the menu.
+Text fields keep the menu of the browser.
+For the menu of the browser in a different place, hold Shift during the right click.
+
 To move a window, drag its title bar.
 To snap a window, drag it to an edge of the desktop:
 
@@ -223,6 +236,8 @@ The component gets an `AppContext` (`web/src/apps/types.ts`):
 | `state.key(name)` | A key for the state of this window. A reload keeps it, and closing the window removes it. |
 | `setTitle(title)` | Changes the title of the window |
 | `openApp(id)` | Opens a window of a different app |
+| `contextMenu(element, provider)` | Sets the context menu of an element. `provider` gives the items at the time of the click. |
+| `onClose(handler)`, `onFocus(handler)` | Run code when the user closes the window, or when the window gets the focus |
 | `windowId`, `user` | The id of the window and the user of the session |
 
 After a reload or a break of the connection, the shell opens the windows again.

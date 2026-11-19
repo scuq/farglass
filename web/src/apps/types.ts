@@ -10,6 +10,7 @@
  */
 
 import type { JSX } from "@solidjs/web";
+import type { MenuProvider } from "../menu/menu";
 import type { Channel, ChannelHandlers, Open } from "../proto";
 
 /** The state store of the session, for an app. */
@@ -51,6 +52,8 @@ export interface AppContext {
   onFocus(handler: () => void): void;
   /** Reports whether the window has the focus now. */
   isFocused(): boolean;
+  /** Sets the context menu of an element of the app. Closing the window removes it. */
+  contextMenu(element: Element, provider: MenuProvider): void;
 }
 
 /** The component of an app window: the default export of the app module. */

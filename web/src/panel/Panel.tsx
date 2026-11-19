@@ -1,4 +1,6 @@
-import { createSignal, For } from "solid-js";
+import { createSignal, For, onCleanup, untrack } from "solid-js";
+import { setContextMenu } from "../menu/menu";
+import { windowMenu } from "../wm/menus";
 import { APPS } from "../apps/registry";
 import type { DesktopController } from "../wm/controller";
 import type { Win } from "../wm/model";
@@ -60,10 +62,17 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
 
       <nav class="panel-tasks" aria-label="Windows">
         <For each={tasks()} keyed={(win: Win) => win.id}>
-          {(win) => (
+          {(win) => {
+            const id = untrack(() => win().id);
+            let removeMenu: (() => void) | undefined;
+            onCleanup(() => removeMenu?.());
+            return (
             <button
               type="button"
               class="wm-task"
+              ref={(el) => {
+                removeMenu = setContextMenu(el, () => windowMenu(c, id));
+              }}
               aria-pressed={String(c.focusedId() === win().id) as "true" | "false"}
               data-minimized={String(win().minimized)}
               onClick={() => (c.focusedId() === win().id ? c.minimize(win().id) : c.activate(win().id))}
@@ -71,7 +80,8 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
               {APPS[win().app] ? <img class="panel-task-icon" src={APPS[win().app]!.icon} alt="" /> : null}
               {win().title}
             </button>
-          )}
+            );
+          }}
         </For>
       </nav>
 

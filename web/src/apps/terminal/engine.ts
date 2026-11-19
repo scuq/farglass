@@ -21,6 +21,12 @@ export interface TerminalEngine {
   fit(): void;
   /** Sends text as a paste, with bracketed paste if the program asked for it. */
   paste(text: string): void;
+  /** Pastes the clipboard of the browser. Keys that come during the read follow the pasted text. */
+  pasteClipboard(): void;
+  /** Selects the screen and the scrollback. */
+  selectAll(): void;
+  /** Removes the scrollback and the screen above the cursor line. */
+  clear(): void;
   /** Returns the selected text. */
   selection(): string;
   /** Returns the text of the screen and the scrollback, one line for each row. */

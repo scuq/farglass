@@ -139,6 +139,9 @@ export function createXterm(element: HTMLElement): TerminalEngine {
       }
     },
     paste: (text) => terminal.paste(text),
+    pasteClipboard,
+    selectAll: () => terminal.selectAll(),
+    clear: () => terminal.clear(),
     selection: () => terminal.getSelection(),
     text: () => {
       const buffer = terminal.buffer.active;
