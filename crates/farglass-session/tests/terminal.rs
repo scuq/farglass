@@ -23,6 +23,7 @@ fn options(scope: bool) -> TerminalOptions {
     TerminalOptions {
         scope,
         shell: Some(PathBuf::from("/bin/sh")),
+        wayland: None,
     }
 }
 

@@ -1,0 +1,22 @@
+[package]
+name = "farglass-surface"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The headless Wayland compositor of a farglass session"
+
+[dependencies]
+smithay.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+nix = { workspace = true, features = ["fs"] }
+tempfile.workspace = true
+wayland-client.workspace = true
+wayland-protocols.workspace = true
+
+[lints]
+workspace = true

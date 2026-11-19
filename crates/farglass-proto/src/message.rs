@@ -107,6 +107,9 @@ pub enum Open {
     ///
     /// The agent sends [`NotifyEvent`] and gets [`NotifyReply`], as control messages.
     Notify,
+    /// The windows of the Wayland compositor of the session: the top-level windows, the popups,
+    /// and the commits. The shell gives the size, the focus, and the close of each window.
+    Surfaces,
     /// The polkit prompts of the session. The shell keeps one open while the desktop shows.
     ///
     /// The agent sends [`PolkitEvent`] and gets [`PolkitReply`], as control messages.
@@ -269,6 +272,122 @@ pub struct Notification {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub timeout_ms: Option<u32>,
+}
+
+/// A rectangle in pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct SurfaceRect {
+    /// The left edge.
+    pub x: i32,
+    /// The top edge.
+    pub y: i32,
+    /// The width.
+    pub width: i32,
+    /// The height.
+    pub height: i32,
+}
+
+/// A message of the agent on a surfaces channel.
+///
+/// Top-level windows and popups share the ids. The agent uses each id one time only.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum SurfaceEvent {
+    /// A new top-level window, or a new title, app id, or parent of a window.
+    Toplevel {
+        /// The window.
+        id: u32,
+        /// The title.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        title: Option<String>,
+        /// The app id, for example `org.gnome.Calculator`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        app_id: Option<String>,
+        /// The window that this window belongs to, for example for a dialog.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        parent: Option<u32>,
+    },
+    /// A top-level window closed.
+    Closed {
+        /// The window.
+        id: u32,
+    },
+    /// A new popup, with its place relative to its parent surface in logical pixels.
+    Popup {
+        /// The popup.
+        id: u32,
+        /// The surface that the popup belongs to.
+        parent: u32,
+        /// The place and the size.
+        geometry: SurfaceRect,
+    },
+    /// A popup closed.
+    PopupClosed {
+        /// The popup.
+        id: u32,
+    },
+    /// A surface committed a new buffer.
+    Commit {
+        /// The surface.
+        id: u32,
+        /// The width of the buffer in pixels.
+        width: i32,
+        /// The height of the buffer in pixels.
+        height: i32,
+        /// Buffer pixels for each logical pixel.
+        scale: i32,
+        /// The parts of the buffer that changed, in buffer pixels.
+        damage: Vec<SurfaceRect>,
+        /// The part of the surface that is the window, with no shadow, in logical pixels.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        geometry: Option<SurfaceRect>,
+    },
+    /// A surface removed its buffer: the window is not visible.
+    Unmapped {
+        /// The surface.
+        id: u32,
+    },
+    /// The client asks to move the window, for example after a press on its own title bar.
+    MoveRequest {
+        /// The window.
+        id: u32,
+    },
+}
+
+/// A message of the shell on a surfaces channel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum SurfaceRequest {
+    /// Asks the client to draw the window with this size in logical pixels. 0 lets the client select.
+    Configure {
+        /// The window.
+        id: u32,
+        /// The width.
+        width: i32,
+        /// The height.
+        height: i32,
+    },
+    /// Gives the focus to a window, or to no window.
+    Activate {
+        /// The window, or none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        id: Option<u32>,
+    },
+    /// Asks the client to close the window.
+    Close {
+        /// The window.
+        id: u32,
+    },
+    /// Closes a popup, for example after a click outside it.
+    PopupDismiss {
+        /// The popup.
+        id: u32,
+    },
 }
 
 /// A message of the agent on a notify channel.

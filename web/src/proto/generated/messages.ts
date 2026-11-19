@@ -39,7 +39,7 @@ rows: number, } | { "kind": "dbus",
 /**
  * The bus.
  */
-bus: Bus, } | { "kind": "notify" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" };
+bus: Bus, } | { "kind": "notify" } | { "kind": "surfaces" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" };
 
 /**
  * The payload of a ready frame. The receiver of the open frame accepts the channel.
@@ -263,6 +263,131 @@ id: number,
  * The key of the action.
  */
 key: string, };
+
+/**
+ * A rectangle in pixels.
+ */
+export type SurfaceRect = { 
+/**
+ * The left edge.
+ */
+x: number, 
+/**
+ * The top edge.
+ */
+y: number, 
+/**
+ * The width.
+ */
+width: number, 
+/**
+ * The height.
+ */
+height: number, };
+
+/**
+ * A message of the agent on a surfaces channel.
+ *
+ * Top-level windows and popups share the ids. The agent uses each id one time only.
+ */
+export type SurfaceEvent = { "type": "toplevel", 
+/**
+ * The window.
+ */
+id: number, 
+/**
+ * The title.
+ */
+title?: string, 
+/**
+ * The app id, for example `org.gnome.Calculator`.
+ */
+app_id?: string, 
+/**
+ * The window that this window belongs to, for example for a dialog.
+ */
+parent?: number, } | { "type": "closed", 
+/**
+ * The window.
+ */
+id: number, } | { "type": "popup", 
+/**
+ * The popup.
+ */
+id: number, 
+/**
+ * The surface that the popup belongs to.
+ */
+parent: number, 
+/**
+ * The place and the size.
+ */
+geometry: SurfaceRect, } | { "type": "popup-closed", 
+/**
+ * The popup.
+ */
+id: number, } | { "type": "commit", 
+/**
+ * The surface.
+ */
+id: number, 
+/**
+ * The width of the buffer in pixels.
+ */
+width: number, 
+/**
+ * The height of the buffer in pixels.
+ */
+height: number, 
+/**
+ * Buffer pixels for each logical pixel.
+ */
+scale: number, 
+/**
+ * The parts of the buffer that changed, in buffer pixels.
+ */
+damage: Array<SurfaceRect>, 
+/**
+ * The part of the surface that is the window, with no shadow, in logical pixels.
+ */
+geometry?: SurfaceRect, } | { "type": "unmapped", 
+/**
+ * The surface.
+ */
+id: number, } | { "type": "move-request", 
+/**
+ * The window.
+ */
+id: number, };
+
+/**
+ * A message of the shell on a surfaces channel.
+ */
+export type SurfaceRequest = { "type": "configure", 
+/**
+ * The window.
+ */
+id: number, 
+/**
+ * The width.
+ */
+width: number, 
+/**
+ * The height.
+ */
+height: number, } | { "type": "activate", 
+/**
+ * The window, or none.
+ */
+id?: number, } | { "type": "close", 
+/**
+ * The window.
+ */
+id: number, } | { "type": "popup-dismiss", 
+/**
+ * The popup.
+ */
+id: number, };
 
 /**
  * A message of the agent on a polkit channel.

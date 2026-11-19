@@ -18,6 +18,7 @@ clap = { version = "4.6.8", features = ["derive", "env"] }
 futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
 farglass-session = { path = "crates/farglass-session" }
 farglass-login = { path = "crates/farglass-login" }
+farglass-surface = { path = "crates/farglass-surface" }
 http-body-util = "0.1.5"
 nix = { version = "0.32", default-features = false, features = ["user"] }
 h3 = "0.0.8"
@@ -30,6 +31,9 @@ hyper-util = { version = "0.1.21", features = ["http1", "http2", "server-auto", 
 proptest = "1.12"
 pty-process = { version = "0.5.4", features = ["async"] }
 quinn = { version = "0.11.12", default-features = false, features = ["runtime-tokio", "rustls-aws-lc-rs"] }
+smithay = { version = "0.7.0", default-features = false, features = ["wayland_frontend", "desktop"] }
+wayland-client = "0.31.15"
+wayland-protocols = { version = "0.32.13", features = ["client"] }
 rcgen = { version = "0.14.10", default-features = false, features = ["aws_lc_rs", "pem"] }
 rustls = "0.23.46"
 serde = { version = "1.0.229", features = ["derive"] }

@@ -305,6 +305,38 @@ After an action, the notification closes, unless the program set the hint `resid
 CloseNotification gives `NotificationClosed` with reason 3.
 The shell shows the body as plain text: the capabilities do not include `body-markup`.
 
+## Surfaces channel
+
+The agent runs a headless Wayland compositor (farglass-surface) on the socket `farglass-wayland` in `XDG_RUNTIME_DIR`.
+Each terminal gets that socket as `WAYLAND_DISPLAY`, thus a Wayland app that starts in a terminal shows in the compositor.
+The compositor draws nothing: the shell is the only window manager. It asks each client for server-side decorations.
+
+A channel `{"kind":"surfaces"}` gets each top-level window, each popup, and the last commit of each surface at once, then each change:
+
+| Event | Meaning |
+|---|---|
+| `{"type":"toplevel","id":1,"title":"Calculator","app_id":"org.gnome.Calculator"}` | A new window, or a new title, app id, or `parent`. |
+| `{"type":"closed","id":1}` | The window closed. |
+| `{"type":"popup","id":2,"parent":1,"geometry":{"x":10,"y":30,"width":200,"height":120}}` | A new popup, relative to its parent surface, in logical pixels. |
+| `{"type":"popup-closed","id":2}` | The popup closed. |
+| `{"type":"commit","id":1,"width":482,"height":738,"scale":1,"damage":[{"x":74,"y":353,"width":2,"height":25}],"geometry":{"x":61,"y":55,"width":360,"height":616}}` | A new buffer. `damage` is in buffer pixels. `geometry` is the window with no shadow. |
+| `{"type":"unmapped","id":1}` | The surface has no buffer: the window is not visible. |
+| `{"type":"move-request","id":1}` | The client asks to move the window, for example after a press on its own title bar. |
+
+Top-level windows and popups share the ids. The agent uses each id one time only.
+The pixels of each commit come with the tile codec (F025). The agent keeps the last buffer of each surface for it.
+
+The shell sends these messages:
+
+| Request | Meaning |
+|---|---|
+| `{"type":"configure","id":1,"width":640,"height":480}` | Asks the client for this size in logical pixels. 0 lets the client select. |
+| `{"type":"activate","id":1}` | Gives the window the keyboard focus and the activated state. With no `id`, no window has the focus. |
+| `{"type":"close","id":1}` | Asks the client to close the window. The client can ask the user first. |
+| `{"type":"popup-dismiss","id":2}` | Closes a popup, for example after a click outside it. |
+
+The compositor sends the frame callbacks at most each 16 ms, thus a client draws at most 60 frames each second.
+
 ## WebTransport
 
 farglassd serves WebTransport on HTTP/3 at `/wt`, on the UDP port with the number of the TCP port.

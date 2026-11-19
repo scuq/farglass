@@ -13,6 +13,7 @@ pub mod logind;
 pub mod notify;
 pub mod polkit;
 pub mod state;
+pub mod surfaces;
 pub mod terminal;
 
 /// The agent socket that the agent connects to when the environment names no other socket.

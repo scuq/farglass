@@ -73,6 +73,8 @@ pub struct TerminalOptions {
     pub scope: bool,
     /// The program of the terminal. `None` is the login shell of the user.
     pub shell: Option<PathBuf>,
+    /// The Wayland socket of the session. A terminal gets it as `WAYLAND_DISPLAY` if it exists.
+    pub wayland: Option<PathBuf>,
 }
 
 impl TerminalOptions {
@@ -87,6 +89,7 @@ impl TerminalOptions {
         Self {
             scope: wanted && bus,
             shell: None,
+            wayland: crate::surfaces::socket_path(),
         }
     }
 }
@@ -330,6 +333,11 @@ fn spawn(
             .arg(&shell)
             .arg("-l"),
         None => pty_process::Command::new(&shell).arg("-l"),
+    };
+    // The Wayland apps of a terminal show in the shell (F024).
+    let command = match options.wayland.as_deref().filter(|path| path.exists()) {
+        Some(socket) => command.env("WAYLAND_DISPLAY", socket),
+        None => command,
     };
     let child = command
         .env("TERM", "xterm-256color")

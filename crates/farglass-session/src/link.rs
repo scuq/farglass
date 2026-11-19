@@ -10,7 +10,7 @@ use bytes::Bytes;
 use farglass_proto::codec::{CodecError, FrameCodec};
 use farglass_proto::message::{
     Bus, Close, CloseReason, DbusEvent, DbusRequest, LinkMessage, NotifyReply, Open, PolkitReply,
-    PtyEvent, PtyRequest, Ready, StateEvent, StateRequest,
+    PtyEvent, PtyRequest, Ready, StateEvent, StateRequest, SurfaceRequest,
 };
 use farglass_proto::{ChannelId, Frame, FrameError, FrameType, PROTOCOL_VERSION, Side};
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -24,6 +24,7 @@ use crate::logind::Logind;
 use crate::notify::{self, Notifications};
 use crate::polkit::{HELPER, Polkit, ViewerGuard};
 use crate::state::StateStore;
+use crate::surfaces::{self, Surfaces};
 use crate::terminal::{
     AttachError, Output, Sink, TerminalLink, TerminalOptions, Terminals, ViewerId,
 };
@@ -70,6 +71,8 @@ pub struct Session {
     pub notifications: Arc<Notifications>,
     /// The logind session: its lock signals and its LockedHint.
     pub logind: Arc<Logind>,
+    /// The windows of the Wayland compositor.
+    pub surfaces: Arc<Surfaces>,
 }
 
 impl Default for Session {
@@ -82,6 +85,7 @@ impl Default for Session {
             buses,
             polkit: Polkit::new(HELPER),
             notifications: Notifications::new(),
+            surfaces: Surfaces::new(),
         }
     }
 }
@@ -301,6 +305,19 @@ where
                         }
                     }
                     Kind::Notify { .. } => None,
+                    Kind::Surfaces { .. } if frame.frame_type() == FrameType::Control => {
+                        match frame.parse::<SurfaceRequest>() {
+                            Ok(request) => {
+                                session.surfaces.request(request);
+                                None
+                            }
+                            Err(error) => Some((
+                                CloseReason::ProtocolError,
+                                format!("The surface request is not valid: {error}"),
+                            )),
+                        }
+                    }
+                    Kind::Surfaces { .. } => None,
                     Kind::State if frame.frame_type() == FrameType::Control => {
                         state_request(
                             &mut link,
@@ -548,6 +565,11 @@ enum Kind {
         /// Dropping the guard removes the channel from the agent.
         _viewer: notify::ViewerGuard,
     },
+    /// Gets the windows of the Wayland compositor. Dropping the channel removes it.
+    Surfaces {
+        /// Dropping the guard removes the channel from the agent.
+        _viewer: surfaces::ViewerGuard,
+    },
     /// Calls methods and gets signals on a D-Bus bus.
     Dbus {
         bus: Bus,
@@ -617,6 +639,15 @@ fn open(
                 }
             });
             accept(Kind::Notify { _viewer: guard })
+        }
+        Ok(Open::Surfaces) => {
+            let events = events.clone();
+            let guard = session.surfaces.add_viewer(move |event| {
+                if let Ok(frame) = Frame::json(channel, FrameType::Control, &event) {
+                    let _ = events.send(frame);
+                }
+            });
+            accept(Kind::Surfaces { _viewer: guard })
         }
         Ok(Open::Dbus { bus }) => accept(Kind::Dbus {
             bus,

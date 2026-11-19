@@ -1,0 +1,391 @@
+//! Tests of the compositor with a real Wayland client: a toplevel with an shm
+//! buffer, damage, configure, focus, close, and a popup.
+
+use std::fs::File;
+use std::io::Write as _;
+use std::os::fd::AsFd as _;
+use std::os::unix::net::UnixStream;
+use std::sync::mpsc;
+use std::time::Duration;
+
+use farglass_surface::{Command, Commit, Compositor, Event, Format, Rect};
+use wayland_client::globals::{GlobalListContents, registry_queue_init};
+use wayland_client::protocol::{
+    wl_buffer, wl_compositor, wl_registry, wl_shm, wl_shm_pool, wl_surface,
+};
+use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle, delegate_noop};
+use wayland_protocols::xdg::shell::client::{
+    xdg_popup, xdg_positioner, xdg_surface, xdg_toplevel, xdg_wm_base,
+};
+
+const WAIT: Duration = Duration::from_secs(5);
+
+/// What the client got from the compositor.
+#[derive(Default)]
+struct App {
+    configured: u32,
+    size: (i32, i32),
+    activated: bool,
+    closed: bool,
+    popup_configured: bool,
+    popup_done: bool,
+}
+
+impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for App {
+    fn event(
+        _: &mut Self,
+        _: &wl_registry::WlRegistry,
+        _: wl_registry::Event,
+        _: &GlobalListContents,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl Dispatch<xdg_wm_base::XdgWmBase, ()> for App {
+    fn event(
+        _: &mut Self,
+        base: &xdg_wm_base::XdgWmBase,
+        event: xdg_wm_base::Event,
+        (): &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let xdg_wm_base::Event::Ping { serial } = event {
+            base.pong(serial);
+        }
+    }
+}
+
+impl Dispatch<xdg_surface::XdgSurface, ()> for App {
+    fn event(
+        app: &mut Self,
+        surface: &xdg_surface::XdgSurface,
+        event: xdg_surface::Event,
+        (): &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let xdg_surface::Event::Configure { serial } = event {
+            surface.ack_configure(serial);
+            app.configured += 1;
+        }
+    }
+}
+
+impl Dispatch<xdg_toplevel::XdgToplevel, ()> for App {
+    fn event(
+        app: &mut Self,
+        _: &xdg_toplevel::XdgToplevel,
+        event: xdg_toplevel::Event,
+        (): &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match event {
+            xdg_toplevel::Event::Configure {
+                width,
+                height,
+                states,
+            } => {
+                app.size = (width, height);
+                // Each state is a u32 in native byte order. 4 is Activated.
+                app.activated = states
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .any(|s| u32::from_ne_bytes(*s) == 4);
+            }
+            xdg_toplevel::Event::Close => app.closed = true,
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<xdg_popup::XdgPopup, ()> for App {
+    fn event(
+        app: &mut Self,
+        _: &xdg_popup::XdgPopup,
+        event: xdg_popup::Event,
+        (): &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match event {
+            xdg_popup::Event::Configure { .. } => app.popup_configured = true,
+            xdg_popup::Event::PopupDone => app.popup_done = true,
+            _ => {}
+        }
+    }
+}
+
+delegate_noop!(App: ignore wl_compositor::WlCompositor);
+delegate_noop!(App: ignore wl_surface::WlSurface);
+delegate_noop!(App: ignore wl_shm::WlShm);
+delegate_noop!(App: ignore wl_shm_pool::WlShmPool);
+delegate_noop!(App: ignore wl_buffer::WlBuffer);
+delegate_noop!(App: ignore xdg_positioner::XdgPositioner);
+
+struct Client {
+    app: App,
+    queue: EventQueue<App>,
+    qh: QueueHandle<App>,
+    compositor: wl_compositor::WlCompositor,
+    shm: wl_shm::WlShm,
+    wm: xdg_wm_base::XdgWmBase,
+}
+
+impl Client {
+    fn connect(path: &std::path::Path) -> Self {
+        let connection = Connection::from_socket(UnixStream::connect(path).unwrap()).unwrap();
+        let (globals, queue) = registry_queue_init::<App>(&connection).unwrap();
+        let qh = queue.handle();
+        Self {
+            compositor: globals.bind(&qh, 4..=6, ()).unwrap(),
+            shm: globals.bind(&qh, 1..=1, ()).unwrap(),
+            wm: globals.bind(&qh, 1..=6, ()).unwrap(),
+            app: App::default(),
+            queue,
+            qh,
+        }
+    }
+
+    fn roundtrip(&mut self) {
+        self.queue.roundtrip(&mut self.app).unwrap();
+    }
+
+    /// Returns a buffer of `width` x `height` with each pixel `pixel` (blue, green, red, alpha).
+    fn buffer(&self, width: i32, height: i32, pixel: [u8; 4]) -> wl_buffer::WlBuffer {
+        let size = width * height * 4;
+        let fd =
+            nix::sys::memfd::memfd_create(c"farglass-test", nix::sys::memfd::MFdFlags::empty())
+                .unwrap();
+        let mut file = File::from(fd);
+        file.write_all(&pixel.repeat(usize::try_from(width * height).unwrap()))
+            .unwrap();
+        let pool = self.shm.create_pool(file.as_fd(), size, &self.qh, ());
+        let buffer = pool.create_buffer(
+            0,
+            width,
+            height,
+            width * 4,
+            wl_shm::Format::Argb8888,
+            &self.qh,
+            (),
+        );
+        pool.destroy();
+        buffer
+    }
+}
+
+fn next(
+    events: &mpsc::Receiver<Event>,
+    client: &mut Client,
+    wanted: impl Fn(&Event) -> bool,
+) -> Event {
+    let end = std::time::Instant::now() + WAIT;
+    loop {
+        client.roundtrip();
+        match events.recv_timeout(Duration::from_millis(50)) {
+            Ok(event) if wanted(&event) => return event,
+            Ok(_) | Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => panic!("the compositor stopped"),
+        }
+        assert!(std::time::Instant::now() < end, "no matching event");
+    }
+}
+
+fn commit_of(event: Event) -> Commit {
+    let Event::Commit(commit) = event else {
+        panic!("not a commit: {event:?}")
+    };
+    commit
+}
+
+#[test]
+fn a_toplevel_gives_its_buffer_and_damage_and_the_shell_controls_size_focus_and_close() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("wayland-test");
+    let (sender, events) = mpsc::channel();
+    let compositor = Compositor::spawn(&socket, move |event| {
+        let _ = sender.send(event);
+    })
+    .unwrap();
+    let mut client = Client::connect(compositor.socket());
+
+    let surface = client.compositor.create_surface(&client.qh, ());
+    let xdg = client.wm.get_xdg_surface(&surface, &client.qh, ());
+    let toplevel = xdg.get_toplevel(&client.qh, ());
+    toplevel.set_title("Calculator".to_owned());
+    toplevel.set_app_id("org.example.Calculator".to_owned());
+    surface.commit();
+    let Event::ToplevelNew { id } = next(&events, &mut client, |e| {
+        matches!(e, Event::ToplevelNew { .. })
+    }) else {
+        unreachable!()
+    };
+    let changed = next(&events, &mut client, |e| {
+        matches!(
+            e,
+            Event::ToplevelChanged {
+                app_id: Some(_),
+                ..
+            }
+        )
+    });
+    assert_eq!(
+        changed,
+        Event::ToplevelChanged {
+            id,
+            title: Some("Calculator".to_owned()),
+            app_id: Some("org.example.Calculator".to_owned()),
+            parent: None
+        }
+    );
+    assert!(
+        client.app.configured >= 1,
+        "the first commit gives the first configure"
+    );
+
+    // The first buffer: the whole buffer is damage.
+    let red = client.buffer(64, 48, [0, 0, 255, 255]);
+    surface.attach(Some(&red), 0, 0);
+    surface.damage_buffer(0, 0, 64, 48);
+    surface.commit();
+    let first = commit_of(next(&events, &mut client, |e| {
+        matches!(e, Event::Commit(_))
+    }));
+    assert_eq!(
+        (first.id, first.width, first.height, first.format),
+        (id, 64, 48, Format::Argb8888)
+    );
+    assert_eq!(
+        first.damage,
+        [Rect {
+            x: 0,
+            y: 0,
+            width: 64,
+            height: 48
+        }]
+    );
+    assert_eq!(first.pixels.len(), 64 * 48 * 4);
+    assert_eq!(&first.pixels[..4], &[0, 0, 255, 255]);
+
+    // A second buffer of the same size with a small damage.
+    let blue = client.buffer(64, 48, [255, 0, 0, 255]);
+    surface.attach(Some(&blue), 0, 0);
+    surface.damage_buffer(10, 10, 5, 5);
+    surface.damage_buffer(60, 40, 20, 20);
+    surface.commit();
+    let second = commit_of(next(&events, &mut client, |e| {
+        matches!(e, Event::Commit(_))
+    }));
+    assert_eq!(
+        second.damage,
+        [
+            Rect {
+                x: 10,
+                y: 10,
+                width: 5,
+                height: 5
+            },
+            Rect {
+                x: 60,
+                y: 40,
+                width: 4,
+                height: 8
+            }
+        ]
+    );
+    assert_eq!(&second.pixels[..4], &[255, 0, 0, 255]);
+
+    // The shell gives the size, the focus, and the close.
+    compositor.send(Command::Configure {
+        id,
+        width: 300,
+        height: 200,
+    });
+    compositor.send(Command::Activate { id: Some(id) });
+    let end = std::time::Instant::now() + WAIT;
+    while !(client.app.size == (300, 200) && client.app.activated) {
+        client.roundtrip();
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(
+            std::time::Instant::now() < end,
+            "no configure with the size and the focus"
+        );
+    }
+    compositor.send(Command::Close { id });
+    while !client.app.closed {
+        client.roundtrip();
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(std::time::Instant::now() < end, "no close");
+    }
+
+    // A popup of the window.
+    let popup_surface = client.compositor.create_surface(&client.qh, ());
+    let popup_xdg = client.wm.get_xdg_surface(&popup_surface, &client.qh, ());
+    let positioner = client.wm.create_positioner(&client.qh, ());
+    positioner.set_size(50, 30);
+    positioner.set_anchor_rect(5, 5, 10, 10);
+    let popup = popup_xdg.get_popup(Some(&xdg), &positioner, &client.qh, ());
+    popup_surface.commit();
+    let new_popup = next(&events, &mut client, |e| {
+        matches!(e, Event::PopupNew { .. })
+    });
+    let Event::PopupNew {
+        id: popup_id,
+        parent,
+        geometry,
+    } = new_popup
+    else {
+        unreachable!()
+    };
+    assert_eq!(parent, id);
+    assert_eq!((geometry.width, geometry.height), (50, 30));
+    while !client.app.popup_configured {
+        client.roundtrip();
+    }
+    compositor.send(Command::PopupDismiss { id: popup_id });
+    while !client.app.popup_done {
+        client.roundtrip();
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(std::time::Instant::now() < end, "no popup_done");
+    }
+    popup.destroy();
+    popup_xdg.destroy();
+    assert_eq!(
+        next(&events, &mut client, |e| matches!(
+            e,
+            Event::PopupClosed { .. }
+        )),
+        Event::PopupClosed { id: popup_id }
+    );
+
+    // The client closes the window.
+    toplevel.destroy();
+    xdg.destroy();
+    assert_eq!(
+        next(&events, &mut client, |e| matches!(
+            e,
+            Event::ToplevelClosed { .. }
+        )),
+        Event::ToplevelClosed { id }
+    );
+
+    drop(compositor);
+    assert!(!socket.exists(), "the socket goes with the compositor");
+}
+
+#[test]
+fn a_second_compositor_on_a_used_socket_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("wayland-test");
+    let first = Compositor::spawn(&socket, |_| {}).unwrap();
+    assert!(Compositor::spawn(&socket, |_| {}).is_err());
+    drop(first);
+    // A file of a stopped compositor goes, and a new one starts.
+    std::fs::write(&socket, b"").unwrap();
+    let _again = Compositor::spawn(&socket, |_| {}).unwrap();
+}

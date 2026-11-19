@@ -77,6 +77,19 @@ async fn main() {
             }
         });
     }
+    // The Wayland compositor of the session (F024). It lives as long as the agent.
+    let _compositor = farglass_session::surfaces::socket_path().and_then(|socket| {
+        match session.surfaces.start(&socket) {
+            Ok(compositor) => {
+                tracing::info!(socket = %socket.display(), "the Wayland compositor listens");
+                Some(compositor)
+            }
+            Err(error) => {
+                tracing::warn!(%error, "no Wayland compositor");
+                None
+            }
+        }
+    });
     let mut wait = RETRY_MIN;
     loop {
         match link::connect(&path, &mut session).await {

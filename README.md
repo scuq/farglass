@@ -208,6 +208,22 @@ The dialog shows the message of polkit and asks for the password of a permitted 
 Cancel or Escape stops the action.
 With no open tab, polkit gets no answer, and the action fails.
 
+## Linux apps
+
+Each session runs a Wayland compositor with no screen.
+A Wayland app that starts in a farglass terminal, for example `gnome-calculator`, connects to it through `WAYLAND_DISPLAY`.
+The compositor gives each window, its title, and the changed parts of each frame to the shell.
+The windows show in the shell with the tile codec (F025). Input to them comes with F029.
+
+To look at the events of a real app:
+
+```sh
+cargo run -p farglass-surface --example serve -- /tmp/farglass-wayland-test /tmp
+WAYLAND_DISPLAY=/tmp/farglass-wayland-test GDK_BACKEND=wayland gnome-calculator
+```
+
+The example prints each event and writes the last frame of each window to `/tmp/ID.ppm`.
+
 ## Settings
 
 The settings app has these pages:
