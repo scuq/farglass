@@ -99,10 +99,18 @@ try {
   check(pid > 0, `the terminal runs a shell (pid ${pid})`);
 
   // 2. The delay from a key press to its echo.
-  await page.evaluate(() => performance.clearMeasures("farglass:terminal-echo"));
-  for (const key of "abcdefghijklmnopqrstuvwxyzabcdefghijklmn") {
+  // Warm up the terminal and the JIT of the browser, then measure 60 key presses.
+  for (const key of "warmupkeys") {
     await page.keyboard.press(key);
     await page.waitForTimeout(25);
+  }
+  await page.waitForTimeout(200);
+  await page.evaluate(() => performance.clearMeasures("farglass:terminal-echo"));
+  // 50 ms between keys is 20 keys each second, fast typing. Headless Chromium draws
+  // WebGL in software: a shorter gap measures its frames, not the path to the host.
+  for (const key of "abcdefghijklmnopqrstuvwxyz".repeat(3).slice(0, 60)) {
+    await page.keyboard.press(key);
+    await page.waitForTimeout(50);
   }
   await page.keyboard.press("Control+U");
   const delays = (await page.evaluate(() => performance.getEntriesByName("farglass:terminal-echo").map((m) => m.duration))).sort(
@@ -111,7 +119,7 @@ try {
   const p50 = delays[Math.floor(delays.length / 2)];
   const p95 = delays[Math.floor(delays.length * 0.95)];
   console.log(`INFO: ${delays.length} echoes, median ${p50.toFixed(2)} ms, p95 ${p95.toFixed(2)} ms, max ${delays.at(-1).toFixed(2)} ms`);
-  check(delays.length >= 35, "the Performance API has a measurement for each key press");
+  check(delays.length >= 55, "the Performance API has a measurement for each key press");
   check(p95 < 5, `the echo of a key press comes in less than 5 ms on loopback (p95 ${p95.toFixed(2)} ms)`);
 
   // 3. The clipboard: OSC 52 from the host, and Ctrl+Shift+V.
@@ -163,6 +171,23 @@ try {
   if (SHOTS) await page.screenshot({ path: join(SHOTS, "menu.png") });
   await page.keyboard.press("Escape");
   check(true, "Shift+F10 opens the menu of the focused terminal");
+
+  // A text field gets the text menu of the shell, and the launcher stays open.
+  await page.evaluate(() => navigator.clipboard.writeText("abo"));
+  await page.getByRole("button", { name: "Apps" }).click();
+  const search = page.locator("#launcher").getByRole("combobox", { name: "Search apps" });
+  await search.waitFor({ timeout: TIMEOUT_MS });
+  await search.click({ button: "right" });
+  await item("Paste").waitFor({ timeout: TIMEOUT_MS });
+  check((await menu.getByRole("menuitem").allTextContents()).join(",") === "Cut,Copy,Paste,Select all", "a text field gets the text menu of the shell");
+  await item("Paste").click();
+  // The paste reads the clipboard asynchronously.
+  await page.waitForFunction(() => document.querySelector(".launcher-search")?.value === "abo", null, { timeout: TIMEOUT_MS });
+  check(
+    (await search.inputValue()) === "abo" && (await page.locator("#launcher").evaluate((el) => el.matches(":popover-open"))),
+    "Paste from the text menu fills the search, and the launcher stays open",
+  );
+  await page.keyboard.press("Escape");
 
   const surface = await page.locator(".wm-surface").boundingBox();
   await page.mouse.click(surface.x + surface.width - 20, surface.y + surface.height - 20, { button: "right" });

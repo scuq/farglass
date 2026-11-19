@@ -144,11 +144,11 @@ A right click opens the menu of the shell:
 | The title bar of a window, or its button in the panel | Minimize, maximize, snap, move to a different workspace, close |
 | The empty desktop | Open each app, tile the windows |
 | A terminal | Copy, paste, select all, clear the scrollback |
+| A text field | Cut, copy, paste, select all |
 
 Shift+F10 and the ContextMenu key open the menu of the focused element.
 Use the arrow keys and Enter to select an item, and Escape to close the menu.
-Text fields keep the menu of the browser.
-For the menu of the browser in a different place, hold Shift during the right click.
+As on a native desktop, the menu of the browser does not show.
 
 To move a window, drag its title bar.
 To snap a window, drag it to an edge of the desktop:

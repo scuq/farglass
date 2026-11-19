@@ -1,4 +1,3 @@
-import { ContextMenuHost } from "../menu/ContextMenuHost";
 import { Panel } from "../panel/Panel";
 import type { Connection } from "../proto";
 import { createDesktopController } from "./controller";
@@ -17,7 +16,6 @@ export function Desktop(props: { connection: Connection; user: string; onlogout:
     <div class="wm">
       <Panel controller={controller} user={props.user} onlogout={props.onlogout} />
       <Surface controller={controller} />
-      <ContextMenuHost />
     </div>
   );
 }

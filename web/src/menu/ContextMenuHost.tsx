@@ -1,5 +1,5 @@
 import { createSignal, For, onCleanup } from "solid-js";
-import { keepsNativeMenu, type MenuItem, nextEnabled, placeMenu, providerFor } from "./menu";
+import { type MenuItem, nextEnabled, placeMenu, providerFor, textField, textFieldMenu } from "./menu";
 import "./menu.css";
 
 /** An open menu: its items and the point where it opens. */
@@ -13,11 +13,11 @@ interface OpenMenu {
 const SUPPORTED = typeof HTMLElement !== "undefined" && "showPopover" in HTMLElement.prototype;
 
 /**
- * Shows the context menus of the shell. Mount it one time, on the desktop.
+ * Shows the context menus of the shell. Mount it one time, at the root of the shell.
  *
  * A right click opens the menu of the element under the pointer. Shift+F10 and
- * the ContextMenu key open the menu of the focused element. Text fields and
- * Shift+right click keep the menu of the browser.
+ * the ContextMenu key open the menu of the focused element. A text field gets
+ * the text menu of the shell. As in a native desktop, the menu of the browser never shows.
  */
 export function ContextMenuHost() {
   const [menu, setMenu] = createSignal<OpenMenu | null>(null);
@@ -41,7 +41,8 @@ export function ContextMenuHost() {
   };
 
   const open = (target: Element | null, x: number, y: number): boolean => {
-    const provider = providerFor(target);
+    const field = textField(target);
+    const provider = field ? () => textFieldMenu(field) : providerFor(target);
     if (!provider) {
       return false;
     }
@@ -57,7 +58,13 @@ export function ContextMenuHost() {
         return;
       }
       if (SUPPORTED && !element.matches(":popover-open")) {
-        element.showPopover();
+        // With the clicked element as its source, the menu is a child of a popover
+        // around that element, for example the launcher: a click in the menu does not close it.
+        try {
+          element.showPopover({ source: target } as ShowPopoverOptions);
+        } catch {
+          element.showPopover();
+        }
       }
       // Move the menu into the viewport after the browser knows its size.
       const box = element.getBoundingClientRect();
@@ -71,9 +78,6 @@ export function ContextMenuHost() {
 
   const onContextMenu = (event: MouseEvent) => {
     const target = event.target instanceof Element ? event.target : null;
-    if (event.shiftKey || keepsNativeMenu(target)) {
-      return;
-    }
     event.preventDefault();
     open(target, event.clientX, event.clientY);
   };
@@ -83,9 +87,6 @@ export function ContextMenuHost() {
       return;
     }
     const target = document.activeElement;
-    if (keepsNativeMenu(target)) {
-      return;
-    }
     const anchor = (target?.closest(".term-app") ?? target)?.getBoundingClientRect();
     if (open(target, (anchor?.left ?? 0) + 16, (anchor?.top ?? 0) + 16)) {
       // The key opens the menu and goes nowhere else: a terminal must not get Shift+F10.

@@ -1,10 +1,10 @@
 ---
 id: ADR-029
 title: One context menu for the shell, with providers on elements
-status: accepted
+status: superseded
 date: 2026-11-19
 tags: [shell, menu]
-superseded_by:
+superseded_by: ADR-030
 files: [web/src/menu/, web/src/wm/menus.ts, web/src/apps/types.ts]
 ---
 

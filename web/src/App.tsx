@@ -1,4 +1,5 @@
 import { createSignal, Match, onCleanup, Switch } from "solid-js";
+import { ContextMenuHost } from "./menu/ContextMenuHost";
 import { Desktop } from "./wm/Desktop";
 import { LoginScreen } from "./LoginScreen";
 import { type Connection, connect, endpointUrl } from "./proto";
@@ -150,6 +151,7 @@ export function App(props: AppServices) {
           }}
         </Match>
       </Switch>
+      <ContextMenuHost />
     </main>
   );
 }
