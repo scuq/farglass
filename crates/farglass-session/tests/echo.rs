@@ -238,3 +238,37 @@ mod state {
         assert_eq!(close.reason, CloseReason::ProtocolError);
     }
 }
+
+/// A newer farglassd can send a link message that the agent does not know. The link continues.
+#[tokio::test]
+async fn an_unknown_link_message_does_not_stop_the_link() {
+    let (ours, theirs) = tokio::net::UnixStream::pair().unwrap();
+    tokio::spawn(async move {
+        let _ = farglass_session::link::serve(theirs).await;
+    });
+    let mut link = tokio_util::codec::Framed::new(ours, farglass_proto::codec::FrameCodec);
+    use futures_util::{SinkExt as _, StreamExt as _};
+    link.next().await.unwrap().unwrap();
+    let hello = farglass_proto::message::LinkMessage::Hello {
+        version: farglass_proto::PROTOCOL_VERSION,
+    };
+    let connection = farglass_proto::ChannelId::CONNECTION;
+    let control = farglass_proto::FrameType::Control;
+    link.send(farglass_proto::Frame::json(connection, control, &hello).unwrap())
+        .await
+        .unwrap();
+    let unknown = serde_json::json!({"type": "from-the-future", "value": 1});
+    link.send(farglass_proto::Frame::json(connection, control, &unknown).unwrap())
+        .await
+        .unwrap();
+    let channel = farglass_proto::ChannelId::new(1);
+    link.send(farglass_proto::Frame::open(channel, &farglass_proto::message::Open::Echo).unwrap())
+        .await
+        .unwrap();
+    let ready = tokio::time::timeout(std::time::Duration::from_secs(5), link.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(ready.frame_type(), farglass_proto::FrameType::Ready);
+}

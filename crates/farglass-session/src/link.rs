@@ -200,7 +200,13 @@ where
         };
         let channel = frame.channel();
         if channel.is_connection() {
-            match link_message(&frame)? {
+            // A newer farglassd can send a message that this agent does not know, for
+            // example while an old agent runs after an update. The agent skips it.
+            let Ok(message) = link_message(&frame) else {
+                tracing::warn!("farglassd sent a link message that this agent does not know");
+                continue;
+            };
+            match message {
                 LinkMessage::Attach { connection } => {
                     tracing::info!(connection, "a browser connection attached");
                 }
