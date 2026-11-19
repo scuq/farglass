@@ -35,4 +35,4 @@ MemoryDenyWriteExecute=yes
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 # PAM modules write the login records and the faillock state.
-ReadWritePaths=/var/log /run/faillock -/var/lib/google-authenticator
+ReadWritePaths=-/var/log -/run/faillock -/var/lib/google-authenticator

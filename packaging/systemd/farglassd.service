@@ -1,0 +1,51 @@
+[Unit]
+Description=farglass web server
+Documentation=https://github.com/scuq/farglass
+Wants=network-online.target farglass-login.socket
+After=network-online.target farglass-login.socket
+
+[Service]
+Type=exec
+ExecStart=/usr/libexec/farglass/farglassd
+# SIGHUP loads the certificate files again.
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+
+# farglassd runs as an unprivileged user (ADR-003). The group farglass lets it
+# connect to the login socket of farglass-login.
+User=farglass
+Group=farglass
+
+# /var/lib/farglass: the self-signed certificate.
+StateDirectory=farglass
+StateDirectoryMode=0700
+# /run/farglass: the agent socket. The login socket is in the same directory,
+# thus the directory stays when farglassd stops.
+RuntimeDirectory=farglass
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+
+# Protection.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+
+[Install]
+WantedBy=multi-user.target
