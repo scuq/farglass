@@ -218,13 +218,13 @@ mod state {
 
     #[tokio::test]
     async fn store_continues_when_the_link_to_farglassd_breaks() {
-        let mut store = farglass_session::state::StateStore::default();
-        store.set("theme", json!("dark")).unwrap();
+        let mut session = farglass_session::link::Session::default();
+        session.store.set("theme", json!("dark")).unwrap();
         let (ours, theirs) = UnixStream::pair().unwrap();
         drop(ours);
         // The link stops at once. The store stays with the caller.
-        let _ = farglass_session::link::serve_with(theirs, &mut store).await;
-        assert_eq!(store.get("theme"), json!("dark"));
+        let _ = farglass_session::link::serve_with(theirs, &mut session).await;
+        assert_eq!(session.store.get("theme"), json!("dark"));
     }
 
     #[tokio::test]

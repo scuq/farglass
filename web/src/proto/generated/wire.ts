@@ -13,6 +13,12 @@ export const MAX_PAYLOAD_LEN = 1048576;
 /** The number of the connection channel. */
 export const CONNECTION_CHANNEL = 0;
 
+/** The largest number of terminal output bytes that the shell did not acknowledge. */
+export const PTY_WINDOW = 262144;
+
+/** The size of the scrollback of a terminal in bytes. */
+export const PTY_SCROLLBACK = 1048576;
+
 /** The type of a frame, as the number in the header. */
 export const FrameType = {
   Open: 1,

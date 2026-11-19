@@ -9,9 +9,13 @@ use ts_rs::{Config, TS};
 
 use crate::login::{LocalSession, LoginEvent, LoginReply};
 use crate::message::{
-    Close, CloseReason, ConnectionMessage, Open, Ready, StateEvent, StateRequest,
+    Close, CloseReason, ConnectionMessage, Open, PtyEvent, PtyRequest, Ready, StateEvent,
+    StateRequest,
 };
-use crate::{ChannelId, FrameError, FrameType, HEADER_LEN, MAX_PAYLOAD_LEN, PROTOCOL_VERSION};
+use crate::{
+    ChannelId, FrameError, FrameType, HEADER_LEN, MAX_PAYLOAD_LEN, PROTOCOL_VERSION,
+    PTY_SCROLLBACK, PTY_WINDOW,
+};
 
 /// The directory of the generated files, relative to the root of the repository.
 pub const OUTPUT_DIR: &str = "web/src/proto/generated";
@@ -46,6 +50,12 @@ export const MAX_PAYLOAD_LEN = {MAX_PAYLOAD_LEN};
 /** The number of the connection channel. */
 export const CONNECTION_CHANNEL = {connection};
 
+/** The largest number of terminal output bytes that the shell did not acknowledge. */
+export const PTY_WINDOW = {PTY_WINDOW};
+
+/** The size of the scrollback of a terminal in bytes. */
+export const PTY_SCROLLBACK = {PTY_SCROLLBACK};
+
 /** The type of a frame, as the number in the header. */
 export const FrameType = {{
 ",
@@ -77,6 +87,8 @@ fn messages() -> String {
     declare::<Ready>(&cfg, &mut out);
     declare::<Close>(&cfg, &mut out);
     declare::<CloseReason>(&cfg, &mut out);
+    declare::<PtyRequest>(&cfg, &mut out);
+    declare::<PtyEvent>(&cfg, &mut out);
     declare::<StateRequest>(&cfg, &mut out);
     declare::<StateEvent>(&cfg, &mut out);
     declare::<LoginEvent>(&cfg, &mut out);

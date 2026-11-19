@@ -139,6 +139,44 @@ A key has 1 to 256 bytes.
 All values together have a limit of 8 MiB.
 A set request above the limit closes the channel with the reason `resource-limit`.
 
+## Pty channel
+
+A pty channel attaches to a terminal in the agent.
+The terminal continues when the channel closes: jobs continue, and the output goes to the scrollback.
+
+```json
+{"kind":"pty","terminal":"6f1c...","cols":80,"rows":24}
+```
+
+If the agent has a terminal with the id `terminal`, the channel attaches to it.
+If not, the agent starts the login shell of the user on a new pty, with `TERM=xterm-256color`.
+With a systemd user manager, each terminal runs in its own scope `farglass-terminal-*.scope`.
+A session has at most 64 terminals.
+
+After the ready frame, the agent sends `{"type":"attached","new":true,"replay":0}`.
+`replay` is the number of bytes of scrollback that follow as data frames, before the live output.
+The scrollback has the last 1 MiB of output.
+
+Data frames carry the input from the shell and the output from the agent.
+The shell sends these control messages:
+
+| Message | Meaning |
+|---|---|
+| `{"type":"resize","cols":120,"rows":40}` | Changes the size of the terminal. |
+| `{"type":"ack","bytes":65536}` | The shell processed this many more bytes of output. |
+| `{"type":"terminate"}` | Sends SIGHUP to each program of the terminal, and SIGKILL 3 seconds later. |
+
+Flow control: the agent sends at most 256 KiB (`PTY_WINDOW`) of output that the shell did not acknowledge.
+Then the agent stops to read the terminal until an acknowledgment comes.
+Thus a program that writes much output waits for the browser, and the queues between the agent and the browser stay small.
+With no attached channel, the agent reads with no limit and keeps the last 1 MiB.
+
+When the program of the terminal stops, the agent sends `{"type":"exited","code":0}` or `{"type":"exited","signal":1}`, and closes the channel.
+If no channel is attached at that time, the next attach gets the scrollback and the exit.
+
+A close frame from the shell only detaches the channel.
+To end a terminal, send `terminate`.
+
 ## Session cookie
 
 A WebSocket message cannot set a cookie.
@@ -221,6 +259,7 @@ Version 1 has one kind:
 | `echo` | Sends each data frame back to the sender |
 | `login` | A PAM login, served by farglassd. See the section on the login channel. |
 | `state` | The state store of the session in the agent. See the section on the state channel. |
+| `pty` | A terminal in the agent. See the section on the pty channel. |
 
 `Ready` is an empty object.
 

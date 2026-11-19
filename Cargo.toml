@@ -24,6 +24,7 @@ hyper = { version = "1.12", features = ["http1", "http2", "server"] }
 libc = "0.2.191"
 hyper-util = { version = "0.1.21", features = ["http1", "http2", "server-auto", "service", "tokio"] }
 proptest = "1.12"
+pty-process = { version = "0.5.4", features = ["async"] }
 rcgen = { version = "0.14.10", default-features = false, features = ["aws_lc_rs", "pem"] }
 rustls = "0.23.46"
 serde = { version = "1.0.229", features = ["derive"] }
@@ -32,7 +33,7 @@ sha2 = "0.11.1"
 tempfile = "3.27"
 thiserror = "2.0.21"
 time = "0.3.55"
-tokio = { version = "1.54", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio = { version = "1.54", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-rustls = "0.26.6"
 tokio-tungstenite = "0.30"
 tokio-util = { version = "0.7.20", features = ["codec"] }

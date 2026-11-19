@@ -5,17 +5,22 @@ use std::io;
 use std::path::Path;
 use std::time::Duration;
 
+use bytes::Bytes;
 use farglass_proto::codec::{CodecError, FrameCodec};
 use farglass_proto::message::{
-    Close, CloseReason, LinkMessage, Open, Ready, StateEvent, StateRequest,
+    Close, CloseReason, LinkMessage, Open, PtyEvent, PtyRequest, Ready, StateEvent, StateRequest,
 };
 use farglass_proto::{ChannelId, Frame, FrameError, FrameType, PROTOCOL_VERSION, Side};
 use futures_util::{SinkExt as _, StreamExt as _};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::UnixStream;
+use tokio::sync::mpsc;
 use tokio_util::codec::Framed;
 
 use crate::state::StateStore;
+use crate::terminal::{
+    AttachError, Output, Sink, TerminalLink, TerminalOptions, Terminals, ViewerId,
+};
 
 /// farglassd must send its hello message in this time.
 const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
@@ -43,19 +48,38 @@ impl From<CodecError> for LinkError {
     }
 }
 
+/// What the agent keeps for the session while the link to farglassd breaks:
+/// the state store and the terminals.
+#[derive(Debug)]
+pub struct Session {
+    /// The state store.
+    pub store: StateStore,
+    /// The terminals.
+    pub terminals: Terminals,
+}
+
+impl Default for Session {
+    fn default() -> Self {
+        Self {
+            store: StateStore::default(),
+            terminals: Terminals::new(TerminalOptions::from_env()),
+        }
+    }
+}
+
 /// Connects to the agent socket at `path` and serves the link until farglassd closes it.
 ///
-/// `store` is the state store of the session. It continues after the link stops.
+/// `session` continues after the link stops.
 ///
 /// # Errors
 ///
 /// [`LinkError`] if the connection fails or farglassd breaks the protocol.
-pub async fn connect(path: &Path, store: &mut StateStore) -> Result<(), LinkError> {
+pub async fn connect(path: &Path, session: &mut Session) -> Result<(), LinkError> {
     let stream = UnixStream::connect(path).await?;
-    serve_with(stream, store).await
+    serve_with(stream, session).await
 }
 
-/// Serves the agent link on `stream` with a new state store, until farglassd closes it.
+/// Serves the agent link on `stream` with a new session, until farglassd closes it.
 ///
 /// # Errors
 ///
@@ -64,15 +88,15 @@ pub async fn serve<S>(stream: S) -> Result<(), LinkError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    serve_with(stream, &mut StateStore::default()).await
+    serve_with(stream, &mut Session::default()).await
 }
 
-/// Serves the agent link on `stream` with the state store `store`, until farglassd closes it.
+/// Serves the agent link on `stream` with `session`, until farglassd closes it.
 ///
 /// # Errors
 ///
 /// [`LinkError`] if the stream fails or farglassd breaks the protocol.
-pub async fn serve_with<S>(stream: S, store: &mut StateStore) -> Result<(), LinkError>
+pub async fn serve_with<S>(stream: S, session: &mut Session) -> Result<(), LinkError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -108,11 +132,33 @@ where
     }
     tracing::info!("connected to farglassd");
 
+    // Dropping the channels at the end of the link detaches their terminals.
     let mut channels: HashMap<ChannelId, Channel> = HashMap::new();
     // The state channels that asked for each key. They get each change of the key.
     let mut watchers: HashMap<String, HashSet<ChannelId>> = HashMap::new();
-    while let Some(frame) = link.next().await {
-        let frame = frame?;
+    // The output of the terminals, with the channel of each attach.
+    let (sink, mut output) = mpsc::unbounded_channel::<(ViewerId, Output)>();
+    let mut viewers: HashMap<ViewerId, ChannelId> = HashMap::new();
+
+    loop {
+        let frame = tokio::select! {
+            frame = link.next() => match frame {
+                Some(frame) => frame?,
+                None => return Ok(()),
+            },
+            Some((viewer, out)) = output.recv() => {
+                let Some(&channel) = viewers.get(&viewer) else { continue };
+                if let Some(Channel { closed_by_agent: false, .. }) = channels.get(&channel) {
+                    let exited = terminal_output(&mut link, channel, out).await?;
+                    if exited && let Some(state) = channels.get_mut(&channel) {
+                        state.closed_by_agent = true;
+                        state.kind = Kind::Closed;
+                        viewers.remove(&viewer);
+                    }
+                }
+                continue;
+            }
+        };
         let channel = frame.channel();
         if channel.is_connection() {
             match link_message(&frame)? {
@@ -135,7 +181,10 @@ where
                     "farglassd cannot open channel {channel}"
                 )));
             }
-            let (state, answer) = open(channel, &frame)?;
+            let (state, answer) = open(channel, &frame, &mut session.terminals, &sink)?;
+            if let Kind::Pty(terminal) = &state.kind {
+                viewers.insert(terminal.viewer(), channel);
+            }
             channels.insert(channel, state);
             link.send(answer).await?;
             continue;
@@ -153,76 +202,180 @@ where
                     link.send(Frame::close(channel, &Close::new(CloseReason::Done))?)
                         .await?;
                 }
-                channels.remove(&channel);
+                // A pty channel detaches. The terminal continues.
+                if let Some(Channel {
+                    kind: Kind::Pty(terminal),
+                    ..
+                }) = channels.remove(&channel)
+                {
+                    viewers.remove(&terminal.viewer());
+                }
                 watchers.retain(|_, ids| {
                     ids.remove(&channel);
                     !ids.is_empty()
                 });
             }
-            FrameType::Data | FrameType::Control if !state.closed_by_agent => match state.kind {
-                Kind::Echo => link.send(frame).await?,
-                Kind::State if frame.frame_type() == FrameType::Control => {
-                    let refusal = match frame.parse::<StateRequest>() {
-                        Ok(StateRequest::Get { key }) => {
-                            let value = store.get(&key);
-                            watchers.entry(key.clone()).or_default().insert(channel);
-                            let event = StateEvent::Value { key, value };
-                            link.send(Frame::json(channel, FrameType::Control, &event)?)
-                                .await?;
-                            None
-                        }
-                        Ok(StateRequest::Set { key, value }) => {
-                            match store.set(&key, value.clone()) {
-                                Ok(()) => {
-                                    let event = StateEvent::Value {
-                                        key: key.clone(),
-                                        value,
-                                    };
-                                    let others = watchers
-                                        .get(&key)
-                                        .into_iter()
-                                        .flatten()
-                                        .filter(|id| **id != channel);
-                                    for other in others {
-                                        link.send(Frame::json(*other, FrameType::Control, &event)?)
-                                            .await?;
-                                    }
-                                    None
-                                }
-                                Err(error) => Some((CloseReason::ResourceLimit, error.to_string())),
-                            }
-                        }
-                        Err(error) => Some((
-                            CloseReason::ProtocolError,
-                            format!("The state request is not valid: {error}"),
-                        )),
-                    };
-                    if let Some((reason, message)) = refusal {
-                        state.closed_by_agent = true;
-                        let close = Close {
-                            reason,
-                            message: Some(message),
-                        };
-                        link.send(Frame::close(channel, &close)?).await?;
+            FrameType::Data | FrameType::Control if !state.closed_by_agent => {
+                let refusal = match &state.kind {
+                    Kind::Echo => {
+                        link.send(frame).await?;
+                        None
                     }
+                    Kind::Pty(terminal) => pty_frame(terminal, frame),
+                    Kind::State if frame.frame_type() == FrameType::Control => {
+                        state_request(
+                            &mut link,
+                            &mut session.store,
+                            &mut watchers,
+                            channel,
+                            &frame,
+                        )
+                        .await?
+                    }
+                    Kind::State | Kind::Closed => None,
+                };
+                if let Some((reason, message)) = refusal {
+                    state.closed_by_agent = true;
+                    state.kind = Kind::Closed;
+                    let close = Close {
+                        reason,
+                        message: Some(message),
+                    };
+                    link.send(Frame::close(channel, &close)?).await?;
                 }
-                Kind::State => {}
-            },
+            }
             // Frames that the opener sent before it got the refusal, or a ready frame
             // that farglassd does not send on a channel of the shell.
             FrameType::Data | FrameType::Control | FrameType::Ready | FrameType::Open => {}
         }
     }
-    Ok(())
+}
+
+type Link<S> = Framed<S, FrameCodec>;
+
+/// A refusal of a request: the reason and the message of the close frame.
+type Refusal = Option<(CloseReason, String)>;
+
+/// Handles a frame of the shell on a pty channel.
+fn pty_frame(terminal: &TerminalLink, frame: Frame) -> Refusal {
+    if frame.frame_type() == FrameType::Data {
+        terminal.input(frame.into_payload());
+        return None;
+    }
+    match frame.parse::<PtyRequest>() {
+        Ok(PtyRequest::Resize { cols, rows }) => terminal.resize(rows, cols),
+        Ok(PtyRequest::Ack { bytes }) => terminal.ack(bytes),
+        Ok(PtyRequest::Terminate) => terminal.terminate(),
+        Err(error) => {
+            return Some((
+                CloseReason::ProtocolError,
+                format!("The pty request is not valid: {error}"),
+            ));
+        }
+    }
+    None
+}
+
+/// Sends one output of a terminal on its channel. Returns `true` if the terminal stopped.
+async fn terminal_output<S>(
+    link: &mut Link<S>,
+    channel: ChannelId,
+    output: Output,
+) -> Result<bool, LinkError>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    match output {
+        Output::Attached { new, replay } => {
+            let bytes: usize = replay.iter().map(Bytes::len).sum();
+            let event = PtyEvent::Attached {
+                new,
+                replay: u32::try_from(bytes).unwrap_or(u32::MAX),
+            };
+            link.send(Frame::json(channel, FrameType::Control, &event)?)
+                .await?;
+            for chunk in replay {
+                link.send(Frame::data(channel, chunk)?).await?;
+            }
+            Ok(false)
+        }
+        Output::Data(chunk) => {
+            link.send(Frame::data(channel, chunk)?).await?;
+            Ok(false)
+        }
+        Output::Exited { code, signal } => {
+            link.send(Frame::json(
+                channel,
+                FrameType::Control,
+                &PtyEvent::Exited { code, signal },
+            )?)
+            .await?;
+            link.send(Frame::close(channel, &Close::new(CloseReason::Done))?)
+                .await?;
+            Ok(true)
+        }
+    }
+}
+
+/// Handles a request on a state channel.
+async fn state_request<S>(
+    link: &mut Link<S>,
+    store: &mut StateStore,
+    watchers: &mut HashMap<String, HashSet<ChannelId>>,
+    channel: ChannelId,
+    frame: &Frame,
+) -> Result<Refusal, LinkError>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    Ok(match frame.parse::<StateRequest>() {
+        Ok(StateRequest::Get { key }) => {
+            let value = store.get(&key);
+            watchers.entry(key.clone()).or_default().insert(channel);
+            let event = StateEvent::Value { key, value };
+            link.send(Frame::json(channel, FrameType::Control, &event)?)
+                .await?;
+            None
+        }
+        Ok(StateRequest::Set { key, value }) => match store.set(&key, value.clone()) {
+            Ok(()) => {
+                let event = StateEvent::Value {
+                    key: key.clone(),
+                    value,
+                };
+                let others: Vec<ChannelId> = watchers
+                    .get(&key)
+                    .into_iter()
+                    .flatten()
+                    .copied()
+                    .filter(|id| *id != channel)
+                    .collect();
+                for other in others {
+                    link.send(Frame::json(other, FrameType::Control, &event)?)
+                        .await?;
+                }
+                None
+            }
+            Err(error) => Some((CloseReason::ResourceLimit, error.to_string())),
+        },
+        Err(error) => Some((
+            CloseReason::ProtocolError,
+            format!("The state request is not valid: {error}"),
+        )),
+    })
 }
 
 /// The kind of an open channel.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 enum Kind {
     /// Sends each data frame and each control frame back.
     Echo,
     /// Gives the values of the state store of the session.
     State,
+    /// Is attached to a terminal.
+    Pty(TerminalLink),
+    /// The agent refused or closed the channel.
+    Closed,
 }
 
 /// One channel of the link.
@@ -234,36 +387,56 @@ struct Channel {
 }
 
 /// Accepts or refuses a new channel. Returns its state and the answer to the open frame.
-fn open(channel: ChannelId, frame: &Frame) -> Result<(Channel, Frame), LinkError> {
-    match frame.parse::<Open>() {
-        Ok(Open::Echo) => {
-            tracing::debug!(%channel, "opened an echo channel");
-            let state = Channel {
-                kind: Kind::Echo,
+fn open(
+    channel: ChannelId,
+    frame: &Frame,
+    terminals: &mut Terminals,
+    sink: &Sink,
+) -> Result<(Channel, Frame), LinkError> {
+    let accept = |kind| {
+        Ok((
+            Channel {
+                kind,
                 closed_by_agent: false,
-            };
-            Ok((state, Frame::ready(channel, &Ready {})?))
-        }
-        Ok(Open::State) => {
-            tracing::debug!(%channel, "opened a state channel");
-            let state = Channel {
-                kind: Kind::State,
-                closed_by_agent: false,
-            };
-            Ok((state, Frame::ready(channel, &Ready {})?))
-        }
-        // farglassd serves the login channel itself. It never gives it to the agent.
-        Ok(Open::Login) | Err(_) => {
-            let close = Close {
-                reason: CloseReason::NotSupported,
-                message: Some("The agent does not know this channel kind.".to_owned()),
-            };
-            let state = Channel {
-                kind: Kind::Echo,
+            },
+            Frame::ready(channel, &Ready {})?,
+        ))
+    };
+    let refuse = |reason, message: String| {
+        let close = Close {
+            reason,
+            message: Some(message),
+        };
+        Ok((
+            Channel {
+                kind: Kind::Closed,
                 closed_by_agent: true,
-            };
-            Ok((state, Frame::close(channel, &close)?))
-        }
+            },
+            Frame::close(channel, &close)?,
+        ))
+    };
+    match frame.parse::<Open>() {
+        Ok(Open::Echo) => accept(Kind::Echo),
+        Ok(Open::State) => accept(Kind::State),
+        Ok(Open::Pty {
+            terminal,
+            cols,
+            rows,
+        }) => match terminals.attach(&terminal, rows, cols, sink.clone()) {
+            Ok(link) => accept(Kind::Pty(link)),
+            Err(error @ AttachError::Limit) => {
+                refuse(CloseReason::ResourceLimit, error.to_string())
+            }
+            Err(error) => {
+                tracing::error!(%error, "a terminal did not start");
+                refuse(CloseReason::InternalError, error.to_string())
+            }
+        },
+        // farglassd serves the login channel itself. It never gives it to the agent.
+        Ok(Open::Login) | Err(_) => refuse(
+            CloseReason::NotSupported,
+            "The agent does not know this channel kind.".to_owned(),
+        ),
     }
 }
 

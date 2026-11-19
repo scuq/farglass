@@ -18,7 +18,19 @@ user?: string, } | { "type": "logged-out" };
 /**
  * The payload of an open frame. It selects the kind of the channel.
  */
-export type Open = { "kind": "echo" } | { "kind": "state" } | { "kind": "login" };
+export type Open = { "kind": "echo" } | { "kind": "pty", 
+/**
+ * The id of the terminal, chosen by the shell, for example the id of the window.
+ */
+terminal: string, 
+/**
+ * The number of columns.
+ */
+cols: number, 
+/**
+ * The number of rows.
+ */
+rows: number, } | { "kind": "state" } | { "kind": "login" };
 
 /**
  * The payload of a ready frame. The receiver of the open frame accepts the channel.
@@ -42,6 +54,44 @@ message?: string, };
  * The cause of a close frame.
  */
 export type CloseReason = "done" | "cancelled" | "not-supported" | "not-found" | "access-denied" | "resource-limit" | "protocol-error" | "internal-error";
+
+/**
+ * A control message of the shell on a pty channel.
+ */
+export type PtyRequest = { "type": "resize", 
+/**
+ * The number of columns.
+ */
+cols: number, 
+/**
+ * The number of rows.
+ */
+rows: number, } | { "type": "ack", 
+/**
+ * The number of bytes.
+ */
+bytes: number, } | { "type": "terminate" };
+
+/**
+ * A control message of the agent on a pty channel.
+ */
+export type PtyEvent = { "type": "attached", 
+/**
+ * Reports whether the agent started a new terminal.
+ */
+new: boolean, 
+/**
+ * The number of bytes of scrollback that follow as data frames, before the live output.
+ */
+replay: number, } | { "type": "exited", 
+/**
+ * The exit code, if the program exited.
+ */
+code?: number, 
+/**
+ * The signal, if a signal stopped the program.
+ */
+signal?: number, };
 
 /**
  * A request of the shell on a state channel.

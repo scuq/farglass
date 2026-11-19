@@ -12,7 +12,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use farglass_session::state::StateStore;
+use farglass_session::link::Session;
 use farglass_session::{DEFAULT_AGENT_SOCKET, link};
 use tracing_subscriber::EnvFilter;
 
@@ -21,7 +21,7 @@ const RETRY_MIN: Duration = Duration::from_millis(250);
 /// The longest wait before the agent connects again.
 const RETRY_MAX: Duration = Duration::from_secs(5);
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
@@ -30,11 +30,11 @@ async fn main() {
 
     let path = std::env::var_os("FARGLASS_AGENT_SOCKET")
         .map_or_else(|| PathBuf::from(DEFAULT_AGENT_SOCKET), PathBuf::from);
-    // The state store lives as long as the agent, also when the link to farglassd breaks.
-    let mut store = StateStore::default();
+    // The state store and the terminals live as long as the agent, also when the link to farglassd breaks.
+    let mut session = Session::default();
     let mut wait = RETRY_MIN;
     loop {
-        match link::connect(&path, &mut store).await {
+        match link::connect(&path, &mut session).await {
             Ok(()) => {
                 tracing::info!("farglassd closed the link");
                 wait = RETRY_MIN;

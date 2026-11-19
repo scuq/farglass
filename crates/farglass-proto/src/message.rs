@@ -58,6 +58,20 @@ pub enum LinkMessage {
 pub enum Open {
     /// A channel that sends each data frame back to the sender.
     Echo,
+    /// A terminal in the agent. The terminal continues when the channel closes.
+    ///
+    /// If the agent has a terminal with the id `terminal`, the channel attaches
+    /// to it and gets its scrollback first. If not, the agent starts the shell of
+    /// the user in a new terminal. Data frames carry the input and the output.
+    /// Control messages are [`PtyRequest`] and [`PtyEvent`].
+    Pty {
+        /// The id of the terminal, chosen by the shell, for example the id of the window.
+        terminal: String,
+        /// The number of columns.
+        cols: u16,
+        /// The number of rows.
+        rows: u16,
+    },
     /// The state store of the session in the agent. The shell keeps its state
     /// there, for example the open windows, and gets it back after it connects again.
     ///
@@ -69,6 +83,53 @@ pub enum Open {
     /// The shell answers a prompt with [`crate::login::LoginAnswer`].
     /// After the result, farglassd closes the channel.
     Login,
+}
+
+/// A control message of the shell on a pty channel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum PtyRequest {
+    /// Changes the size of the terminal.
+    Resize {
+        /// The number of columns.
+        cols: u16,
+        /// The number of rows.
+        rows: u16,
+    },
+    /// The shell processed `bytes` more bytes of output.
+    ///
+    /// The agent sends at most [`crate::PTY_WINDOW`] bytes that the shell did not
+    /// acknowledge. Then it stops to read the terminal until an acknowledgment comes.
+    Ack {
+        /// The number of bytes.
+        bytes: u32,
+    },
+    /// Stops the programs of the terminal. The agent then sends [`PtyEvent::Exited`].
+    Terminate,
+}
+
+/// A control message of the agent on a pty channel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum PtyEvent {
+    /// The channel is attached to the terminal. It is the first message after the ready frame.
+    Attached {
+        /// Reports whether the agent started a new terminal.
+        new: bool,
+        /// The number of bytes of scrollback that follow as data frames, before the live output.
+        replay: u32,
+    },
+    /// The program of the terminal stopped. The agent closes the channel after this message.
+    Exited {
+        /// The exit code, if the program exited.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        code: Option<i32>,
+        /// The signal, if a signal stopped the program.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        signal: Option<i32>,
+    },
 }
 
 /// A request of the shell on a state channel.

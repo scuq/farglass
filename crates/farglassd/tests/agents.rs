@@ -206,7 +206,10 @@ async fn real_agent_connects_and_farglassd_knows_its_uid_from_the_kernel() {
     let uid = std::fs::metadata(dir.path()).unwrap().uid();
     let session = tokio::spawn({
         let path = path.clone();
-        async move { farglass_session::link::connect(&path, &mut Default::default()).await }
+        async move {
+            farglass_session::link::connect(&path, &mut farglass_session::link::Session::default())
+                .await
+        }
     });
     tokio::time::timeout(WAIT, async {
         while registry.uids() != [uid] {

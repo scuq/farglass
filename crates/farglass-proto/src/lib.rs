@@ -26,6 +26,12 @@ pub use channel::{ChannelId, ChannelIdAllocator, Side};
 pub use error::FrameError;
 pub use frame::{Frame, FrameHeader, FrameType, HEADER_LEN, MAX_PAYLOAD_LEN};
 
+/// The largest number of output bytes of a terminal that the shell did not acknowledge.
+pub const PTY_WINDOW: u32 = 256 * 1024;
+
+/// The size of the scrollback of a terminal in bytes.
+pub const PTY_SCROLLBACK: u32 = 1024 * 1024;
+
 /// The version of the channel protocol.
 ///
 /// The two sides send it in [`message::ConnectionMessage::Hello`].
