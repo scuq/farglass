@@ -42,10 +42,18 @@ export class StateClient {
     return () => watchers.delete(onvalue);
   }
 
-  /** Sets the value of `key`. `null` removes the key. Other tabs that watch the key get the value. */
-  set(key: string, value: unknown): void {
+  /**
+   * Sets the value of `key`. `null` removes the key. Other tabs that watch the key get the value.
+   * With `local`, the watchers of this tab also get it.
+   */
+  set(key: string, value: unknown, options: { local?: boolean } = {}): void {
     const request: StateRequest = { type: "set", key, value };
     this.#channel.control(request);
+    if (options.local) {
+      for (const watcher of [...(this.#watchers.get(key) ?? [])]) {
+        watcher(value);
+      }
+    }
   }
 
   /** Closes the channel. */

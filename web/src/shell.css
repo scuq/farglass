@@ -12,8 +12,10 @@
   font-family: system-ui, sans-serif;
 }
 
+/* The theme: "system" follows the client, and the settings app can choose light or dark. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg: #1a1a19;
     --fg: #ececea;
     --muted: #a3a39d;
@@ -24,6 +26,61 @@
     --title-focused: #26303f;
     --bar: #222220;
   }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1a1a19;
+  --fg: #ececea;
+  --muted: #a3a39d;
+  --line: #3a3a37;
+  --ok: #6fcf8e;
+  --bad: #ff8a7a;
+  --focus: #6ea2f0;
+  --title-focused: #26303f;
+  --bar: #222220;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+/* The accent color of the settings app. Blue is the default above. */
+:root[data-accent="green"] {
+  --focus: #1f7a4a;
+  --title-focused: #e1f1e7;
+}
+:root[data-accent="purple"] {
+  --focus: #6b4bc4;
+  --title-focused: #ece6f8;
+}
+:root[data-accent="orange"] {
+  --focus: #b4560f;
+  --title-focused: #f8eadf;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"])[data-accent="green"] {
+    --focus: #5fcf95;
+    --title-focused: #20352a;
+  }
+  :root:not([data-theme="light"])[data-accent="purple"] {
+    --focus: #a58cf0;
+    --title-focused: #2d2640;
+  }
+  :root:not([data-theme="light"])[data-accent="orange"] {
+    --focus: #f0a060;
+    --title-focused: #3d2c1e;
+  }
+}
+:root[data-theme="dark"][data-accent="green"] {
+  --focus: #5fcf95;
+  --title-focused: #20352a;
+}
+:root[data-theme="dark"][data-accent="purple"] {
+  --focus: #a58cf0;
+  --title-focused: #2d2640;
+}
+:root[data-theme="dark"][data-accent="orange"] {
+  --focus: #f0a060;
+  --title-focused: #3d2c1e;
 }
 
 body {

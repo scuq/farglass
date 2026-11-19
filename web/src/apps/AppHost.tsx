@@ -59,6 +59,12 @@ export function AppHost(props: {
         c.state.set(key, value);
       },
       key: (name) => `${props.appId}.${name}.${props.windowId}`,
+      watchShared(key, onvalue) {
+        unwatch.push(c.state.watch(key, onvalue));
+      },
+      setShared(key, value) {
+        c.state.set(key, value, { local: true });
+      },
     },
     setTitle: (title) => c.setTitle(props.windowId, title),
     openApp: (appId) => c.openApp(appId),

@@ -1,4 +1,5 @@
 import { onCleanup } from "solid-js";
+import { APPEARANCE_KEY, applyAppearance, parseAppearance } from "../appearance";
 import { Notifications } from "../notify/Notifications";
 import { Panel } from "../panel/Panel";
 import { PolkitDialog } from "../polkit/PolkitDialog";
@@ -18,6 +19,8 @@ export function Desktop(props: { connection: Connection; user: string; onlogout:
   const controller = createDesktopController(props.connection);
   // The idle lock of farglassd needs the activity of the user.
   onCleanup(trackActivity(() => props.connection.activity()));
+  // The appearance from the settings app, also when a different tab changes it.
+  onCleanup(controller.state.watch(APPEARANCE_KEY, (value) => applyAppearance(parseAppearance(value))));
   return (
     <div class="wm">
       <Panel controller={controller} user={props.user} onlogout={props.onlogout} onlock={() => props.connection.lock()} />

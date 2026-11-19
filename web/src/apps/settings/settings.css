@@ -1,0 +1,222 @@
+/* The settings app: a list of pages at the left and the page at the right. */
+.settings {
+  display: grid;
+  grid-template-columns: minmax(9rem, 12rem) 1fr;
+  height: 100%;
+  min-height: 0;
+}
+.wm-content:has(> .settings) {
+  padding: 0;
+}
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0.5rem;
+  background: var(--bar);
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+}
+.settings-nav button {
+  padding: 0.45rem 0.6rem;
+  color: var(--fg);
+  font: inherit;
+  text-align: start;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.settings-nav button:hover {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+.settings-nav button[aria-current="page"] {
+  color: var(--bg);
+  background: var(--focus);
+}
+.settings-main {
+  min-width: 0;
+  padding: 1rem 1.25rem;
+  overflow-y: auto;
+}
+.settings-page h2 {
+  margin: 0 0 1rem;
+  font-size: 1.2rem;
+}
+.settings-page fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0 0 1rem;
+  padding: 0.5rem 0.75rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.settings-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.settings-swatch {
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 50%;
+}
+.settings-swatch[data-accent="blue"] {
+  background: #2f6fd0;
+}
+.settings-swatch[data-accent="green"] {
+  background: #1f7a4a;
+}
+.settings-swatch[data-accent="purple"] {
+  background: #6b4bc4;
+}
+.settings-swatch[data-accent="orange"] {
+  background: #b4560f;
+}
+.settings-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+}
+.settings-row label {
+  min-width: 7rem;
+}
+.settings-row input {
+  flex: 1 1 12rem;
+  padding: 0.35rem 0.5rem;
+  font: inherit;
+}
+.settings-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.3rem 1rem;
+  margin: 0 0 1rem;
+}
+.settings-facts dt {
+  color: var(--muted);
+}
+.settings-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.settings-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+}
+.settings-item {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.settings-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 0.4rem;
+}
+.settings-muted,
+.settings-note,
+.settings-loading {
+  color: var(--muted);
+}
+.settings-note {
+  font-size: 0.9rem;
+}
+/* A state has a word and a mark. The color only repeats the word. */
+.settings-state::before {
+  content: "●";
+  margin-right: 0.3rem;
+}
+.settings-state[data-level="ok"]::before {
+  color: var(--ok);
+}
+.settings-state[data-level="warning"]::before {
+  color: var(--bad);
+}
+.settings-state[data-level="off"]::before {
+  content: "○";
+  color: var(--muted);
+}
+.settings-table {
+  width: 100%;
+  margin: 0 0 1.25rem;
+  border-collapse: collapse;
+}
+.settings-table caption {
+  margin-bottom: 0.4rem;
+  font-weight: 600;
+  text-align: start;
+}
+.settings-table th,
+.settings-table td {
+  padding: 0.35rem 0.5rem;
+  text-align: start;
+  border-bottom: 1px solid var(--line);
+}
+.settings-table th {
+  color: var(--muted);
+  font-weight: normal;
+}
+.settings-badge {
+  margin-left: 0.4rem;
+  padding: 0 0.4rem;
+  font-size: 0.8rem;
+  border: 1px solid var(--focus);
+  border-radius: 4px;
+}
+.settings-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+.settings-buttons-start {
+  justify-content: flex-start;
+  margin-bottom: 0.75rem;
+}
+.settings-page button,
+.settings-confirm button {
+  padding: 0.35rem 0.8rem;
+  font: inherit;
+}
+.settings-page button.danger,
+.settings-confirm button.danger {
+  color: var(--bad);
+  border-color: var(--bad);
+}
+.settings-outcome {
+  min-height: 1.4em;
+  margin: 0.5rem 0 0;
+}
+.settings-outcome[data-kind="error"] {
+  color: var(--bad);
+}
+.settings-outcome[data-kind="ok"] {
+  color: var(--ok);
+}
+.settings-confirm {
+  width: min(28rem, calc(100vw - 2rem));
+  padding: 1.25rem;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.35);
+}
+.settings-confirm::backdrop {
+  background: rgb(0 0 0 / 0.35);
+}
+.settings-confirm h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.1rem;
+}
+.settings-confirm-text p {
+  margin: 0 0 1rem;
+}

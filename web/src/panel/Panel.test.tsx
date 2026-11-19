@@ -49,7 +49,7 @@ describe("launcher", () => {
     byText(host, "button", "Apps").click();
     await settle();
     const options = [...host.querySelectorAll("#launcher [role=option]")].map((li) => li.querySelector(".launcher-title")?.textContent);
-    expect(options).toEqual(["About farglass", "Echo", "Terminal"]);
+    expect(options).toEqual(["About farglass", "Echo", "Settings", "Terminal"]);
     byText(host, "#launcher [role=option]", "About farglass").click();
     await settle();
     expect(host.querySelector(".wm-window")?.getAttribute("aria-label")).toBe("About farglass");

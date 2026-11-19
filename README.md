@@ -208,6 +208,20 @@ The dialog shows the message of polkit and asks for the password of a permitted 
 Cancel or Escape stops the action.
 With no open tab, polkit gets no answer, and the action fails.
 
+## Settings
+
+The settings app has these pages:
+
+- Appearance: the theme, the accent color, and the text size. Each tab and each login of the user gets them.
+- Date and time: the time of the host, the timezone, and the network time (timedate1).
+- System: the hostname, the display name, and the facts of the host (hostname1).
+- Network: the devices of NetworkManager with their state and addresses. The page does not change the network, because a change can stop the connection to farglass.
+- Users and sessions: the sessions of logind. End stops a session after a confirm step.
+- Power: Restart and Power off, each after a confirm step.
+
+Each change of the host goes through polkit, thus the host can ask for an administrator password in the shell.
+`npm --prefix spikes/e2e run settings` tests the app on the real system bus and changes only the appearance.
+
 ## Lock screen
 
 Lock in the session menu locks the session in each tab of the user.

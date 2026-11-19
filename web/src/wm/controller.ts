@@ -91,6 +91,8 @@ export function createDesktopController(connection: Connection): DesktopControll
   const superTap = new SuperTap();
   let loaded = false;
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  // The desktop after the last change, until it is saved. A reload or a close of the tab saves it at once.
+  let unsaved: Desktop | null = null;
   let surface: HTMLElement | undefined;
   /** The state keys of each window. */
   const windowKeys = new Map<string, Set<string>>();
@@ -110,7 +112,16 @@ export function createDesktopController(connection: Connection): DesktopControll
     }
     setDesktop(next);
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => store.set(DESKTOP_KEY, desktop()), SAVE_DELAY_MS);
+    unsaved = next;
+    saveTimer = setTimeout(save, SAVE_DELAY_MS);
+  };
+  /** Saves the desktop that waits for its save, if one waits. */
+  const save = () => {
+    clearTimeout(saveTimer);
+    if (unsaved) {
+      store.set(DESKTOP_KEY, unsaved);
+      unsaved = null;
+    }
   };
 
   const withApp = (state: Desktop, appId: string): Desktop => {
@@ -304,7 +315,9 @@ export function createDesktopController(connection: Connection): DesktopControll
   window.addEventListener("keydown", onKeyDown, true);
   window.addEventListener("keyup", onKeyUp, true);
   window.addEventListener("blur", onBlur);
+  window.addEventListener("pagehide", save);
   onCleanup(() => {
+    window.removeEventListener("pagehide", save);
     window.removeEventListener("keydown", onKeyDown, true);
     window.removeEventListener("keyup", onKeyUp, true);
     window.removeEventListener("blur", onBlur);

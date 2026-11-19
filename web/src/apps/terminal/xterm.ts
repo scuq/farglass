@@ -6,6 +6,7 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
+import { isDarkTheme, onThemeChange } from "../../appearance";
 import type { TerminalEngine } from "./engine";
 
 /**
@@ -20,10 +21,9 @@ const clipboard: IClipboardProvider = {
   },
 };
 
-/** Returns the colors of the terminal for the color scheme of the client. */
+/** Returns the colors of the terminal for the theme of the shell. */
 function theme() {
-  const dark = window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
-  return dark
+  return isDarkTheme()
     ? { background: "#1a1a19", foreground: "#ececea", cursor: "#ececea", selectionBackground: "#3b5c8f" }
     : { background: "#fbfbf9", foreground: "#1d1d1b", cursor: "#1d1d1b", selectionBackground: "#b5cbee" };
 }
@@ -50,6 +50,9 @@ export function createXterm(element: HTMLElement): TerminalEngine {
   terminal.loadAddon(unicode);
   terminal.unicode.activeVersion = "11";
   terminal.open(element);
+  const stopTheme = onThemeChange(() => {
+    terminal.options.theme = theme();
+  });
 
   let renderer: TerminalEngine["renderer"] = "dom";
   try {
@@ -154,6 +157,9 @@ export function createXterm(element: HTMLElement): TerminalEngine {
     onInput: (handler) => void inputHandlers.push(handler),
     onResize: (handler) => void terminal.onResize(({ cols, rows }) => handler(cols, rows)),
     onTitle: (handler) => void terminal.onTitleChange(handler),
-    dispose: () => terminal.dispose(),
+    dispose: () => {
+      stopTheme();
+      terminal.dispose();
+    },
   };
 }

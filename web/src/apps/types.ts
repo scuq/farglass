@@ -27,6 +27,13 @@ export interface AppState {
    * The key stays the same after a reload. Closing the window removes its keys.
    */
   key(name: string): string;
+  /**
+   * Asks for the value of a key of the session, for example `appearance`.
+   * Closing the window does not remove the key.
+   */
+  watchShared(key: string, onvalue: (value: unknown) => void): void;
+  /** Sets the value of a key of the session. Each watcher, also in this tab, gets the value. */
+  setShared(key: string, value: unknown): void;
 }
 
 /** What an app gets to draw one window. */

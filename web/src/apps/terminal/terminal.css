@@ -6,9 +6,12 @@
   background: var(--term-bg, #fbfbf9);
 }
 @media (prefers-color-scheme: dark) {
-  .term-app {
+  :root:not([data-theme="light"]) .term-app {
     --term-bg: #1a1a19;
   }
+}
+:root[data-theme="dark"] .term-app {
+  --term-bg: #1a1a19;
 }
 .term-app .xterm {
   height: 100%;
