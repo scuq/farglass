@@ -7,7 +7,7 @@ use std::fmt::Write as _;
 
 use ts_rs::{Config, TS};
 
-use crate::login::{LoginAnswer, LoginEvent};
+use crate::login::{LocalSession, LoginEvent, LoginReply};
 use crate::message::{Close, CloseReason, ConnectionMessage, Open, Ready};
 use crate::{ChannelId, FrameError, FrameType, HEADER_LEN, MAX_PAYLOAD_LEN, PROTOCOL_VERSION};
 
@@ -76,7 +76,8 @@ fn messages() -> String {
     declare::<Close>(&cfg, &mut out);
     declare::<CloseReason>(&cfg, &mut out);
     declare::<LoginEvent>(&cfg, &mut out);
-    declare::<LoginAnswer>(&cfg, &mut out);
+    declare::<LocalSession>(&cfg, &mut out);
+    declare::<LoginReply>(&cfg, &mut out);
     out
 }
 

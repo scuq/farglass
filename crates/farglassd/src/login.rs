@@ -4,10 +4,14 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use farglass_login::client::Attempt;
-use farglass_proto::login::{LoginAnswer, LoginEvent};
+use std::time::{Duration, Instant};
+
+use farglass_proto::login::{LoginEvent, LoginReply};
 use farglass_proto::message::{Close, CloseReason, Ready};
 use farglass_proto::{ChannelId, Frame, FrameType};
 use tokio::sync::mpsc;
+
+use crate::agents::Registry;
 
 /// A user who logged in, or the user of `dev_user`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -64,12 +68,16 @@ pub struct LoginTask {
     pub rhost: String,
     /// The channel of the shell.
     pub channel: ChannelId,
-    /// The answers of the shell.
-    pub answers: mpsc::Receiver<LoginAnswer>,
+    /// The replies of the shell.
+    pub answers: mpsc::Receiver<LoginReply>,
     /// The queue to the shell.
     pub to_shell: mpsc::Sender<Frame>,
     /// The user of the connection. The task sets it after a success.
     pub user: SharedUser,
+    /// The connected agents.
+    pub registry: Arc<Registry>,
+    /// The longest wait for the agent of the user after a success.
+    pub agent_wait: Duration,
 }
 
 impl LoginTask {
@@ -107,11 +115,15 @@ impl LoginTask {
                     })?;
                     let done = match &event {
                         LoginEvent::Success { user, uid } => {
+                            self.wait_for_agent(*uid).await;
                             self.user.set(Identity { uid: *uid, name: user.clone() });
                             true
                         }
                         LoginEvent::Failure { .. } | LoginEvent::Blocked { .. } => true,
-                        LoginEvent::Prompt { .. } | LoginEvent::Info { .. } | LoginEvent::Error { .. } => false,
+                        LoginEvent::Prompt { .. }
+                        | LoginEvent::Info { .. }
+                        | LoginEvent::Error { .. }
+                        | LoginEvent::Confirm { .. } => false,
                     };
                     self.send(Frame::json(self.channel, FrameType::Control, &event)).await;
                     if done {
@@ -119,8 +131,8 @@ impl LoginTask {
                     }
                 }
                 answer = self.answers.recv() => match answer {
-                    Some(answer) => {
-                        if attempt.answer(answer.prompt, answer.text).await.is_err() {
+                    Some(reply) => {
+                        if attempt.reply(reply).await.is_err() {
                             return Err("The login service stopped.".to_owned());
                         }
                     }
@@ -128,6 +140,21 @@ impl LoginTask {
                     None => return Ok(()),
                 },
             }
+        }
+    }
+
+    /// Waits until the agent of `uid` connects, for [`LoginTask::agent_wait`] at most.
+    ///
+    /// A new web session starts its agent after the success. Without the wait,
+    /// the first channel of the shell finds no agent.
+    async fn wait_for_agent(&self, uid: u32) {
+        let start = Instant::now();
+        while self.registry.get(uid).is_none() {
+            if start.elapsed() >= self.agent_wait {
+                tracing::warn!(uid, "the agent of the user did not connect after the login");
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
         }
     }
 

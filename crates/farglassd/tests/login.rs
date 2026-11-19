@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use farglass_login::server::{Service, Settings};
 use farglass_proto::codec::FrameCodec;
-use farglass_proto::login::{LoginAnswer, LoginEvent};
+use farglass_proto::login::{LoginEvent, LoginReply};
 use farglass_proto::message::{Close, CloseReason, ConnectionMessage, LinkMessage, Open};
 use farglass_proto::{ChannelId, Frame, FrameType, PROTOCOL_VERSION};
 use farglassd::agents::Registry;
@@ -36,6 +36,10 @@ struct LoginService {
 
 impl LoginService {
     async fn start() -> Self {
+        Self::start_with(Arc::new(farglass_login::host::NoSessions), Duration::ZERO).await
+    }
+
+    async fn start_with(host: Arc<dyn farglass_login::host::Host>, agent_wait: Duration) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let pam_dir = dir.path().join("pam.d");
         std::fs::create_dir(&pam_dir).unwrap();
@@ -59,6 +63,7 @@ impl LoginService {
         let settings = Settings {
             pam_dir: Some(pam_dir),
             fail_delay: Duration::ZERO,
+            host,
             ..Settings::default()
         };
         tokio::spawn(Service::new(settings).run(listener));
@@ -68,6 +73,7 @@ impl LoginService {
             registry: registry.clone(),
             login_socket: socket,
             dev_user: None,
+            agent_wait,
         });
         Self {
             context,
@@ -142,7 +148,7 @@ impl Browser {
     }
 
     async fn answer(&self, channel: u32, prompt: u32, text: &str) {
-        let answer = LoginAnswer {
+        let answer = LoginReply::Answer {
             prompt,
             text: Zeroizing::new(text.to_owned()),
         };
@@ -331,6 +337,7 @@ async fn missing_login_service_closes_the_channel_with_an_error() {
         registry: Registry::new(),
         login_socket: dir.path().join("missing.sock"),
         dev_user: None,
+        agent_wait: Duration::ZERO,
     });
     let mut browser = Browser::connect(&context).await;
     browser
@@ -351,7 +358,92 @@ async fn dev_user_sends_the_user_in_the_hello_message() {
         registry: Registry::new(),
         login_socket: "/nonexistent".into(),
         dev_user: Some(farglassd::login::Identity::from_uid(uid)),
+        agent_wait: Duration::ZERO,
     });
     let browser = Browser::connect(&context).await;
     assert_eq!(browser.hello_user, Some(current_user().0));
+}
+
+/// A host with one local GNOME session.
+#[derive(Debug)]
+struct OneLocalSession;
+
+impl farglass_login::host::Host for OneLocalSession {
+    fn local_sessions(
+        &self,
+        _uid: u32,
+    ) -> std::io::Result<Vec<farglass_proto::login::LocalSession>> {
+        Ok(vec![farglass_proto::login::LocalSession {
+            id: "2".to_owned(),
+            kind: "wayland".to_owned(),
+            seat: Some("seat0".to_owned()),
+        }])
+    }
+
+    fn end_sessions(&self, _ids: &[String]) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn start_session(
+        &self,
+        _user: &str,
+        _uid: u32,
+    ) -> std::io::Result<farglass_login::host::Started> {
+        Ok(farglass_login::host::Started::New)
+    }
+}
+
+#[tokio::test]
+async fn confirm_goes_to_the_shell_and_its_answer_back() {
+    let service = LoginService::start_with(Arc::new(OneLocalSession), Duration::ZERO).await;
+    let (name, uid) = current_user();
+    let mut browser = Browser::connect(&service.context).await;
+    browser
+        .send(Frame::open(ch(1), &Open::Login).unwrap())
+        .await;
+    assert_eq!(browser.recv().await.frame_type(), FrameType::Ready);
+    loop {
+        match browser.event(1).await {
+            LoginEvent::Prompt {
+                prompt, echo: true, ..
+            } => browser.answer(1, prompt, &name).await,
+            LoginEvent::Prompt {
+                prompt,
+                echo: false,
+                ..
+            } => browser.answer(1, prompt, "secret").await,
+            LoginEvent::Confirm { sessions } => {
+                assert_eq!(sessions[0].kind, "wayland");
+                let accept = LoginReply::Confirm { accept: true };
+                browser
+                    .send(Frame::json(ch(1), FrameType::Control, &accept).unwrap())
+                    .await;
+            }
+            LoginEvent::Info { .. } => {}
+            result => {
+                assert_eq!(result, LoginEvent::Success { user: name, uid });
+                return;
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn success_waits_for_the_agent_of_the_new_session() {
+    let service = LoginService::start_with(Arc::new(farglass_login::host::NoSessions), WAIT).await;
+    let (name, uid) = current_user();
+    let registry = service.registry.clone();
+    // The agent of the new session connects 300 ms after the success of PAM.
+    let late_agent = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        fake_agent(&registry, uid).await
+    });
+    let mut browser = Browser::connect(&service.context).await;
+    let result = browser.login(1, &name, "secret").await;
+    assert_eq!(result, LoginEvent::Success { user: name, uid });
+    assert!(
+        service.registry.get(uid).is_some(),
+        "the success came before the agent"
+    );
+    let _agent = late_agent.await.unwrap();
 }

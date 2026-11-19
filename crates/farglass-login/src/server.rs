@@ -14,6 +14,7 @@ use tokio::sync::{Semaphore, mpsc};
 use tokio_util::codec::Framed;
 use zeroize::Zeroizing;
 
+use crate::host::{Host, NoSessions, Started};
 use crate::limiter::{Key, Limiter};
 use crate::pam::{self, Conversation, Login};
 
@@ -39,6 +40,8 @@ pub struct Settings {
     pub fail_delay: Duration,
     /// The largest number of attempts at the same time.
     pub max_attempts: usize,
+    /// The actions on the host: the logind sessions and the start of the web session.
+    pub host: Arc<dyn Host>,
 }
 
 impl Default for Settings {
@@ -49,6 +52,7 @@ impl Default for Settings {
             allow_root: false,
             fail_delay: Duration::from_secs(2),
             max_attempts: 32,
+            host: Arc::new(NoSessions),
         }
     }
 }
@@ -167,6 +171,8 @@ impl Service {
                             let _ = answers.send((prompt, text));
                         }
                         LoginRequest::Start { .. } => return Err("a second start message".into()),
+                        // A confirm before the question. Ignore it.
+                        LoginRequest::Confirm { .. } => {}
                     },
                     // farglassd stopped the attempt. Dropping `answers` stops the PAM conversation.
                     _ => {
@@ -223,11 +229,99 @@ impl Service {
             let message = "The login as root is not permitted.".to_owned();
             return send(link, &LoginEvent::Failure { message }).await;
         }
+        // The password is correct. Reset the counters before the session steps,
+        // because a decline or an error of the host is not a guess.
         self.limiter.succeeded(address);
         self.limiter.succeeded(&Key::User(name.clone()));
-        tracing::info!(rhost, user = name, uid, "a login succeeded");
+
+        // One user has one graphical session at a time (ADR-015).
+        let host = self.settings.host.clone();
+        let local = match blocking(move || host.local_sessions(uid)).await {
+            Ok(local) => local,
+            Err(error) => {
+                tracing::error!(user = name, %error, "logind did not give the sessions of the user");
+                return session_failed(link).await;
+            }
+        };
+        if !local.is_empty() {
+            send(
+                link,
+                &LoginEvent::Confirm {
+                    sessions: local.clone(),
+                },
+            )
+            .await?;
+            if !self.confirmed(link).await? {
+                tracing::info!(user = name, rhost, "the user kept the local session");
+                let message = "The login stopped. The local session continues.".to_owned();
+                return send(link, &LoginEvent::Failure { message }).await;
+            }
+            let ids: Vec<String> = local.into_iter().map(|session| session.id).collect();
+            tracing::info!(user = name, rhost, ?ids, "the user ends the local sessions");
+            let text = "The local session ends.".to_owned();
+            send(link, &LoginEvent::Info { text }).await?;
+            let host = self.settings.host.clone();
+            if let Err(error) = blocking(move || host.end_sessions(&ids)).await {
+                tracing::error!(user = name, %error, "the local sessions did not end");
+                return session_failed(link).await;
+            }
+        }
+
+        let host = self.settings.host.clone();
+        let user = name.clone();
+        match blocking(move || host.start_session(&user, uid)).await {
+            Ok(Started::New) => {
+                tracing::info!(rhost, user = name, uid, "a login started a new web session")
+            }
+            Ok(Started::Attached) => tracing::info!(
+                rhost,
+                user = name,
+                uid,
+                "a login attached to the web session"
+            ),
+            Err(error) => {
+                tracing::error!(user = name, %error, "the web session did not start");
+                return session_failed(link).await;
+            }
+        }
         send(link, &LoginEvent::Success { user: name, uid }).await
     }
+
+    /// Waits for the answer to a confirm event. Returns `false` for a decline, a timeout,
+    /// or a closed connection.
+    async fn confirmed(
+        &self,
+        link: &mut Framed<UnixStream, FrameCodec>,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let wait = async {
+            while let Some(frame) = link.next().await {
+                if let LoginRequest::Confirm { accept } = request(&frame?)? {
+                    return Ok(accept);
+                }
+            }
+            Ok::<_, Box<dyn std::error::Error + Send + Sync>>(false)
+        };
+        tokio::time::timeout(PROMPT_TIMEOUT, wait)
+            .await
+            .unwrap_or(Ok(false))
+    }
+}
+
+/// Runs a blocking host action in a separate thread.
+async fn blocking<T: Send + 'static>(
+    action: impl FnOnce() -> std::io::Result<T> + Send + 'static,
+) -> std::io::Result<T> {
+    tokio::task::spawn_blocking(action)
+        .await
+        .unwrap_or_else(|error| Err(std::io::Error::other(error)))
+}
+
+async fn session_failed(
+    link: &mut Framed<UnixStream, FrameCodec>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let message = "The password is correct, but the session did not start. Tell the administrator."
+        .to_owned();
+    send(link, &LoginEvent::Failure { message }).await
 }
 
 /// The conversation of one attempt: each prompt goes to farglassd, and the answer comes back.

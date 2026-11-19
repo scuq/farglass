@@ -66,7 +66,11 @@ text: string, } | { "type": "error",
 /**
  * The text for the user.
  */
-text: string, } | { "type": "success", 
+text: string, } | { "type": "confirm", 
+/**
+ * The local graphical sessions.
+ */
+sessions: Array<LocalSession>, } | { "type": "success", 
 /**
  * The username that PAM accepted.
  */
@@ -85,9 +89,26 @@ message: string, } | { "type": "blocked",
 retry_after: number, };
 
 /**
- * The answer of the shell to a prompt, on the login channel.
+ * A local graphical session of the user, which a web login ends (ADR-015).
  */
-export type LoginAnswer = { 
+export type LocalSession = { 
+/**
+ * The logind session id.
+ */
+id: string, 
+/**
+ * The session type: `x11`, `wayland`, or `mir`.
+ */
+kind: string, 
+/**
+ * The seat, for example `seat0`, if the session has one.
+ */
+seat?: string, };
+
+/**
+ * A message of the shell on the login channel.
+ */
+export type LoginReply = { "type": "answer", 
 /**
  * The number of the prompt.
  */
@@ -95,4 +116,8 @@ prompt: number,
 /**
  * The text that the user typed.
  */
-text: string, };
+text: string, } | { "type": "confirm", 
+/**
+ * `true` ends the local graphical sessions. `false` stops the login.
+ */
+accept: boolean, };

@@ -53,7 +53,7 @@ try {
   const login = start(
     "farglass-login",
     "target/debug/farglass-login",
-    ["--socket", loginSocket, "--pam-dir", pamDirectory(), "--fail-delay-ms", "0"],
+    ["--socket", loginSocket, "--pam-dir", pamDirectory(), "--fail-delay-ms", "0", "--session", "none"],
     {},
     /ready/,
   );

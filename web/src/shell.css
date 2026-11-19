@@ -117,3 +117,22 @@ body {
   min-height: 1.5em;
   color: var(--muted);
 }
+
+.login-confirm {
+  max-width: 28rem;
+  padding: 1rem;
+  border: 2px solid var(--bad);
+}
+.login-confirm h2 {
+  font-size: 1.1rem;
+  margin: 0 0 0.5rem;
+}
+.login-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+button.danger {
+  color: var(--bad);
+  border: 1px solid var(--bad);
+}

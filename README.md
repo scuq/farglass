@@ -109,6 +109,22 @@ After five failures from one address or for one user, it blocks that address or 
 Each more failure doubles the block, up to 15 minutes.
 After a failure, the answer comes 2 seconds later.
 
+After a login, farglass-login starts the web session of the user.
+It runs `farglass-login --session-worker USER` as a transient systemd unit `farglass-session-UID`.
+The worker opens a PAM session with the service `farglass-session` (`packaging/pam.d/farglass-session`).
+pam_systemd makes a logind session of type `web`, and `loginctl` shows it.
+The worker starts the agent as the user in that session.
+A second login of the same user attaches to the open web session.
+Different users have web sessions at the same time.
+
+One user has one graphical session at a time.
+If the user has a local graphical session (X11, Wayland, or Mir), the login screen asks first.
+If the user confirms, farglass-login ends the local session through logind, and work that is not saved in it is lost.
+If the user selects Cancel, the login stops and the local session continues.
+Text sessions, for example SSH, continue in all cases.
+
+`--session none` starts no session. Use it for development with no root, with an agent that you start yourself.
+
 The tests of farglass-login need no root.
 They use a PAM directory with `pam_exec` that accepts the password `secret`:
 
@@ -144,6 +160,22 @@ It passes if each tab gets only its own echo.
 It logs in through the login screen, first with a wrong password and then with `secret`.
 Then it sends a message on the echo channel.
 The tests need no root.
+
+### Test of the real session
+
+The test of the real logind session needs root.
+Build as your own user, then run the script with sudo:
+
+```sh
+cargo build -p farglassd -p farglass-login -p farglass-session
+npm --prefix web run build
+sudo spikes/session/check.sh
+```
+
+The script creates the temporary user `farglass-test` and removes it at the end.
+It logs in as that user through Chromium. Then it examines the logind session of type `web` and the agent.
+If your user has a local graphical session, the script also logs in as your user and selects Cancel at the confirm step.
+It never ends your local session.
 
 Open `https://localhost:8443` in the browser.
 farglassd serves HTTP/2 and HTTP/1.1 through TLS.

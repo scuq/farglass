@@ -291,3 +291,173 @@ pub fn login(params: Login<'_>, mut conv: &mut dyn Conversation) -> Result<Strin
         }),
     }
 }
+
+#[link(name = "pam")]
+unsafe extern "C" {
+    fn pam_open_session(pamh: *mut pam_handle_t, flags: c_int) -> c_int;
+    fn pam_close_session(pamh: *mut pam_handle_t, flags: c_int) -> c_int;
+    fn pam_putenv(pamh: *mut pam_handle_t, name_value: *const c_char) -> c_int;
+    fn pam_getenvlist(pamh: *mut pam_handle_t) -> *mut *mut c_char;
+}
+
+/// A conversation with no user: it logs the messages and refuses each prompt.
+extern "C" fn silent_converse(
+    num_msg: c_int,
+    msg: *mut *const PamMessage,
+    resp: *mut *mut PamResponse,
+    _appdata: *mut c_void,
+) -> c_int {
+    let Ok(n) = usize::try_from(num_msg) else {
+        return PAM_CONV_ERR;
+    };
+    if n == 0 || msg.is_null() || resp.is_null() {
+        return PAM_CONV_ERR;
+    }
+    for i in 0..n {
+        // SAFETY: Linux-PAM gives an array of `n` pointers to messages.
+        let message = unsafe { &**msg.add(i) };
+        if matches!(message.msg_style, PAM_PROMPT_ECHO_OFF | PAM_PROMPT_ECHO_ON) {
+            return PAM_CONV_ERR;
+        }
+        if !message.msg.is_null() {
+            // SAFETY: PAM gives a string that ends with a NUL byte.
+            let text = unsafe { CStr::from_ptr(message.msg) }.to_string_lossy();
+            tracing::info!(message = %text, "PAM session message");
+        }
+    }
+    // SAFETY: PAM frees the responses with free(), thus they must come from calloc.
+    let out = unsafe { libc::calloc(n, size_of::<PamResponse>()) }.cast::<PamResponse>();
+    if out.is_null() {
+        return PAM_BUF_ERR;
+    }
+    // SAFETY: `resp` is not null. PAM takes ownership of `out`.
+    unsafe { *resp = out };
+    PAM_SUCCESS
+}
+
+/// An open PAM session. With pam_systemd, it is a logind session, and the
+/// calling process moves into it. Dropping the value closes the session.
+#[derive(Debug)]
+pub struct OpenSession {
+    pamh: *mut pam_handle_t,
+    /// PAM keeps a pointer to the conversation while the handle lives.
+    _conv: Box<PamConv>,
+}
+
+impl std::fmt::Debug for PamConv {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PamConv")
+    }
+}
+
+/// Opens a PAM session for `user` with no authentication.
+///
+/// farglass-login authenticated the user before. `env` goes to the PAM
+/// environment, for example `XDG_SESSION_TYPE` for pam_systemd.
+///
+/// # Errors
+///
+/// A text with the cause if a PAM call fails.
+pub fn open_session(
+    service: &str,
+    confdir: Option<&Path>,
+    user: &str,
+    env: &[(&str, &str)],
+) -> Result<OpenSession, String> {
+    let service = CString::new(service).map_err(|_| "the PAM service name is not valid")?;
+    let user = CString::new(user).map_err(|_| "the username is not valid")?;
+    let confdir = confdir
+        .map(|dir| CString::new(dir.as_os_str().as_encoded_bytes()))
+        .transpose()
+        .map_err(|_| "the PAM directory is not valid")?;
+    let conv = Box::new(PamConv {
+        conv: silent_converse,
+        appdata_ptr: ptr::null_mut(),
+    });
+    let mut pamh: *mut pam_handle_t = ptr::null_mut();
+    // SAFETY: All pointers are valid C strings or null. `conv` lives in the returned value.
+    let rc = unsafe {
+        pam_start_confdir(
+            service.as_ptr(),
+            user.as_ptr(),
+            &raw const *conv,
+            confdir.as_ref().map_or(ptr::null(), |d| d.as_ptr()),
+            &raw mut pamh,
+        )
+    };
+    if rc != PAM_SUCCESS || pamh.is_null() {
+        return Err(format!("pam_start failed with code {rc}"));
+    }
+    let session = OpenSession { pamh, _conv: conv };
+    let fail = |rc: c_int, what: &str| {
+        // SAFETY: `pamh` is valid, and pam_strerror gives a static string.
+        let text = unsafe { CStr::from_ptr(pam_strerror(pamh, rc)) }
+            .to_string_lossy()
+            .into_owned();
+        format!("{what}: {text}")
+    };
+    for (key, value) in env {
+        let pair = CString::new(format!("{key}={value}"))
+            .map_err(|_| "an environment value is not valid")?;
+        // SAFETY: `pamh` is valid. PAM copies the string.
+        let rc = unsafe { pam_putenv(pamh, pair.as_ptr()) };
+        if rc != PAM_SUCCESS {
+            return Err(fail(rc, "pam_putenv"));
+        }
+    }
+    // SAFETY: `pamh` is valid.
+    let rc = unsafe { pam_acct_mgmt(pamh, 0) };
+    if rc != PAM_SUCCESS {
+        return Err(fail(rc, "the account check failed"));
+    }
+    // SAFETY: `pamh` is valid.
+    let rc = unsafe { pam_open_session(pamh, 0) };
+    if rc != PAM_SUCCESS {
+        return Err(fail(rc, "pam_open_session failed"));
+    }
+    Ok(session)
+}
+
+impl OpenSession {
+    /// Returns the PAM environment, for example `XDG_SESSION_ID` and `XDG_RUNTIME_DIR`.
+    #[must_use]
+    pub fn env(&self) -> Vec<(String, String)> {
+        // SAFETY: `pamh` is valid. PAM gives a NULL-terminated array that the caller frees.
+        let list = unsafe { pam_getenvlist(self.pamh) };
+        let mut out = Vec::new();
+        if list.is_null() {
+            return out;
+        }
+        let mut i = 0;
+        loop {
+            // SAFETY: The array ends with a null pointer.
+            let item = unsafe { *list.add(i) };
+            if item.is_null() {
+                break;
+            }
+            // SAFETY: Each item is a C string from malloc.
+            let text = unsafe { CStr::from_ptr(item) }
+                .to_string_lossy()
+                .into_owned();
+            if let Some((key, value)) = text.split_once('=') {
+                out.push((key.to_owned(), value.to_owned()));
+            }
+            // SAFETY: The caller frees each item and the array.
+            unsafe { libc::free(item.cast()) };
+            i += 1;
+        }
+        // SAFETY: The array comes from malloc.
+        unsafe { libc::free(list.cast()) };
+        out
+    }
+}
+
+impl Drop for OpenSession {
+    fn drop(&mut self) {
+        // SAFETY: `pamh` is valid, and the value is not used after this call.
+        unsafe {
+            pam_close_session(self.pamh, 0);
+            pam_end(self.pamh, PAM_SUCCESS);
+        }
+    }
+}

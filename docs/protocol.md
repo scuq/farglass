@@ -99,6 +99,7 @@ farglassd sends each event as a control message:
 | `{"type":"prompt","prompt":1,"text":"Password: ","echo":false}` | A PAM module asks a question. If `echo` is `false`, the answer is secret. |
 | `{"type":"info","text":"..."}` | A PAM module gives information. |
 | `{"type":"error","text":"..."}` | A PAM module gives an error message. |
+| `{"type":"confirm","sessions":[{"id":"2","kind":"wayland","seat":"seat0"}]}` | The password is correct, but the user has a local graphical session. The shell must ask the user. |
 | `{"type":"success","user":"alice","uid":1000}` | The login succeeded. The connection has the user from now on. |
 | `{"type":"failure","message":"The login failed."}` | The login failed. |
 | `{"type":"blocked","retry_after":30}` | Too many failures. A new attempt can start after `retry_after` seconds. |
@@ -106,8 +107,14 @@ farglassd sends each event as a control message:
 The shell answers a prompt with a control message:
 
 ```json
-{"prompt":1,"text":"secret"}
+{"type":"answer","prompt":1,"text":"secret"}
 ```
+
+The shell answers a confirm event with `{"type":"confirm","accept":true}` or `{"type":"confirm","accept":false}`.
+With `true`, the local graphical session ends, and the web session starts.
+With `false`, the login stops with a failure, and the local session continues.
+
+farglassd sends `success` after the agent of the user connected, at most 30 seconds after PAM accepted the user.
 
 After `success`, `failure`, or `blocked`, farglassd closes the channel with the reason `done`.
 If the shell closes the channel before the result, the attempt stops.

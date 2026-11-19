@@ -11,7 +11,9 @@ farglass-proto = { workspace = true, features = ["codec"] }
 clap.workspace = true
 futures-util.workspace = true
 libc.workspace = true
-nix.workspace = true
+nix = { workspace = true, features = ["signal", "user"] }
+serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-util.workspace = true

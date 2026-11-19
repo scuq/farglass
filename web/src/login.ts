@@ -2,7 +2,7 @@
  * The login on a channel of kind login. farglassd relays each PAM event.
  */
 
-import type { Close, Connection, LoginAnswer, LoginEvent } from "./proto";
+import type { Close, Connection, LocalSession, LoginEvent, LoginReply } from "./proto";
 
 /** The callbacks of one login. */
 export interface LoginHandlers {
@@ -39,8 +39,14 @@ export class Login {
 
   /** Answers the prompt with the number `prompt`. */
   answer(prompt: number, text: string): void {
-    const answer: LoginAnswer = { prompt, text };
-    this.#channel.control(answer);
+    const reply: LoginReply = { type: "answer", prompt, text };
+    this.#channel.control(reply);
+  }
+
+  /** Answers a confirm event: `true` ends the local sessions, `false` stops the login. */
+  confirm(accept: boolean): void {
+    const reply: LoginReply = { type: "confirm", accept };
+    this.#channel.control(reply);
   }
 
   /** Stops the attempt. */
@@ -65,4 +71,11 @@ export function promptAutocomplete(text: string, echo: boolean): string {
     return "one-time-code";
   }
   return echo ? "username" : "current-password";
+}
+
+/** Returns a short description of a local session, for example "a Wayland session on seat0". */
+export function describeSession(session: LocalSession): string {
+  const kinds: Record<string, string> = { wayland: "a Wayland", x11: "an X11", mir: "a Mir" };
+  const kind = kinds[session.kind] ?? `a ${session.kind}`;
+  return session.seat ? `${kind} session on ${session.seat}` : `${kind} session`;
 }

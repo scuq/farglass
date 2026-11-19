@@ -1,6 +1,6 @@
 import { createSignal, For, onCleanup, Show } from "solid-js";
-import { Login, promptAutocomplete, promptLabel } from "./login";
-import type { Connection, LoginEvent } from "./proto";
+import { describeSession, Login, promptAutocomplete, promptLabel } from "./login";
+import type { Connection, LocalSession, LoginEvent } from "./proto";
 
 /** The prompt that waits for an answer. */
 interface Prompt {
@@ -17,7 +17,7 @@ interface Message {
 }
 
 /** The state of the login screen. */
-type Stage = "waiting" | "prompt" | "checking" | "failed" | "blocked";
+type Stage = "waiting" | "prompt" | "checking" | "confirm" | "failed" | "blocked";
 
 /**
  * The login screen. It shows each PAM prompt and message from farglassd.
@@ -31,10 +31,12 @@ export function LoginScreen(props: { connection: Connection; onlogin: (user: str
   const [messages, setMessages] = createSignal<readonly Message[]>([]);
   const [answer, setAnswer] = createSignal("");
   const [retryIn, setRetryIn] = createSignal(0);
+  const [local, setLocal] = createSignal<readonly LocalSession[]>([]);
   let nextMessage = 0;
   let login: Login | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
   let input: HTMLInputElement | undefined;
+  let cancelButton: HTMLButtonElement | undefined;
 
   const say = (kind: Message["kind"], text: string) =>
     setMessages((old) => [...old, { id: nextMessage++, kind, text }]);
@@ -52,6 +54,12 @@ export function LoginScreen(props: { connection: Connection; onlogin: (user: str
         break;
       case "error":
         say("error", event.text);
+        break;
+      case "confirm":
+        setPrompt(null);
+        setLocal(event.sessions);
+        setStage("confirm");
+        queueMicrotask(() => cancelButton?.focus());
         break;
       case "success":
         props.onlogin(event.user);
@@ -109,6 +117,11 @@ export function LoginScreen(props: { connection: Connection; onlogin: (user: str
     setStage("checking");
   };
 
+  const confirm = (accept: boolean) => {
+    login?.confirm(accept);
+    setStage("checking");
+  };
+
   /** Starts a new attempt after a failure or a block. */
   const retry = () => {
     setMessages([]);
@@ -162,6 +175,30 @@ export function LoginScreen(props: { connection: Connection; onlogin: (user: str
             </button>
           </form>
         )}
+      </Show>
+
+      <Show when={stage() === "confirm"}>
+        <div class="login-confirm" role="alertdialog" aria-labelledby="confirm-title" aria-describedby="confirm-text">
+          <h2 id="confirm-title">End the local session?</h2>
+          <p id="confirm-text">
+            You have {local().map(describeSession).join(" and ")} on this host. One user has one graphical session at a
+            time. If you continue, the local session ends, and work that is not saved in it is lost.
+          </p>
+          <div class="login-confirm-actions">
+            <button
+              type="button"
+              ref={(element) => {
+                cancelButton = element;
+              }}
+              onClick={() => confirm(false)}
+            >
+              Cancel
+            </button>
+            <button type="button" class="danger" onClick={() => confirm(true)}>
+              End the local session and log in
+            </button>
+          </div>
+        </div>
       </Show>
 
       <p class="login-state" role="status">

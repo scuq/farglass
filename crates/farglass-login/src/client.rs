@@ -82,6 +82,27 @@ impl Attempt {
         self.send(&LoginRequest::Answer { prompt, text }).await
     }
 
+    /// Answers a confirm event: `true` ends the local sessions, `false` stops the login.
+    ///
+    /// # Errors
+    ///
+    /// [`ClientError`] if the connection fails.
+    pub async fn confirm(&mut self, accept: bool) -> Result<(), ClientError> {
+        self.send(&LoginRequest::Confirm { accept }).await
+    }
+
+    /// Sends a reply of the shell.
+    ///
+    /// # Errors
+    ///
+    /// [`ClientError`] if the connection fails.
+    pub async fn reply(
+        &mut self,
+        reply: farglass_proto::login::LoginReply,
+    ) -> Result<(), ClientError> {
+        self.send(&reply.into()).await
+    }
+
     async fn send(&mut self, request: &LoginRequest) -> Result<(), ClientError> {
         let frame = Frame::json(ChannelId::CONNECTION, FrameType::Control, request)?;
         self.link.send(frame).await?;

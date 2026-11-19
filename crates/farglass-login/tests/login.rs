@@ -7,10 +7,14 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use std::io;
+use std::sync::{Arc, Mutex};
+
 use farglass_login::client::Attempt;
+use farglass_login::host::{Host, Started};
 use farglass_login::server::{Service, Settings};
 use farglass_login::{activation, limiter};
-use farglass_proto::login::LoginEvent;
+use farglass_proto::login::{LocalSession, LoginEvent};
 use tempfile::TempDir;
 use zeroize::Zeroizing;
 
@@ -274,4 +278,216 @@ async fn closed_connection_stops_the_attempt_and_frees_its_place() {
         result.is_ok(),
         "the place of the stopped attempt did not become free"
     );
+}
+
+/// A host that the test controls. It records each action.
+#[derive(Debug, Default)]
+struct FakeHost {
+    local: Vec<LocalSession>,
+    start_fails: bool,
+    started_before: bool,
+    actions: Mutex<Vec<String>>,
+}
+
+impl FakeHost {
+    fn actions(&self) -> Vec<String> {
+        self.actions.lock().unwrap().clone()
+    }
+}
+
+impl Host for FakeHost {
+    fn local_sessions(&self, uid: u32) -> io::Result<Vec<LocalSession>> {
+        self.actions.lock().unwrap().push(format!("list {uid}"));
+        Ok(self.local.clone())
+    }
+
+    fn end_sessions(&self, ids: &[String]) -> io::Result<()> {
+        self.actions
+            .lock()
+            .unwrap()
+            .push(format!("end {}", ids.join(",")));
+        Ok(())
+    }
+
+    fn start_session(&self, user: &str, uid: u32) -> io::Result<Started> {
+        self.actions
+            .lock()
+            .unwrap()
+            .push(format!("start {user} {uid}"));
+        if self.start_fails {
+            return Err(io::Error::other("systemd-run failed"));
+        }
+        Ok(if self.started_before {
+            Started::Attached
+        } else {
+            Started::New
+        })
+    }
+}
+
+fn gnome() -> LocalSession {
+    LocalSession {
+        id: "2".to_owned(),
+        kind: "wayland".to_owned(),
+        seat: Some("seat0".to_owned()),
+    }
+}
+
+/// Logs in with the correct password, and answers a confirm event with `accept`.
+async fn login_with_confirm(harness: &Harness, accept: bool) -> Vec<LoginEvent> {
+    let user = current_user();
+    let mut attempt = harness.attempt(Some(&user)).await;
+    let mut events = Vec::new();
+    loop {
+        let event = tokio::time::timeout(WAIT, attempt.next())
+            .await
+            .unwrap()
+            .unwrap();
+        match &event {
+            LoginEvent::Prompt { prompt, .. } => {
+                attempt
+                    .answer(*prompt, Zeroizing::new("secret".to_owned()))
+                    .await
+                    .unwrap();
+            }
+            LoginEvent::Confirm { .. } => attempt.confirm(accept).await.unwrap(),
+            _ => {}
+        }
+        let done = matches!(
+            event,
+            LoginEvent::Success { .. } | LoginEvent::Failure { .. }
+        );
+        events.push(event);
+        if done {
+            return events;
+        }
+    }
+}
+
+#[tokio::test]
+async fn login_with_no_local_session_starts_the_web_session() {
+    let host = Arc::new(FakeHost::default());
+    let harness = Harness::start({
+        let host = host.clone();
+        |settings| settings.host = host
+    })
+    .await;
+    let events = login_with_confirm(&harness, true).await;
+    assert!(matches!(events.last(), Some(LoginEvent::Success { .. })));
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, LoginEvent::Confirm { .. }))
+    );
+    let uid = nix::unistd::getuid().as_raw();
+    assert_eq!(
+        host.actions(),
+        [
+            format!("list {uid}"),
+            format!("start {} {uid}", current_user())
+        ]
+    );
+}
+
+#[tokio::test]
+async fn confirmed_login_ends_the_local_session_before_the_web_session_starts() {
+    let host = Arc::new(FakeHost {
+        local: vec![gnome()],
+        ..FakeHost::default()
+    });
+    let harness = Harness::start({
+        let host = host.clone();
+        |settings| settings.host = host
+    })
+    .await;
+    let events = login_with_confirm(&harness, true).await;
+    assert!(
+        events.contains(&LoginEvent::Confirm {
+            sessions: vec![gnome()]
+        }),
+        "{events:?}"
+    );
+    assert!(matches!(events.last(), Some(LoginEvent::Success { .. })));
+    let actions = host.actions();
+    assert_eq!(actions[1], "end 2");
+    assert!(actions[2].starts_with("start "));
+}
+
+#[tokio::test]
+async fn declined_login_keeps_the_local_session_and_starts_nothing() {
+    let host = Arc::new(FakeHost {
+        local: vec![gnome()],
+        ..FakeHost::default()
+    });
+    let harness = Harness::start({
+        let host = host.clone();
+        |settings| settings.host = host
+    })
+    .await;
+    let events = login_with_confirm(&harness, false).await;
+    assert_eq!(
+        events.last(),
+        Some(&LoginEvent::Failure {
+            message: "The login stopped. The local session continues.".to_owned()
+        })
+    );
+    assert_eq!(host.actions().len(), 1, "{:?}", host.actions());
+
+    // A decline is not a wrong password: it does not count for the block.
+    for _ in 0..limiter::FREE_FAILURES + 1 {
+        login_with_confirm(&harness, false).await;
+    }
+    let events = login_with_confirm(&harness, false).await;
+    assert!(!matches!(events.last(), Some(LoginEvent::Blocked { .. })));
+}
+
+#[tokio::test]
+async fn closed_connection_at_the_confirm_ends_no_session() {
+    let host = Arc::new(FakeHost {
+        local: vec![gnome()],
+        ..FakeHost::default()
+    });
+    let harness = Harness::start({
+        let host = host.clone();
+        |settings| settings.host = host
+    })
+    .await;
+    let mut attempt = harness.attempt(Some(&current_user())).await;
+    loop {
+        match tokio::time::timeout(WAIT, attempt.next())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            LoginEvent::Prompt { prompt, .. } => {
+                attempt
+                    .answer(prompt, Zeroizing::new("secret".to_owned()))
+                    .await
+                    .unwrap();
+            }
+            LoginEvent::Confirm { .. } => break,
+            _ => {}
+        }
+    }
+    drop(attempt);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(host.actions().len(), 1, "{:?}", host.actions());
+}
+
+#[tokio::test]
+async fn failed_session_start_gives_a_message_for_the_administrator() {
+    let host = Arc::new(FakeHost {
+        start_fails: true,
+        ..FakeHost::default()
+    });
+    let harness = Harness::start({
+        let host = host.clone();
+        |settings| settings.host = host
+    })
+    .await;
+    let events = login_with_confirm(&harness, true).await;
+    let Some(LoginEvent::Failure { message }) = events.last() else {
+        panic!("{events:?}");
+    };
+    assert!(message.contains("session did not start"), "{message}");
 }

@@ -1,7 +1,7 @@
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, test } from "vitest";
 import { App } from "./App";
-import { promptAutocomplete, promptLabel } from "./login";
+import { describeSession, promptAutocomplete, promptLabel } from "./login";
 import { LoginScreen } from "./LoginScreen";
 import { closeFrame, encodeJsonFrame, FrameType, type LoginEvent, parseJson, readyFrame } from "./proto";
 import { fakeConnection } from "./proto/testing";
@@ -68,7 +68,7 @@ describe("LoginScreen", () => {
     password.dispatchEvent(new Event("input", { bubbles: true }));
     host.querySelector("form")!.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
     await settle();
-    expect(parseJson(server.take()[0]!)).toEqual({ prompt: 1, text: "secret" });
+    expect(parseJson(server.take()[0]!)).toEqual({ type: "answer", prompt: 1, text: "secret" });
     expect(host.querySelector("[role=status]")?.textContent).toBe("Checking");
 
     server.push(event(1, { type: "prompt", prompt: 2, text: "Verification code: ", echo: false }));
@@ -119,6 +119,42 @@ describe("LoginScreen", () => {
     server.push(closeFrame(1, { reason: "internal-error", message: "The login service is not available." }));
     await settle();
     expect(host.querySelector("[role=alert]")?.textContent).toBe("The login service is not available.");
+  });
+});
+
+describe("confirm step for a local session", () => {
+  test("describeSession names the type and the seat", () => {
+    expect(describeSession({ id: "2", kind: "wayland", seat: "seat0" })).toBe("a Wayland session on seat0");
+    expect(describeSession({ id: "3", kind: "x11" })).toBe("an X11 session");
+  });
+
+  async function confirmScreen() {
+    const { server, connection } = await fakeConnection();
+    const host = mount(() => <LoginScreen connection={connection} onlogin={() => {}} />);
+    server.take();
+    server.push(readyFrame(1));
+    server.push(event(1, { type: "confirm", sessions: [{ id: "2", kind: "wayland", seat: "seat0" }] }));
+    await settle();
+    return { server, host };
+  }
+
+  test("the screen tells what ends and puts the focus on Cancel", async () => {
+    const { host } = await confirmScreen();
+    const dialog = host.querySelector("[role=alertdialog]")!;
+    expect(dialog.textContent).toContain("a Wayland session on seat0");
+    expect(dialog.textContent).toContain("work that is not saved in it is lost");
+    expect(document.activeElement?.textContent).toBe("Cancel");
+  });
+
+  test.each([
+    ["Cancel", false],
+    ["End the local session and log in", true],
+  ])("the button %j sends accept %s", async (label, accept) => {
+    const { server, host } = await confirmScreen();
+    [...host.querySelectorAll("button")].find((b) => b.textContent === label)!.click();
+    await settle();
+    expect(parseJson(server.take()[0]!)).toEqual({ type: "confirm", accept });
+    expect(host.querySelector("[role=alertdialog]")).toBeNull();
   });
 });
 

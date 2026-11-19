@@ -1,0 +1,19 @@
+#%PAM-1.0
+# farglass-session - the PAM service of the web session
+#
+# Install this file as /etc/pam.d/farglass-session.
+# The session worker of farglass-login opens the session with this service.
+# farglass-login authenticated the user before with the service farglass.
+# Thus the auth stack refuses each request.
+# pam_systemd in common-session creates the logind session of type web.
+
+auth     required   pam_deny.so
+@include common-account
+session [success=ok ignore=ignore module_unknown=ignore default=bad]  pam_selinux.so close
+session  required   pam_loginuid.so
+session [success=ok ignore=ignore module_unknown=ignore default=bad]  pam_selinux.so open
+session  optional   pam_keyinit.so force revoke
+session  required   pam_limits.so
+session  required   pam_env.so readenv=1
+session  required   pam_env.so readenv=1 envfile=/etc/default/locale
+@include common-session

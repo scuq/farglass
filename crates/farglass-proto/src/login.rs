@@ -26,6 +26,25 @@ pub enum LoginRequest {
         /// The text that the user typed. farglass-login clears it from memory after use.
         text: Zeroizing<String>,
     },
+    /// Answers [`LoginEvent::Confirm`].
+    Confirm {
+        /// `true` ends the local graphical sessions and starts the web session.
+        /// `false` stops the login, and the local sessions continue.
+        accept: bool,
+    },
+}
+
+/// A local graphical session of the user, which a web login ends (ADR-015).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct LocalSession {
+    /// The logind session id.
+    pub id: String,
+    /// The session type: `x11`, `wayland`, or `mir`.
+    pub kind: String,
+    /// The seat, for example `seat0`, if the session has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub seat: Option<String>,
 }
 
 /// A message from farglass-login to farglassd. farglassd gives it to the shell on the login channel.
@@ -51,6 +70,14 @@ pub enum LoginEvent {
         /// The text for the user.
         text: String,
     },
+    /// The password is correct, but the user has local graphical sessions.
+    ///
+    /// The user must confirm that they end, and that work that is not saved
+    /// in them is lost. farglassd answers with [`LoginRequest::Confirm`].
+    Confirm {
+        /// The local graphical sessions.
+        sessions: Vec<LocalSession>,
+    },
     /// The login succeeded. The connection ends after this message.
     Success {
         /// The username that PAM accepted.
@@ -71,14 +98,32 @@ pub enum LoginEvent {
     },
 }
 
-/// The answer of the shell to a prompt, on the login channel.
+/// A message of the shell on the login channel.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
-pub struct LoginAnswer {
-    /// The number of the prompt.
-    pub prompt: u32,
-    /// The text that the user typed.
-    #[ts(type = "string")]
-    pub text: Zeroizing<String>,
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum LoginReply {
+    /// Answers a prompt.
+    Answer {
+        /// The number of the prompt.
+        prompt: u32,
+        /// The text that the user typed.
+        #[ts(type = "string")]
+        text: Zeroizing<String>,
+    },
+    /// Answers [`LoginEvent::Confirm`].
+    Confirm {
+        /// `true` ends the local graphical sessions. `false` stops the login.
+        accept: bool,
+    },
+}
+
+impl From<LoginReply> for LoginRequest {
+    fn from(reply: LoginReply) -> Self {
+        match reply {
+            LoginReply::Answer { prompt, text } => Self::Answer { prompt, text },
+            LoginReply::Confirm { accept } => Self::Confirm { accept },
+        }
+    }
 }
 
 #[cfg(test)]

@@ -597,6 +597,8 @@ dependencies = [
  "futures-util",
  "libc",
  "nix",
+ "serde",
+ "serde_json",
  "tempfile",
  "thiserror",
  "tokio",

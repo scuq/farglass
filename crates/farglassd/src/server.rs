@@ -16,7 +16,7 @@ use tokio_rustls::TlsAcceptor;
 
 use crate::agents::{self, BindError, Registry};
 use crate::config::{Config, ConfigError};
-use crate::connection::Context;
+use crate::connection::{AGENT_WAIT, Context};
 use crate::http;
 use crate::login::Identity;
 use crate::tls::{CertStore, TlsError};
@@ -99,6 +99,7 @@ impl Server {
             registry: registry.clone(),
             login_socket: config.login_socket.clone(),
             dev_user,
+            agent_wait: AGENT_WAIT,
         });
         Ok(Self {
             listener,

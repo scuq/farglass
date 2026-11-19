@@ -8,7 +8,9 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use farglass_proto::login::LoginAnswer;
+use std::time::Duration;
+
+use farglass_proto::login::LoginReply;
 use farglass_proto::message::{Close, CloseReason, ConnectionMessage, Open};
 use farglass_proto::{ChannelId, Frame, FrameError, FrameType, PROTOCOL_VERSION, Side};
 use futures_util::{Sink, SinkExt as _, Stream, StreamExt as _};
@@ -33,7 +35,12 @@ pub struct Context {
     pub login_socket: PathBuf,
     /// The user of each connection with no login. Only for development.
     pub dev_user: Option<Identity>,
+    /// The longest wait for the agent of a user after a login.
+    pub agent_wait: Duration,
 }
+
+/// The default wait for the agent after a login. A new session starts the agent in about one second.
+pub const AGENT_WAIT: Duration = Duration::from_secs(30);
 
 /// A cause to close the browser connection.
 #[derive(Debug, thiserror::Error)]
@@ -75,7 +82,7 @@ enum Local {
     /// The login channel, which farglassd serves.
     Login {
         /// The queue to the login task. `None` after the shell closed the channel.
-        answers: Option<mpsc::Sender<LoginAnswer>>,
+        answers: Option<mpsc::Sender<LoginReply>>,
         closed_by_shell: bool,
         closed_by_peer: bool,
     },
@@ -286,7 +293,7 @@ where
                     // Dropping the queue stops the attempt. The task answers with a close frame.
                     *answers = None;
                 } else if frame.frame_type() == FrameType::Control {
-                    let answer = frame.parse::<LoginAnswer>()?;
+                    let answer = frame.parse::<LoginReply>()?;
                     if let Some(answers) = answers {
                         // A full queue means the shell sends answers that nobody asked for.
                         let _ = answers.try_send(answer);
@@ -332,6 +339,8 @@ where
             answers: receiver,
             to_shell: self.to_shell.clone(),
             user: self.user.clone(),
+            registry: self.context.registry.clone(),
+            agent_wait: self.context.agent_wait,
         };
         tokio::spawn(task.run());
         self.channels.insert(

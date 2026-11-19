@@ -41,6 +41,7 @@ impl Browser {
                 uid,
                 name: format!("user{uid}"),
             }),
+            agent_wait: Duration::ZERO,
         };
         let task = tokio::spawn(async move {
             let mut incoming = stream::unfold(server_in, |mut rx| async move {
