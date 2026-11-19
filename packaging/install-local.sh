@@ -83,6 +83,8 @@ install_all() {
     done
     systemctl daemon-reload
     systemctl enable --now farglass-login.socket
+    # A running farglass-login keeps the old program. systemd starts the new one at the next login.
+    systemctl stop farglass-login.service
     systemctl enable farglassd.service
     systemctl restart farglassd.service
 
@@ -103,6 +105,24 @@ install_all() {
     echo
     echo "Before you accept the self-signed certificate, compare its SHA-256 fingerprint:"
     journalctl -u farglassd --no-pager -o cat | sed 's/\x1b\[[0-9;]*m//g' | grep -o 'sha256=[0-9A-F:]*' | tail -1
+
+    # The web sessions continue through an update, and their agents keep the old program.
+    sessions=$(loginctl --json=short list-sessions | python3 -c '
+import json, subprocess, sys
+for s in json.load(sys.stdin):
+    if s["class"] != "user":
+        continue
+    out = subprocess.run(["loginctl", "show-session", s["session"], "-p", "Type", "-p", "Service"],
+                         capture_output=True, text=True).stdout
+    if "Type=web" in out and "Service=farglass-session" in out:
+        print("  session %s of %s" % (s["session"], s["user"]))
+')
+    if [ -n "$sessions" ]; then
+        echo
+        echo "These web sessions still run the old agent. Log out in the shell and log in again,"
+        echo "or end them with: loginctl terminate-session ID"
+        echo "$sessions"
+    fi
 }
 
 uninstall_all() {
