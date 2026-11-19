@@ -1,0 +1,38 @@
+[Unit]
+Description=farglass PAM login
+Documentation=https://github.com/scuq/farglass
+Requires=farglass-login.socket
+After=farglass-login.socket
+
+[Service]
+Type=exec
+ExecStart=/usr/libexec/farglass/farglass-login
+# farglass-login runs as root, because PAM needs root to check passwords.
+User=root
+
+# No network access. If a PAM module needs the network (LDAP, RADIUS),
+# remove these two lines in a drop-in file.
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+
+# Protection.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+# PAM modules write the login records and the faillock state.
+ReadWritePaths=/var/log /run/faillock -/var/lib/google-authenticator

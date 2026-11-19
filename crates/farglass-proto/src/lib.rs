@@ -18,6 +18,7 @@ mod channel;
 pub mod codec;
 mod error;
 mod frame;
+pub mod login;
 pub mod message;
 pub mod typescript;
 

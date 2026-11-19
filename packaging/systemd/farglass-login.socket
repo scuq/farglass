@@ -1,0 +1,16 @@
+[Unit]
+Description=farglass login socket
+Documentation=https://github.com/scuq/farglass
+
+[Socket]
+ListenStream=/run/farglass/login.sock
+# Only farglassd connects. The package creates the group farglass, and
+# farglassd.service runs with that group.
+SocketMode=0660
+SocketUser=root
+SocketGroup=farglass
+DirectoryMode=0755
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

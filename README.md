@@ -97,6 +97,33 @@ npm --prefix web run dev
 The Vite server sends `/ws` to `https://localhost:8443`.
 To use a different farglassd, set `FARGLASSD_URL`.
 
+## Login service
+
+farglass-login does the PAM login and runs as root.
+farglassd connects to its socket for each login attempt and relays each PAM prompt.
+On a host, systemd starts it through `packaging/systemd/farglass-login.socket`.
+The PAM service file is `packaging/pam.d/farglass`.
+
+farglass-login refuses a login as root unless it starts with `--allow-root`.
+After five failures from one address or for one user, it blocks that address or user for 30 seconds.
+Each more failure doubles the block, up to 15 minutes.
+After a failure, the answer comes 2 seconds later.
+
+The tests of farglass-login need no root.
+They use a PAM directory with `pam_exec` that accepts the password `secret`:
+
+```sh
+cargo test -p farglass-login
+```
+
+To start farglass-login with no root and no systemd, give it a socket and a PAM directory:
+
+```sh
+cargo run -p farglass-login -- --socket target/farglass/login.sock --pam-dir DIR
+```
+
+`DIR` must have a file `farglass` with a PAM stack that works for an unprivileged user.
+
 ## End-to-end test
 
 The end-to-end test builds all parts, starts farglassd in development mode and the agent, and uses Chromium through Playwright:

@@ -1,0 +1,19 @@
+#%PAM-1.0
+# farglass - the PAM service of farglass-login
+#
+# Install this file as /etc/pam.d/farglass.
+# farglass-login sends each prompt of these modules to the login screen of the shell.
+# All PAM methods work, for example a password and then a one-time code.
+
+# The password of the system account.
+@include common-auth
+
+# A second factor: a time-based one-time code (TOTP) from an authenticator app.
+# To use it, install libpam-google-authenticator and run google-authenticator
+# one time as each user. With "nullok", a user with no secret logs in with the
+# password only. Remove "nullok" when all users have a secret.
+#auth required pam_google_authenticator.so nullok
+
+# The account checks: an expired or locked account, and /etc/nologin.
+account required pam_nologin.so
+@include common-account

@@ -7,7 +7,20 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-farglass-proto.workspace = true
+farglass-proto = { workspace = true, features = ["codec"] }
+clap.workspace = true
+futures-util.workspace = true
+libc.workspace = true
+nix.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-util.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true
