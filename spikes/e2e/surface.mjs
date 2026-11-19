@@ -104,13 +104,47 @@ try {
   if (SHOTS) await page.screenshot({ path: join(SHOTS, "surface.png") });
   check(!(await page.locator("#launcher [role=option]").filter({ hasText: "Linux app" }).count()), "the launcher does not list the window app");
 
-  // 2. A new size of the window (maximize) gives a buffer of the new size.
+  // 2. Input: keys and clicks reach the app, and its cursor shows (F029).
+  await window.locator(".wm-titlebar").click({ position: { x: 150, y: 10 } });
+  const canvas = content.locator("canvas").first();
+  const shot = async () => (await canvas.screenshot()).toString("base64");
+  const initial = await shot();
+  await page.keyboard.press("7");
+  await page.keyboard.press("Shift+Equal");
+  await page.keyboard.press("2");
+  await page.keyboard.press("Enter");
+  let typed = initial;
+  for (let i = 0; i < 30 && typed === initial; i++) {
+    await page.waitForTimeout(100);
+    typed = await shot();
+  }
+  check(typed !== initial, "keys reach the app: 7 + 2 Enter changes its window");
+  // The display of the calculator has a text cursor.
+  const area = await canvas.boundingBox();
+  // The canvas includes the shadow of GTK (61, 55): the entry field is at (161, 365) and the C button at (104, 445).
+  // GTK sets the cursor on motion events: the pointer moves in steps, as a real pointer does.
+  await page.mouse.move(area.x + 161, area.y + 365, { steps: 6 });
+  await page.waitForFunction(() => document.querySelector(".linux-app")?.dataset.cursor === "text", null, { timeout: TIMEOUT_MS }).catch(() => {});
+  const cursor = await content.getAttribute("data-cursor");
+  check(cursor === "text", `the cursor of the app shows: ${cursor} over the entry field`);
+  // A click on the C button clears the display.
+  const clear = await shot();
+  await page.mouse.click(area.x + 104, area.y + 445);
+  let clicked = clear;
+  for (let i = 0; i < 30 && clicked === clear; i++) {
+    await page.waitForTimeout(100);
+    clicked = await shot();
+  }
+  check(clicked !== clear, "a click on C reaches the app and clears the display");
+  if (SHOTS) await page.screenshot({ path: join(SHOTS, "surface-input.png") });
+
+  // 3. A new size of the window (maximize) gives a buffer of the new size.
   const before = await content.evaluate((el) => el.querySelector("canvas").style.width);
   await window.getByRole("button", { name: "Maximize" }).click();
   await page.waitForFunction((old) => document.querySelector(".linux-app canvas")?.style.width !== old, before, { timeout: TIMEOUT_MS });
   check(true, `a resize gives a new buffer (${before} to ${await content.evaluate((el) => el.querySelector("canvas").style.width)})`);
 
-  // 3. The encoder time of each frame on the host.
+  // 4. The encoder time of each frame on the host.
   const times = [...agent.log().matchAll(/micros: (\d+)/g)].map((match) => Number(match[1])).sort((a, b) => a - b);
   const bytes = [...agent.log().matchAll(/bytes: (\d+)/g)].map((match) => Number(match[1]));
   const cached = [...agent.log().matchAll(/cached: (\d+)/g)].reduce((sum, match) => sum + Number(match[1]), 0);
@@ -118,13 +152,13 @@ try {
   console.log(`INFO: tile cache: ${cached} of ${cached + lz4} tiles from the cache (${Math.round((100 * cached) / Math.max(1, cached + lz4))} %)`);
   check(times.length > 0, `the encoder sent ${times.length} frames: p50 ${times[Math.floor(times.length / 2)]} µs, p95 ${times[Math.floor(times.length * 0.95)]} µs, ${Math.round(bytes.reduce((a, b) => a + b, 0) / 1024)} KiB`);
 
-  // 4. The close button asks the app to close, and the app stops.
+  // 5. The close button asks the app to close, and the app stops.
   await window.getByRole("button", { name: "Close" }).click();
   const end = Date.now() + TIMEOUT_MS;
   while (exited === null && Date.now() < end) await new Promise((resolve) => setTimeout(resolve, 100));
   check(exited === 0, "the close button stops the app");
 
-  // 5. A photo goes as lossy tiles first, and the lossless pass makes it exact (F028).
+  // 6. A photo goes as lossy tiles first, and the lossless pass makes it exact (F028).
   const viewer = "/usr/bin/eog";
   const photo = "/usr/share/backgrounds/gnome/adwaita-l.jpg";
   if (existsSync(viewer) && existsSync(photo)) {

@@ -214,7 +214,7 @@ Each session runs a Wayland compositor with no screen.
 A Wayland app that starts in a farglass terminal, for example `gnome-calculator`, connects to it through `WAYLAND_DISPLAY`.
 The compositor gives each window, its title, and the changed parts of each frame to the shell.
 Each window shows in the shell as a window of the window manager: a worker draws its tiles on a canvas.
-The size, the focus, and the close of the window go to the app. Keyboard and pointer input come with F029.
+The size, the focus, the close, the keyboard, and the pointer of the window go to the app, and the cursor of the app shows on it.
 `npm --prefix spikes/e2e run surface` starts gnome-calculator, and the shell must show its window.
 
 To look at the events of a real app:

@@ -9,9 +9,11 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use farglass_surface::{Command, Commit, Compositor, Event, Format, Rect};
+use wayland_client::WEnum;
 use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::{
-    wl_buffer, wl_compositor, wl_registry, wl_shm, wl_shm_pool, wl_surface,
+    wl_buffer, wl_compositor, wl_keyboard, wl_pointer, wl_registry, wl_seat, wl_shm, wl_shm_pool,
+    wl_surface,
 };
 use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle, delegate_noop};
 use wayland_protocols::xdg::shell::client::{
@@ -29,6 +31,63 @@ struct App {
     closed: bool,
     popup_configured: bool,
     popup_done: bool,
+    pointer: Vec<String>,
+    keys: Vec<(u32, bool)>,
+    keyboard_focus: bool,
+}
+
+impl Dispatch<wl_pointer::WlPointer, ()> for App {
+    fn event(
+        app: &mut Self,
+        _: &wl_pointer::WlPointer,
+        event: wl_pointer::Event,
+        (): &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match event {
+            wl_pointer::Event::Enter {
+                surface_x,
+                surface_y,
+                ..
+            } => app.pointer.push(format!("enter {surface_x} {surface_y}")),
+            wl_pointer::Event::Motion {
+                surface_x,
+                surface_y,
+                ..
+            } => app.pointer.push(format!("motion {surface_x} {surface_y}")),
+            wl_pointer::Event::Button { button, state, .. } => {
+                app.pointer.push(format!(
+                    "button {button:#x} {}",
+                    matches!(state, WEnum::Value(wl_pointer::ButtonState::Pressed))
+                ));
+            }
+            wl_pointer::Event::Axis { value, .. } => app.pointer.push(format!("axis {value}")),
+            wl_pointer::Event::Leave { .. } => app.pointer.push("leave".to_owned()),
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<wl_keyboard::WlKeyboard, ()> for App {
+    fn event(
+        app: &mut Self,
+        _: &wl_keyboard::WlKeyboard,
+        event: wl_keyboard::Event,
+        (): &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match event {
+            wl_keyboard::Event::Enter { .. } => app.keyboard_focus = true,
+            wl_keyboard::Event::Leave { .. } => app.keyboard_focus = false,
+            wl_keyboard::Event::Key { key, state, .. } => app.keys.push((
+                key,
+                matches!(state, WEnum::Value(wl_keyboard::KeyState::Pressed)),
+            )),
+            _ => {}
+        }
+    }
 }
 
 impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for App {
@@ -126,6 +185,7 @@ delegate_noop!(App: ignore wl_shm::WlShm);
 delegate_noop!(App: ignore wl_shm_pool::WlShmPool);
 delegate_noop!(App: ignore wl_buffer::WlBuffer);
 delegate_noop!(App: ignore xdg_positioner::XdgPositioner);
+delegate_noop!(App: ignore wl_seat::WlSeat);
 
 struct Client {
     app: App,
@@ -134,6 +194,7 @@ struct Client {
     compositor: wl_compositor::WlCompositor,
     shm: wl_shm::WlShm,
     wm: xdg_wm_base::XdgWmBase,
+    seat: wl_seat::WlSeat,
 }
 
 impl Client {
@@ -145,6 +206,7 @@ impl Client {
             compositor: globals.bind(&qh, 4..=6, ()).unwrap(),
             shm: globals.bind(&qh, 1..=1, ()).unwrap(),
             wm: globals.bind(&qh, 1..=6, ()).unwrap(),
+            seat: globals.bind(&qh, 5..=9, ()).unwrap(),
             app: App::default(),
             queue,
             qh,
@@ -388,4 +450,90 @@ fn a_second_compositor_on_a_used_socket_is_refused() {
     // A file of a stopped compositor goes, and a new one starts.
     std::fs::write(&socket, b"").unwrap();
     let _again = Compositor::spawn(&socket, |_| {}).unwrap();
+}
+
+#[test]
+fn pointer_and_keyboard_input_reach_the_window() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("wayland-test");
+    let (sender, events) = mpsc::channel();
+    let compositor = Compositor::spawn(&socket, move |event| {
+        let _ = sender.send(event);
+    })
+    .unwrap();
+    let mut client = Client::connect(compositor.socket());
+    let _pointer = client.seat.get_pointer(&client.qh, ());
+    let _keyboard = client.seat.get_keyboard(&client.qh, ());
+    let surface = client.compositor.create_surface(&client.qh, ());
+    let xdg = client.wm.get_xdg_surface(&surface, &client.qh, ());
+    let _toplevel = xdg.get_toplevel(&client.qh, ());
+    surface.commit();
+    let Event::ToplevelNew { id } = next(&events, &mut client, |e| {
+        matches!(e, Event::ToplevelNew { .. })
+    }) else {
+        unreachable!()
+    };
+    client.roundtrip();
+    let buffer = client.buffer(100, 80, [9, 9, 9, 255]);
+    surface.attach(Some(&buffer), 0, 0);
+    surface.commit();
+    next(&events, &mut client, |e| matches!(e, Event::Commit(_)));
+
+    compositor.send(Command::PointerMotion {
+        id,
+        x: 12.5,
+        y: 30.0,
+    });
+    compositor.send(Command::PointerMotion {
+        id,
+        x: 20.0,
+        y: 31.0,
+    });
+    compositor.send(Command::PointerButton {
+        button: 0x110,
+        pressed: true,
+    });
+    compositor.send(Command::PointerButton {
+        button: 0x110,
+        pressed: false,
+    });
+    compositor.send(Command::PointerAxis { dx: 0.0, dy: 15.0 });
+    compositor.send(Command::Activate { id: Some(id) });
+    compositor.send(Command::Key {
+        code: 30,
+        pressed: true,
+    });
+    compositor.send(Command::Key {
+        code: 30,
+        pressed: false,
+    });
+    compositor.send(Command::PointerLeave);
+    let end = std::time::Instant::now() + WAIT;
+    while client.app.keys.len() < 2 || !client.app.pointer.contains(&"leave".to_owned()) {
+        client.roundtrip();
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(
+            std::time::Instant::now() < end,
+            "input missing: {:?} {:?}",
+            client.app.pointer,
+            client.app.keys
+        );
+    }
+    assert_eq!(
+        client.app.pointer,
+        [
+            "enter 12.5 30",
+            "motion 20 31",
+            "button 0x110 true",
+            "button 0x110 false",
+            "axis 15",
+            "leave"
+        ]
+    );
+    assert!(client.app.keyboard_focus);
+    assert_eq!(
+        client.app.keys,
+        [(30, true), (30, false)],
+        "the key code of A goes to the window with the focus"
+    );
 }

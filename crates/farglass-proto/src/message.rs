@@ -118,6 +118,10 @@ pub enum Open {
         /// The id of the surface from the surfaces channel.
         id: u32,
     },
+    /// The keyboard and pointer input to the Wayland apps, on its own stream.
+    ///
+    /// The shell sends [`SurfaceInput`] as control messages.
+    SurfaceInput,
     /// The polkit prompts of the session. The shell keeps one open while the desktop shows.
     ///
     /// The agent sends [`PolkitEvent`] and gets [`PolkitReply`], as control messages.
@@ -366,6 +370,62 @@ pub enum SurfaceEvent {
     },
     /// The channel has each window and popup that was open at its start. The shell can close the windows of surfaces that are gone.
     Synced,
+    /// The app selected the shape of the pointer: a CSS cursor name, for example `text` or `pointer`.
+    Cursor {
+        /// The name.
+        name: String,
+    },
+}
+
+/// A message of the shell on a surface channel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum SurfaceAck {
+    /// The client shows the frame with this sequence. The agent sends at most 2 frames that the client did not acknowledge.
+    Ack {
+        /// The sequence of the end message.
+        seq: u32,
+    },
+}
+
+/// A message of the shell on a surface input channel.
+///
+/// The coordinates are logical pixels of the surface, from its top-left corner, with no window geometry.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum SurfaceInput {
+    /// The pointer moved on the surface `id`, a window or a popup.
+    Pointer {
+        /// The surface.
+        id: u32,
+        /// The left distance.
+        x: f64,
+        /// The top distance.
+        y: f64,
+    },
+    /// The pointer left the surfaces.
+    Leave,
+    /// A pointer button: 0 primary, 1 middle, 2 secondary, 3 back, 4 forward, as in a DOM event.
+    Button {
+        /// The button.
+        button: u8,
+        /// Pressed or released.
+        pressed: bool,
+    },
+    /// A scroll in logical pixels.
+    Axis {
+        /// The horizontal distance.
+        dx: f64,
+        /// The vertical distance.
+        dy: f64,
+    },
+    /// A key: a Linux key code, for example 30 for A. It goes to the window with the focus.
+    Key {
+        /// The key code.
+        code: u32,
+        /// Pressed or released.
+        pressed: bool,
+    },
 }
 
 /// A message of the shell on a surfaces channel.

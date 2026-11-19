@@ -18,3 +18,7 @@
   margin: 1rem;
   color: var(--muted);
 }
+/* The app draws its own focus marks: the window frame shows the focus. */
+.linux-app:focus {
+  outline: none;
+}

@@ -43,7 +43,7 @@ bus: Bus, } | { "kind": "notify" } | { "kind": "surfaces" } | { "kind": "surface
 /**
  * The id of the surface from the surfaces channel.
  */
-id: number, } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" };
+id: number, } | { "kind": "surface-input" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" };
 
 /**
  * The payload of a ready frame. The receiver of the open frame accepts the channel.
@@ -362,7 +362,11 @@ id: number, } | { "type": "move-request",
 /**
  * The window.
  */
-id: number, } | { "type": "synced" };
+id: number, } | { "type": "synced" } | { "type": "cursor", 
+/**
+ * The name.
+ */
+name: string, };
 
 /**
  * A message of the shell on a surfaces channel.
@@ -392,6 +396,58 @@ id: number, } | { "type": "popup-dismiss",
  * The popup.
  */
 id: number, };
+
+/**
+ * A message of the shell on a surface channel.
+ */
+export type SurfaceAck = { "type": "ack", 
+/**
+ * The sequence of the end message.
+ */
+seq: number, };
+
+/**
+ * A message of the shell on a surface input channel.
+ *
+ * The coordinates are logical pixels of the surface, from its top-left corner, with no window geometry.
+ */
+export type SurfaceInput = { "type": "pointer", 
+/**
+ * The surface.
+ */
+id: number, 
+/**
+ * The left distance.
+ */
+x: number, 
+/**
+ * The top distance.
+ */
+y: number, } | { "type": "leave" } | { "type": "button", 
+/**
+ * The button.
+ */
+button: number, 
+/**
+ * Pressed or released.
+ */
+pressed: boolean, } | { "type": "axis", 
+/**
+ * The horizontal distance.
+ */
+dx: number, 
+/**
+ * The vertical distance.
+ */
+dy: number, } | { "type": "key", 
+/**
+ * The key code.
+ */
+code: number, 
+/**
+ * Pressed or released.
+ */
+pressed: boolean, };
 
 /**
  * A message of the agent on a polkit channel.

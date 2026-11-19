@@ -10,7 +10,8 @@ use bytes::Bytes;
 use farglass_proto::codec::{CodecError, FrameCodec};
 use farglass_proto::message::{
     Bus, Close, CloseReason, DbusEvent, DbusRequest, LinkMessage, NotifyReply, Open, PolkitReply,
-    PtyEvent, PtyRequest, Ready, StateEvent, StateRequest, SurfaceRequest,
+    PtyEvent, PtyRequest, Ready, StateEvent, StateRequest, SurfaceAck, SurfaceInput,
+    SurfaceRequest,
 };
 use farglass_proto::{ChannelId, Frame, FrameError, FrameType, PROTOCOL_VERSION, Side};
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -323,7 +324,31 @@ where
                             )),
                         }
                     }
-                    Kind::Surfaces { .. } | Kind::Surface(_) => None,
+                    Kind::Surface(stream) if frame.frame_type() == FrameType::Control => {
+                        match frame.parse::<SurfaceAck>() {
+                            Ok(SurfaceAck::Ack { seq }) => {
+                                stream.ack(seq);
+                                None
+                            }
+                            Err(error) => Some((
+                                CloseReason::ProtocolError,
+                                format!("The surface acknowledgment is not valid: {error}"),
+                            )),
+                        }
+                    }
+                    Kind::SurfaceInput if frame.frame_type() == FrameType::Control => {
+                        match frame.parse::<SurfaceInput>() {
+                            Ok(input) => {
+                                session.surfaces.input(input);
+                                None
+                            }
+                            Err(error) => Some((
+                                CloseReason::ProtocolError,
+                                format!("The surface input is not valid: {error}"),
+                            )),
+                        }
+                    }
+                    Kind::Surfaces { .. } | Kind::Surface(_) | Kind::SurfaceInput => None,
                     Kind::State if frame.frame_type() == FrameType::Control => {
                         state_request(
                             &mut link,
@@ -571,6 +596,8 @@ enum Kind {
         /// Dropping the guard removes the channel from the agent.
         _viewer: notify::ViewerGuard,
     },
+    /// Gives keyboard and pointer input to the Wayland apps.
+    SurfaceInput,
     /// Gets the tile stream of one surface. Dropping the channel stops the stream.
     Surface(
         #[allow(dead_code, reason = "dropping it stops the stream")]
@@ -660,6 +687,7 @@ fn open(
             });
             accept(Kind::Surfaces { _viewer: guard })
         }
+        Ok(Open::SurfaceInput) => accept(Kind::SurfaceInput),
         Ok(Open::Surface { id }) => {
             accept(Kind::Surface(crate::surface_stream::SurfaceStream::open(
                 &session.surfaces,

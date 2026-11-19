@@ -11,7 +11,8 @@ use crate::login::{LocalSession, LoginEvent, LoginReply};
 use crate::message::{
     Bus, Close, CloseReason, ConnectionMessage, DbusEvent, DbusRequest, Notification, NotifyAction,
     NotifyEvent, NotifyReply, Open, PolkitEvent, PolkitReply, PtyEvent, PtyRequest, Ready,
-    StateEvent, StateRequest, SurfaceEvent, SurfaceRect, SurfaceRequest, Urgency,
+    StateEvent, StateRequest, SurfaceAck, SurfaceEvent, SurfaceInput, SurfaceRect, SurfaceRequest,
+    Urgency,
 };
 use crate::{
     ChannelId, FrameError, FrameType, HEADER_LEN, MAX_PAYLOAD_LEN, PROTOCOL_VERSION,
@@ -99,6 +100,8 @@ fn messages() -> String {
     declare::<SurfaceRect>(&cfg, &mut out);
     declare::<SurfaceEvent>(&cfg, &mut out);
     declare::<SurfaceRequest>(&cfg, &mut out);
+    declare::<SurfaceAck>(&cfg, &mut out);
+    declare::<SurfaceInput>(&cfg, &mut out);
     declare::<PolkitEvent>(&cfg, &mut out);
     declare::<PolkitReply>(&cfg, &mut out);
     declare::<PtyRequest>(&cfg, &mut out);

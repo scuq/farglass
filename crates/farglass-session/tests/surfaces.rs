@@ -169,3 +169,72 @@ async fn a_gtk_app_shows_its_window_and_closes_on_request() {
         .unwrap();
     assert!(status.success(), "the app ended with {status}");
 }
+
+/// A commit of a surface of 64 x 64 pixels with one color.
+fn commit(id: u32, shade: u8) -> farglass_surface::Event {
+    farglass_surface::Event::Commit(farglass_surface::Commit {
+        id,
+        width: 64,
+        height: 64,
+        scale: 1,
+        format: farglass_surface::Format::Argb8888,
+        damage: vec![farglass_surface::Rect {
+            x: 0,
+            y: 0,
+            width: 64,
+            height: 64,
+        }],
+        geometry: None,
+        pixels: std::sync::Arc::new([shade, shade, shade, 255].repeat(64 * 64)),
+    })
+}
+
+/// Returns the sequences of the end messages in the data frames that come in `time`.
+async fn frames_in(link: &mut Framed<UnixStream, FrameCodec>, time: Duration) -> Vec<(u32, u8)> {
+    let mut ends = Vec::new();
+    let _ = tokio::time::timeout(time, async {
+        loop {
+            let frame = link.next().await.unwrap().unwrap();
+            if frame.frame_type() != FrameType::Data {
+                continue;
+            }
+            let bytes = frame.payload();
+            // A frame of one fill: frame (9 bytes), fill (11 bytes), end (5 bytes). The fill has the shade.
+            if bytes.len() == 25 && bytes[0] == 1 && bytes[20] == 8 {
+                ends.push((
+                    u32::from_le_bytes([bytes[21], bytes[22], bytes[23], bytes[24]]),
+                    bytes[16],
+                ));
+            }
+        }
+    })
+    .await;
+    ends
+}
+
+#[tokio::test]
+async fn a_client_that_does_not_acknowledge_gets_two_frames_and_then_the_newest_only() {
+    let surfaces = Surfaces::new();
+    surfaces.handle(farglass_surface::Event::ToplevelNew { id: 1 });
+    let mut link = link(surfaces.clone()).await;
+    link.send(Frame::open(ChannelId::new(3), &Open::Surface { id: 1 }).unwrap())
+        .await
+        .unwrap();
+    for shade in 1..=6 {
+        surfaces.handle(commit(1, shade));
+        tokio::time::sleep(Duration::from_millis(30)).await;
+    }
+    let first = frames_in(&mut link, Duration::from_millis(300)).await;
+    assert_eq!(first.len(), 2, "2 frames with no acknowledgment: {first:?}");
+    let ack = farglass_proto::message::SurfaceAck::Ack { seq: first[1].0 };
+    link.send(Frame::json(ChannelId::new(3), FrameType::Control, &ack).unwrap())
+        .await
+        .unwrap();
+    let after = frames_in(&mut link, Duration::from_millis(300)).await;
+    assert_eq!(
+        after.len(),
+        1,
+        "the waiting commits went as one frame: {after:?}"
+    );
+    assert_eq!(after[0].1, 6, "the frame has the newest pixels");
+}

@@ -322,6 +322,8 @@ A channel `{"kind":"surfaces"}` gets each top-level window, each popup, and the 
 | `{"type":"commit","id":1,"width":482,"height":738,"scale":1,"damage":[{"x":74,"y":353,"width":2,"height":25}],"geometry":{"x":61,"y":55,"width":360,"height":616}}` | A new buffer. `damage` is in buffer pixels. `geometry` is the window with no shadow. |
 | `{"type":"unmapped","id":1}` | The surface has no buffer: the window is not visible. |
 | `{"type":"move-request","id":1}` | The client asks to move the window, for example after a press on its own title bar. |
+| `{"type":"synced"}` | The channel has each window and popup that was open at its start. The shell can close the windows of surfaces that are gone. |
+| `{"type":"cursor","name":"text"}` | The app selected the shape of the pointer, as a CSS cursor name. The browser draws the cursor, thus it has no delay. |
 
 Top-level windows and popups share the ids. The agent uses each id one time only.
 The pixels of each commit come with the tile codec (F025). The agent keeps the last buffer of each surface for it.
@@ -378,6 +380,27 @@ The client must draw a JPEG tile before the next message.
 The agent sends only the tiles in the damage of the Wayland client that differ from what the client shows.
 A tile of one color goes as a fill. While the encoder works, the commits wait, and their damage adds up: the client gets the newest pixels only.
 At the start, the channel gets the whole last buffer of the surface.
+
+### Acknowledgment
+
+The client sends `{"type":"ack","seq":7}` on the surface channel after it showed the frame with the end message 7.
+The agent sends at most 2 frames that the client did not acknowledge.
+While it waits, the commits of the app wait too, and their damage adds up: a slow network gets the newest state only.
+
+### Input
+
+A channel `{"kind":"surface-input"}` carries the keyboard and pointer input to the apps, on its own stream with WebTransport.
+The shell sends these messages. The coordinates are logical pixels of the surface, from its top-left corner, with the shadow of the client:
+
+| Message | Meaning |
+|---|---|
+| `{"type":"pointer","id":1,"x":12.5,"y":30}` | The pointer is on the surface `id`, a window or a popup. |
+| `{"type":"leave"}` | The pointer left the surfaces. |
+| `{"type":"button","button":0,"pressed":true}` | A button: 0 primary, 1 middle, 2 secondary, 3 back, 4 forward, as in a DOM event. |
+| `{"type":"axis","dx":0,"dy":48}` | A scroll in logical pixels. |
+| `{"type":"key","code":30,"pressed":true}` | A key as a Linux key code (`linux/input-event-codes.h`). It goes to the window with the focus, and the keymap of the compositor gives the character. |
+
+A press outside the open popups of a window closes them, and the press goes no further.
 
 ## WebTransport
 

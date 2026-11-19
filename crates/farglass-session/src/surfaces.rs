@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use farglass_proto::message::{SurfaceEvent, SurfaceRect, SurfaceRequest};
+use farglass_proto::message::{SurfaceEvent, SurfaceInput, SurfaceRect, SurfaceRequest};
 use farglass_surface::{Command, Compositor, Event, Rect, SurfaceError};
 
 /// The name of the socket in `XDG_RUNTIME_DIR`.
@@ -271,6 +271,30 @@ impl Surfaces {
         }
     }
 
+    /// Gives input of the shell to the compositor.
+    pub fn input(&self, input: SurfaceInput) {
+        let command = match input {
+            SurfaceInput::Pointer { id, x, y } => Command::PointerMotion { id, x, y },
+            SurfaceInput::Leave => Command::PointerLeave,
+            SurfaceInput::Button { button, pressed } => Command::PointerButton {
+                // The Linux codes of BTN_LEFT, BTN_MIDDLE, BTN_RIGHT, BTN_SIDE, and BTN_EXTRA.
+                button: match button {
+                    0 => 0x110,
+                    1 => 0x112,
+                    2 => 0x111,
+                    3 => 0x113,
+                    _ => 0x114,
+                },
+                pressed,
+            },
+            SurfaceInput::Axis { dx, dy } => Command::PointerAxis { dx, dy },
+            SurfaceInput::Key { code, pressed } => Command::Key { code, pressed },
+        };
+        if let Some(commands) = &*self.commands.lock().unwrap_or_else(PoisonError::into_inner) {
+            commands(command);
+        }
+    }
+
     /// Takes an event of the compositor: keeps the state for new channels, and tells each channel.
     pub fn handle(&self, event: Event) {
         let message = {
@@ -381,6 +405,7 @@ impl Surfaces {
                     SurfaceEvent::Unmapped { id }
                 }
                 Event::MoveRequest { id } => SurfaceEvent::MoveRequest { id },
+                Event::Cursor(name) => SurfaceEvent::Cursor { name },
             }
         };
         let viewers: Vec<EventSink> = self.lock().viewers.values().cloned().collect();

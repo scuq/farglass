@@ -8,7 +8,7 @@
  */
 
 import { createSignal } from "solid-js";
-import type { Channel, Connection, SurfaceEvent, SurfaceRect, SurfaceRequest } from "../proto";
+import type { Channel, Connection, SurfaceEvent, SurfaceInput, SurfaceRect, SurfaceRequest } from "../proto";
 
 /** The facts of one surface: a top-level window or a popup. */
 export interface SurfaceInfo {
@@ -53,10 +53,14 @@ export class SurfaceManager {
   readonly #signal = createSignal<ReadonlyMap<number, SurfaceInfo>>(new Map());
   #loaded = false;
   #synced = false;
+  /** The input to the apps goes on its own channel, thus on its own stream with WebTransport (F029). */
+  readonly #input: Channel;
+  readonly #cursor = createSignal("default");
 
   constructor(connection: Connection, windows: SurfaceWindows) {
     this.#windows = windows;
     this.#channel = connection.openChannel({ kind: "surfaces" }, { oncontrol: (message) => this.#event(message as SurfaceEvent) });
+    this.#input = connection.openChannel({ kind: "surface-input" });
     windows.whenLoaded(() => {
       this.#loaded = true;
       this.#reconcile();
@@ -102,8 +106,19 @@ export class SurfaceManager {
     this.#channel.control(request);
   }
 
+  /** Sends keyboard or pointer input to the apps. */
+  input(input: SurfaceInput): void {
+    this.#input.control(input);
+  }
+
+  /** The CSS cursor that the app under the pointer selected. */
+  cursor(): string {
+    return this.#cursor[0]();
+  }
+
   close(): void {
     this.#channel.close();
+    this.#input.close();
   }
 
   #set(id: number, change: (old: SurfaceInfo) => SurfaceInfo, popup = false): void {
@@ -165,6 +180,9 @@ export class SurfaceManager {
       case "synced":
         this.#synced = true;
         this.#reconcile();
+        break;
+      case "cursor":
+        this.#cursor[1](event.name);
         break;
       case "move-request":
         break;

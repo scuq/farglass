@@ -5,13 +5,17 @@ use std::os::unix::net::UnixListener;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use smithay::backend::input::{Axis, AxisSource, ButtonState, KeyState};
 use smithay::delegate_compositor;
+use smithay::delegate_cursor_shape;
 use smithay::delegate_data_device;
 use smithay::delegate_output;
 use smithay::delegate_seat;
 use smithay::delegate_shm;
 use smithay::delegate_xdg_decoration;
 use smithay::delegate_xdg_shell;
+use smithay::input::keyboard::{FilterResult, Keycode};
+use smithay::input::pointer::{AxisFrame, ButtonEvent, CursorImageStatus, MotionEvent};
 use smithay::input::{Seat, SeatHandler, SeatState};
 use smithay::output::{Mode as OutputMode, Output, PhysicalProperties, Scale, Subpixel};
 use smithay::reexports::calloop::channel::{self, Channel};
@@ -33,6 +37,7 @@ use smithay::wayland::compositor::{
     BufferAssignment, CompositorClientState, CompositorHandler, CompositorState, Damage,
     SurfaceAttributes, with_states,
 };
+use smithay::wayland::cursor_shape::CursorShapeManagerState;
 use smithay::wayland::output::{OutputHandler, OutputManagerState};
 use smithay::wayland::selection::SelectionHandler;
 use smithay::wayland::selection::data_device::{
@@ -44,6 +49,7 @@ use smithay::wayland::shell::xdg::{
     XdgShellState, XdgToplevelSurfaceData,
 };
 use smithay::wayland::shm::{ShmHandler, ShmState, with_buffer_contents};
+use smithay::wayland::tablet_manager::TabletSeatHandler;
 
 /// The interval of the frame callbacks: a client draws at most this often.
 const FRAME_INTERVAL: Duration = Duration::from_millis(16);
@@ -145,10 +151,12 @@ pub enum Event {
         /// The surface.
         id: u32,
     },
+    /// The client selected the shape of the pointer: a CSS cursor name, for example `text` or `pointer`.
+    Cursor(String),
 }
 
 /// A command of the shell for the compositor.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     /// Asks the client to draw the window with this size in logical pixels. 0 lets the client select.
     Configure {
@@ -173,6 +181,38 @@ pub enum Command {
     PopupDismiss {
         /// The popup.
         id: u32,
+    },
+    /// The pointer is at (`x`, `y`) in logical pixels of the surface `id`, a window or a popup.
+    PointerMotion {
+        /// The surface.
+        id: u32,
+        /// The left distance.
+        x: f64,
+        /// The top distance.
+        y: f64,
+    },
+    /// The pointer left each surface.
+    PointerLeave,
+    /// A pointer button: a Linux button code, for example `BTN_LEFT` (0x110).
+    PointerButton {
+        /// The button code.
+        button: u32,
+        /// Pressed or released.
+        pressed: bool,
+    },
+    /// A scroll of the wheel in logical pixels.
+    PointerAxis {
+        /// The horizontal distance.
+        dx: f64,
+        /// The vertical distance.
+        dy: f64,
+    },
+    /// A key of the keyboard: a Linux key code, for example `KEY_A` (30). It goes to the window with the focus.
+    Key {
+        /// The key code.
+        code: u32,
+        /// Pressed or released.
+        pressed: bool,
     },
 }
 
@@ -201,6 +241,7 @@ pub(crate) struct State {
     shm: ShmState,
     xdg_shell: XdgShellState,
     _decoration: XdgDecorationState,
+    _cursor_shape: CursorShapeManagerState,
     data_device: DataDeviceState,
     _outputs: OutputManagerState,
     seat_state: SeatState<Self>,
@@ -293,6 +334,8 @@ fn setup(
         shm: ShmState::new::<State>(&dh, [wl_shm::Format::Argb8888, wl_shm::Format::Xrgb8888]),
         xdg_shell: XdgShellState::new::<State>(&dh),
         _decoration: XdgDecorationState::new::<State>(&dh),
+        // GTK 4 selects its cursors by name through cursor-shape-v1.
+        _cursor_shape: CursorShapeManagerState::new::<State>(&dh),
         // GTK needs a data device. The clipboard to the shell comes with F030.
         data_device: DataDeviceState::new::<State>(&dh),
         _outputs: OutputManagerState::new_with_xdg_output::<State>(&dh),
@@ -387,6 +430,11 @@ impl State {
         .filter(|id| *id != 0)
     }
 
+    /// The time in milliseconds for input events.
+    fn now(&self) -> u32 {
+        u32::try_from(self.started.elapsed().as_millis() % u128::from(u32::MAX)).unwrap_or(0)
+    }
+
     fn send_frame_callbacks(&mut self) {
         if self.frame_callbacks.is_empty() {
             return;
@@ -439,6 +487,83 @@ impl State {
             Command::PopupDismiss { id } => {
                 if let Some(popup) = self.popups.get(&id) {
                     popup.send_popup_done();
+                }
+            }
+            Command::PointerMotion { id, x, y } => {
+                let surface = self
+                    .toplevels
+                    .get(&id)
+                    .map(|t| t.wl_surface().clone())
+                    .or_else(|| self.popups.get(&id).map(|p| p.wl_surface().clone()));
+                if let (Some(pointer), Some(surface)) = (self.seat.get_pointer(), surface) {
+                    // The location is local to the surface: the focus has the origin (0, 0).
+                    let event = MotionEvent {
+                        location: (x, y).into(),
+                        serial: SERIAL_COUNTER.next_serial(),
+                        time: self.now(),
+                    };
+                    pointer.motion(self, Some((surface, (0.0, 0.0).into())), &event);
+                    pointer.frame(self);
+                }
+            }
+            Command::PointerLeave => {
+                if let Some(pointer) = self.seat.get_pointer() {
+                    let event = MotionEvent {
+                        location: (-1.0, -1.0).into(),
+                        serial: SERIAL_COUNTER.next_serial(),
+                        time: self.now(),
+                    };
+                    pointer.motion(self, None, &event);
+                    pointer.frame(self);
+                }
+            }
+            Command::PointerButton { button, pressed } => {
+                if let Some(pointer) = self.seat.get_pointer() {
+                    let state = if pressed {
+                        ButtonState::Pressed
+                    } else {
+                        ButtonState::Released
+                    };
+                    let event = ButtonEvent {
+                        button,
+                        state,
+                        serial: SERIAL_COUNTER.next_serial(),
+                        time: self.now(),
+                    };
+                    pointer.button(self, &event);
+                    pointer.frame(self);
+                }
+            }
+            Command::PointerAxis { dx, dy } => {
+                if let Some(pointer) = self.seat.get_pointer() {
+                    let mut frame = AxisFrame::new(self.now()).source(AxisSource::Wheel);
+                    if dx != 0.0 {
+                        frame = frame.value(Axis::Horizontal, dx);
+                    }
+                    if dy != 0.0 {
+                        frame = frame.value(Axis::Vertical, dy);
+                    }
+                    pointer.axis(self, frame);
+                    pointer.frame(self);
+                }
+            }
+            Command::Key { code, pressed } => {
+                if let Some(keyboard) = self.seat.get_keyboard() {
+                    let state = if pressed {
+                        KeyState::Pressed
+                    } else {
+                        KeyState::Released
+                    };
+                    // xkb key codes are the Linux key codes plus 8.
+                    let time = self.now();
+                    keyboard.input::<(), _>(
+                        self,
+                        Keycode::new(code + 8),
+                        state,
+                        SERIAL_COUNTER.next_serial(),
+                        time,
+                        |_, _, _| FilterResult::Forward,
+                    );
                 }
             }
         }
@@ -780,9 +905,22 @@ impl SeatHandler for State {
     fn seat_state(&mut self) -> &mut SeatState<Self> {
         &mut self.seat_state
     }
+
+    fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
+        let name = match image {
+            CursorImageStatus::Hidden => "none".to_owned(),
+            CursorImageStatus::Named(icon) => icon.name().to_owned(),
+            // A cursor that the client draws on a surface: the shell shows its usual arrow.
+            CursorImageStatus::Surface(_) => "default".to_owned(),
+        };
+        tracing::debug!(cursor = name, "the client selected a cursor");
+        self.emit(Event::Cursor(name));
+    }
 }
 
 impl OutputHandler for State {}
+
+impl TabletSeatHandler for State {}
 
 impl SelectionHandler for State {
     type SelectionUserData = ();
@@ -803,6 +941,7 @@ delegate_xdg_shell!(State);
 delegate_xdg_decoration!(State);
 delegate_seat!(State);
 delegate_output!(State);
+delegate_cursor_shape!(State);
 delegate_data_device!(State);
 
 #[cfg(test)]
