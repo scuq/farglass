@@ -16,7 +16,7 @@ shell. Programs on the host supply the data.
 ## Requirements
 
 - Rust stable. `rust-toolchain.toml` selects the version.
-- Node.js 26 LTS. `web/.nvmrc` records the version. Node.js 24.12 or later also works.
+- Node.js 26 LTS. `web/.nvmrc` records the version.
 
 ## Build and test
 
