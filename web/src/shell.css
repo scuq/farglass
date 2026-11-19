@@ -6,6 +6,9 @@
   --line: #d4d4cf;
   --ok: #1d6b38;
   --bad: #a3261b;
+  --focus: #2f6fd0;
+  --title-focused: #e4ebf7;
+  --bar: #ecece8;
   font-family: system-ui, sans-serif;
 }
 
@@ -17,6 +20,9 @@
     --line: #3a3a37;
     --ok: #6fcf8e;
     --bad: #ff8a7a;
+    --focus: #6ea2f0;
+    --title-focused: #26303f;
+    --bar: #222220;
   }
 }
 
@@ -142,4 +148,21 @@ body {
 button.danger {
   color: var(--bad);
   border: 1px solid var(--bad);
+}
+
+/* On the desktop, the header is the first row of the window manager. */
+.wm-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  height: 2rem;
+  margin: 0;
+  padding: 0 0.5rem;
+  background: var(--bar);
+  border-bottom: 1px solid var(--line);
+}
+.wm {
+  top: 2rem;
 }

@@ -117,6 +117,12 @@ describe("StateClient", () => {
     const { server, connection } = await fakeConnection("alice");
     const host = mount(() => <App connect={() => Promise.resolve(connection)} />);
     await settle();
+    // The desktop asks for its state first. With no state, it opens an echo window.
+    const desktopChannel = server
+      .take()
+      .find((frame) => frame.type === FrameType.Open && parseJson<{ kind: string }>(frame).kind === "state")!.channel;
+    server.push(encodeJsonFrame(desktopChannel, FrameType.Control, { type: "value", key: "desktop", value: null }));
+    await settle();
     const frames = server.take();
     const stateChannel = frames.find((frame) => frame.type === FrameType.Open && parseJson<{ kind: string }>(frame).kind === "state")!.channel;
     const saved = [
@@ -125,7 +131,7 @@ describe("StateClient", () => {
     ];
     const get = frames.find((frame) => frame.channel === stateChannel && frame.type === FrameType.Control)!;
     const { key } = parseJson<{ key: string }>(get);
-    expect(key).toMatch(/^echo\.log\./);
+    expect(key).toMatch(/^echo\.log\.[0-9a-f-]+$/);
     server.push(encodeJsonFrame(stateChannel, FrameType.Control, { type: "value", key, value: saved }));
     await settle();
     expect([...host.querySelectorAll(".echo-log li")].map((li) => li.textContent)).toEqual(["hello", "hello (1.0 ms)"]);

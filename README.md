@@ -120,6 +120,38 @@ For the Vite development server, add its origin to the configuration file:
 allowed_origins = ["http://localhost:5173"]
 ```
 
+## Desktop
+
+The desktop has windows that you can move, snap, resize, maximize, and minimize, and four workspaces.
+The state of the desktop is in the state store of the session.
+A reload, a different tab, or a different browser of the same user shows the same windows.
+
+To move a window, drag its title bar.
+To snap a window, drag it to an edge of the desktop:
+
+| Edge | Result |
+|---|---|
+| Top | Maximized |
+| Left or right | The left or the right half |
+| A corner | A quarter |
+
+To change the size, drag an edge or a corner of the window.
+Press Escape during a drag to stop it.
+**Tile** in the bar at the bottom places the windows of the workspace in columns.
+
+| Keys | Action |
+|---|---|
+| Alt+Tab, or Alt+` | Show the window switcher. Each Tab selects the next window. Release Alt to go to it. |
+| Ctrl+Alt+Left, Ctrl+Alt+Right | Show the workspace on the left or on the right |
+| Ctrl+Alt+Shift+Left, Ctrl+Alt+Shift+Right | Move the window to the workspace on the left or on the right |
+| Super+Up, Super+Down | Maximize or restore, minimize |
+| Super+Left, Super+Right | Snap to the left or the right half |
+| Super+1 to Super+4 | Show a workspace |
+| Super+T | Tile the windows of the workspace |
+
+NOTE: The operating system of the client keeps Alt+Tab and the Super key, unless the shell is in fullscreen mode with Keyboard Lock.
+Alt+` and the Ctrl+Alt keys reach the shell on each client.
+
 ## Connect again and log out
 
 If the connection to the host breaks, the shell connects again after 1, 2, 4, 8, and then each 15 seconds.
@@ -186,6 +218,10 @@ npm --prefix spikes/e2e ci
 npx --prefix spikes/e2e playwright install chromium
 npm --prefix spikes/e2e test
 ```
+
+`npm --prefix spikes/e2e run wm` tests the window manager.
+It drags a window and measures the frames during the drag, and it fails if the 95th percentile of the frame interval is 25 ms or more.
+It also tests a snap, a size change, Alt+Tab, the channel of an app after the moves, and a reload.
 
 `npm --prefix spikes/e2e run echo` starts farglassd in development mode.
 It opens the shell in two tabs and sends a message on the echo channel of each tab.

@@ -1,5 +1,5 @@
 import { createSignal, Match, onCleanup, Switch } from "solid-js";
-import { Echo } from "./Echo";
+import { Desktop } from "./wm/Desktop";
 import { LoginScreen } from "./LoginScreen";
 import { type Connection, connect, endpointUrl } from "./proto";
 import { reconnectDelay } from "./reconnect";
@@ -130,13 +130,13 @@ export function App(props: AppServices) {
             const { connection, user } = current() as Extract<Stage, { kind: "desktop" }>;
             return (
               <>
-                <header class="shell-header">
+                <header class="shell-header wm-header">
                   <span>Logged in as {user}</span>
                   <button type="button" onClick={() => void (props.logout ?? logout)()}>
                     Log out
                   </button>
                 </header>
-                <Echo connection={connection} />
+                <Desktop connection={connection} />
               </>
             );
           }}

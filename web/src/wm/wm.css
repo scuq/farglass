@@ -1,0 +1,179 @@
+/* The window manager. Windows move with transform only. */
+
+.wm {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+
+.wm-surface {
+  position: relative;
+  overflow: hidden;
+  grid-row: 2;
+}
+
+.wm-window {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.18);
+  /* The browser composites a move in a separate layer. */
+  will-change: transform;
+  contain: layout paint;
+}
+.wm-window[hidden] {
+  display: none;
+}
+.wm-window.wm-focused {
+  border-color: var(--focus);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.28);
+}
+.wm-window[data-mode="maximized"] {
+  border-radius: 0;
+}
+
+.wm-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  height: 32px;
+  padding: 0 0.25rem 0 0.75rem;
+  border-bottom: 1px solid var(--line);
+  cursor: default;
+  user-select: none;
+  touch-action: none;
+}
+.wm-focused .wm-titlebar {
+  background: var(--title-focused);
+}
+.wm-title {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wm-titlebar button {
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+.wm-titlebar button:hover,
+.wm-titlebar button:focus-visible {
+  background: var(--line);
+}
+
+.wm-content {
+  flex: 1;
+  overflow: auto;
+  padding: 0.75rem;
+}
+/* Content does not take the pointer during a gesture. */
+.wm-dragging .wm-content {
+  pointer-events: none;
+}
+
+.wm-edge {
+  position: absolute;
+  touch-action: none;
+}
+.wm-edge-n,
+.wm-edge-s {
+  left: 8px;
+  right: 8px;
+  height: 6px;
+  cursor: ns-resize;
+}
+.wm-edge-e,
+.wm-edge-w {
+  top: 8px;
+  bottom: 8px;
+  width: 6px;
+  cursor: ew-resize;
+}
+.wm-edge-n { top: -3px; }
+.wm-edge-s { bottom: -3px; }
+.wm-edge-e { right: -3px; }
+.wm-edge-w { left: -3px; }
+.wm-edge-ne,
+.wm-edge-nw,
+.wm-edge-se,
+.wm-edge-sw {
+  width: 12px;
+  height: 12px;
+}
+.wm-edge-ne { top: -4px; right: -4px; cursor: nesw-resize; }
+.wm-edge-sw { bottom: -4px; left: -4px; cursor: nesw-resize; }
+.wm-edge-nw { top: -4px; left: -4px; cursor: nwse-resize; }
+.wm-edge-se { bottom: -4px; right: -4px; cursor: nwse-resize; }
+
+.wm-snap-preview {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 10000;
+  border: 2px solid var(--focus);
+  background: rgb(80 130 220 / 0.15);
+  pointer-events: none;
+}
+
+.wm-switcher {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 10001;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 16rem;
+  padding: 0.5rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.3);
+}
+.wm-switcher-item {
+  padding: 0.4rem 0.75rem;
+  border-radius: 4px;
+}
+.wm-switcher-item[aria-selected="true"] {
+  background: var(--focus);
+  color: var(--bg);
+}
+
+.wm-bar {
+  grid-row: 3;
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.25rem 0.5rem;
+  border-top: 1px solid var(--line);
+  background: var(--bar);
+}
+.wm-workspaces,
+.wm-tasks,
+.wm-launch {
+  display: flex;
+  gap: 0.25rem;
+}
+.wm-tasks {
+  flex: 1;
+  overflow: hidden;
+}
+.wm-bar button[aria-pressed="true"] {
+  outline: 2px solid var(--focus);
+}
+.wm-task[data-minimized="true"] {
+  font-style: italic;
+  opacity: 0.7;
+}

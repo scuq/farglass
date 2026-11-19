@@ -1,24 +1,6 @@
-import { createSignal, For, onCleanup, Show } from "solid-js";
+import { createSignal, createUniqueId, For, onCleanup, Show } from "solid-js";
 import type { Channel, Close, Connection } from "./proto";
 import { StateClient } from "./state";
-
-/**
- * Returns the id of this tab. The id survives a reload of the tab, and a new tab gets a new id.
- * The state store keeps the echo log of each tab under its own key.
- */
-function tabId(): string {
-  try {
-    let id = sessionStorage.getItem("farglass.tab");
-    if (!id) {
-      id = crypto.randomUUID();
-      sessionStorage.setItem("farglass.tab", id);
-    }
-    return id;
-  } catch {
-    // With no session storage, the log does not survive a reload.
-    return crypto.randomUUID();
-  }
-}
 
 /** One line of the log of the echo panel. */
 interface Line {
@@ -42,7 +24,7 @@ const LINK_LABEL: Record<LinkState, string> = {
  *
  * The panel proves the path from the shell to the agent and back (milestone M0).
  */
-export function Echo(props: { connection: Connection }) {
+export function Echo(props: { connection: Connection; stateKey: string }) {
   const [state, setState] = createSignal<LinkState>("connecting");
   const [lines, setLines] = createSignal<readonly Line[]>([]);
   const [text, setText] = createSignal("");
@@ -50,9 +32,12 @@ export function Echo(props: { connection: Connection }) {
   let channel: Channel | undefined;
   const sentAt: number[] = [];
 
-  // The log is in the state store of the agent: a reload of the tab shows the same lines.
+  // The log is in the state store of the agent under the key of the window: a reload shows the same lines.
   const store = new StateClient(props.connection);
-  const logKey = `echo.log.${tabId()}`;
+  const logKey = props.stateKey;
+  // Each window has its own panel, thus the ids of the elements must differ.
+  const inputId = createUniqueId();
+  const titleId = createUniqueId();
   const log = (kind: Line["kind"], text: string) => {
     const next = [...lines().slice(-49), { id: nextLine++, text, kind }];
     setLines(next);
@@ -116,15 +101,15 @@ export function Echo(props: { connection: Connection }) {
   };
 
   return (
-    <section class="echo" aria-labelledby="echo-title">
-      <h1 id="echo-title">Echo channel</h1>
+    <section class="echo" aria-labelledby={titleId}>
+      <h1 id={titleId}>Echo channel</h1>
       <p class="echo-state" data-state={state()} role="status">
         {LINK_LABEL[state()]}
       </p>
       <form onSubmit={send}>
-        <label for="echo-input">Message</label>
+        <label for={inputId}>Message</label>
         <input
-          id="echo-input"
+          id={inputId}
           value={text()}
           onInput={(event) => setText(event.currentTarget.value)}
           disabled={state() !== "ready"}

@@ -10,7 +10,8 @@
   "scripts": {
     "echo": "node echo.mjs",
     "login": "node login.mjs",
-    "test": "node echo.mjs && node login.mjs"
+    "wm": "node wm.mjs",
+    "test": "node echo.mjs && node login.mjs && node wm.mjs"
   },
   "devDependencies": {
     "playwright": "^1.65.1"
