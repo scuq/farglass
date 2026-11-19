@@ -133,7 +133,7 @@ fn cookie_value(headers: &HeaderMap) -> Option<&str> {
 }
 
 /// Returns 32 random bytes from the TLS library, as 64 hexadecimal characters.
-fn secret() -> String {
+pub(crate) fn secret() -> String {
     let mut bytes = [0_u8; SECRET_LEN];
     let provider: CryptoProvider = rustls::crypto::aws_lc_rs::default_provider();
     // The random source of aws-lc-rs fails only if the kernel gives no random bytes.
@@ -144,7 +144,7 @@ fn secret() -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn hash(secret: &str) -> Hash {
+pub(crate) fn hash(secret: &str) -> Hash {
     Sha256::digest(secret.as_bytes()).into()
 }
 

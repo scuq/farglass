@@ -361,6 +361,9 @@ It also tests a snap, a size change, Alt+Tab, the channel of an app after the mo
 It opens the shell in two tabs and sends a message on the echo channel of each tab.
 It passes if each tab gets only its own echo.
 
+`npm --prefix spikes/e2e run transport` tests WebTransport, a terminal on it, and the fallback to the WebSocket.
+It shows the echo round trip during terminal output on each transport.
+
 `npm --prefix spikes/e2e run login` starts farglass-login with a PAM stack that accepts the password `secret`.
 It logs in through the login screen, first with a wrong password and then with `secret`.
 Then it sends a message on the echo channel.
@@ -384,8 +387,11 @@ If your user has a local graphical session, the script also logs in as your user
 It never ends your local session.
 
 Open `https://localhost:8443` in the browser.
-farglassd serves HTTP/2 and HTTP/1.1 through TLS.
-The channel protocol uses the WebSocket endpoint `/ws`.
+farglassd serves HTTP/2 and HTTP/1.1 through TLS on the TCP port, and HTTP/3 on the UDP port with the same number.
+The channel protocol uses WebTransport on HTTP/3 if the browser has it and the UDP port is open, and else the WebSocket endpoint `/ws`.
+The About app shows the transport of the tab.
+To use HTTP/3 through a firewall, open the UDP port too, for example `8443/udp`.
+`http3 = false` in the configuration file turns HTTP/3 off.
 
 `farglassd --help` shows all options.
 Each option also has an environment variable, for example `FARGLASSD_LISTEN`.
@@ -403,6 +409,12 @@ The certificate has the hostname, `localhost`, `127.0.0.1`, and `::1`.
 To add names, set `names` in the `[tls]` section of the configuration file.
 At each start, farglassd writes the SHA-256 fingerprint of the certificate to the log.
 Compare it with the fingerprint that the browser shows before you accept the certificate.
+
+With the self-signed certificate, HTTP/3 uses a second self-signed certificate that is valid for 10 days, because a browser accepts a pinned certificate for at most 14 days.
+farglassd keeps it in memory and makes a new one 2 days before its end.
+The shell gets its SHA-256 hash from `POST /transport` on the TCP connection that you accepted, and gives it to WebTransport.
+Thus no second warning shows.
+The browser uses HTTP/3 for the pages only with your own certificate: then farglassd sends the header `Alt-Svc`.
 
 To use your own certificate, give farglassd the two PEM files:
 

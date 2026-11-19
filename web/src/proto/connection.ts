@@ -157,6 +157,8 @@ export class Connection {
   user: string | null = null;
   /** The user of a locked session, from the hello message. The connection then has no user until a login. */
   locked: string | null = null;
+  /** The transport under the connection. */
+  transport: "websocket" | "webtransport" = "websocket";
   /** Reports whether the server ended the connection because the user logged out. */
   loggedOut = false;
   /** Reports whether the server ended the connection because the session is locked now. */

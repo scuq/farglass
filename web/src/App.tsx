@@ -2,7 +2,8 @@ import { createSignal, Match, onCleanup, Switch } from "solid-js";
 import { ContextMenuHost } from "./menu/ContextMenuHost";
 import { Desktop } from "./wm/Desktop";
 import { LoginScreen } from "./LoginScreen";
-import { type Connection, connect, endpointUrl } from "./proto";
+import type { Connection } from "./proto";
+import { connectBest } from "./proto/webtransport";
 import { reconnectDelay } from "./reconnect";
 import { storeSession } from "./session";
 
@@ -47,7 +48,7 @@ export function App(props: AppServices) {
 
   const open = () => {
     clearTimeout(retryTimer);
-    (props.connect ?? (() => connect(endpointUrl())))().then(
+    (props.connect ?? connectBest)().then(
       (connection) => {
         attempt = 0;
         active = connection;

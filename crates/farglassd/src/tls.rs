@@ -196,6 +196,21 @@ impl CertStore {
         }))
     }
 
+    /// Returns the names of the self-signed certificate, or `None` for a certificate of the administrator.
+    #[must_use]
+    pub fn self_signed(&self) -> Option<Vec<String>> {
+        match &self.source {
+            TlsSource::SelfSigned { names, .. } => Some(self_signed_names(names)),
+            TlsSource::Files { .. } => None,
+        }
+    }
+
+    /// Returns the cryptographic provider of the TLS configurations.
+    #[must_use]
+    pub fn provider(&self) -> Arc<CryptoProvider> {
+        self.provider.clone()
+    }
+
     /// Returns the facts about the current certificate.
     #[must_use]
     pub fn info(&self) -> CertInfo {
@@ -398,7 +413,7 @@ fn cert_info(der: &CertificateDer<'_>, self_signed: bool) -> Result<CertInfo, St
 /// Returns the names of the self-signed certificate, in sorted sequence.
 ///
 /// The certificate always has the hostname, `localhost`, and the loopback addresses.
-fn self_signed_names(more: &[String]) -> Vec<String> {
+pub(crate) fn self_signed_names(more: &[String]) -> Vec<String> {
     let mut names: BTreeSet<String> = ["localhost", "127.0.0.1", "::1"]
         .into_iter()
         .map(str::to_owned)
@@ -418,7 +433,7 @@ fn self_signed_names(more: &[String]) -> Vec<String> {
     names.into_iter().collect()
 }
 
-fn hostname() -> Option<String> {
+pub(crate) fn hostname() -> Option<String> {
     let name = fs::read_to_string("/proc/sys/kernel/hostname").ok()?;
     let name = name.trim().to_ascii_lowercase();
     (!name.is_empty() && name != "(none)").then_some(name)

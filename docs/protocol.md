@@ -305,6 +305,29 @@ After an action, the notification closes, unless the program set the hint `resid
 CloseNotification gives `NotificationClosed` with reason 3.
 The shell shows the body as plain text: the capabilities do not include `body-markup`.
 
+## WebTransport
+
+farglassd serves WebTransport on HTTP/3 at `/wt`, on the UDP port with the number of the TCP port.
+Each channel has its own bidirectional stream, with the same frames as on the WebSocket:
+
+- The shell opens a stream for each channel with the first frame of the channel: the hello message for channel 0, the open frame for each other channel.
+- Each later frame on the stream must have the channel of the stream. A different channel is a protocol violation.
+- farglassd sends the frames of a channel on its stream. farglassd keeps the frames of channel 0 until the shell opened its stream.
+- After a close frame, the side that sent it ends its half of the stream.
+
+A WebTransport request has no cookie. Thus the shell first sends `POST /transport` on the TCP connection, with the cookie and the Origin header:
+
+```json
+{"port":8443,"path":"/wt","ticket":"…","hashes":["5f2c…"]}
+```
+
+The ticket is valid one time for 30 s and names the user of the cookie, or no user.
+The shell connects to `https://HOST:PORT/wt?ticket=TICKET`, and farglassd checks the Origin header as on the WebSocket.
+`hashes` has the SHA-256 hash of the QUIC certificate in hexadecimal if it is self-signed. The shell gives it to `serverCertificateHashes`.
+Without HTTP/3, the answer is 404.
+If the page has a different port than `port`, for example behind a proxy, the shell uses the WebSocket.
+If the session does not open in 3 s, the shell uses the WebSocket for 5 minutes.
+
 ## Session cookie
 
 A WebSocket message cannot set a cookie.

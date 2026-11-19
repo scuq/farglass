@@ -273,6 +273,11 @@ async fn certificate_files_of_the_administrator_serve_requests() {
         header(&response, "strict-transport-security".parse().unwrap()),
         "max-age=31536000"
     );
+    // With a trusted certificate, the browser can load the pages through HTTP/3.
+    assert_eq!(
+        header(&response, "alt-svc".parse().unwrap()),
+        format!("h3=\":{}\"; ma=86400", server.addr.port())
+    );
     assert!(!Path::new(&state_dir).join("tls").exists());
 }
 
@@ -505,6 +510,8 @@ async fn each_response_has_the_security_headers_and_no_hsts_with_a_self_signed_c
             "",
             "{path}"
         );
+        // A browser does not use HTTP/3 for pages with a certificate that it does not trust.
+        assert_eq!(header(&response, "alt-svc".parse().unwrap()), "", "{path}");
     }
 }
 
@@ -627,4 +634,151 @@ async fn session_endpoint_refuses_a_different_origin_and_a_bad_body() {
         .request(Method::POST, "/session", &["h2"], &headers, large)
         .await;
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+/// Accepts each certificate and keeps the first one. Only for the HTTP/3 test,
+/// which compares the certificate with the hash of the transport offer.
+#[derive(Debug)]
+struct KeepCertificate {
+    seen: std::sync::Mutex<Option<CertificateDer<'static>>>,
+    provider: Arc<rustls::crypto::CryptoProvider>,
+}
+
+impl rustls::client::danger::ServerCertVerifier for KeepCertificate {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        self.seen
+            .lock()
+            .unwrap()
+            .get_or_insert(end_entity.clone().into_owned());
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.provider.signature_verification_algorithms,
+        )
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &self.provider.signature_verification_algorithms,
+        )
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        self.provider
+            .signature_verification_algorithms
+            .supported_schemes()
+    }
+}
+
+/// Sends one HTTP/3 request on a new QUIC connection. Returns the response and the certificate of the server.
+async fn http3(
+    server: &TestServer,
+    method: Method,
+    path: &str,
+    origin: Option<&str>,
+) -> (Response<Bytes>, CertificateDer<'static>) {
+    let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+    let verifier = Arc::new(KeepCertificate {
+        seen: std::sync::Mutex::new(None),
+        provider: provider.clone(),
+    });
+    let mut tls = ClientConfig::builder_with_provider(provider)
+        .with_protocol_versions(&[&rustls::version::TLS13])
+        .unwrap()
+        .dangerous()
+        .with_custom_certificate_verifier(verifier.clone())
+        .with_no_client_auth();
+    tls.alpn_protocols = vec![b"h3".to_vec()];
+    let crypto = quinn::crypto::rustls::QuicClientConfig::try_from(tls).unwrap();
+    let mut endpoint = quinn::Endpoint::client(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).unwrap();
+    endpoint.set_default_client_config(quinn::ClientConfig::new(Arc::new(crypto)));
+    let quic = endpoint
+        .connect(server.addr, "localhost")
+        .unwrap()
+        .await
+        .unwrap();
+    let (mut driver, mut sender) = h3::client::new(h3_quinn::Connection::new(quic))
+        .await
+        .unwrap();
+    tokio::spawn(async move { std::future::poll_fn(|cx| driver.poll_close(cx)).await });
+    let mut request = Request::builder()
+        .method(method)
+        .uri(format!("https://localhost{path}"));
+    if let Some(origin) = origin {
+        request = request.header(ORIGIN_HEADER, origin);
+    }
+    let mut stream = sender
+        .send_request(request.body(()).unwrap())
+        .await
+        .unwrap();
+    stream.finish().await.unwrap();
+    let response = stream.recv_response().await.unwrap();
+    let mut body = Vec::new();
+    while let Some(mut chunk) = stream.recv_data().await.unwrap() {
+        use bytes::Buf as _;
+        body.extend_from_slice(&chunk.copy_to_bytes(chunk.remaining()));
+    }
+    let cert = verifier.seen.lock().unwrap().clone().unwrap();
+    let (parts, ()) = response.into_parts();
+    (Response::from_parts(parts, Bytes::from(body)), cert)
+}
+
+#[tokio::test]
+async fn http3_serves_the_routes_and_a_transport_offer_with_the_hash_of_its_certificate() {
+    let server = TestServer::start().await;
+    let (response, quic_cert) = http3(&server, Method::GET, "/", None).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.body(), INDEX.as_bytes());
+    assert!(
+        header(&response, "content-security-policy".parse().unwrap()).contains("script-src 'self'")
+    );
+    assert_ne!(
+        quic_cert, server.cert,
+        "QUIC uses a separate certificate for the pinned hash"
+    );
+
+    let (refused, _) = http3(&server, Method::POST, "/transport", None).await;
+    assert_eq!(
+        refused.status(),
+        StatusCode::FORBIDDEN,
+        "no Origin, no ticket"
+    );
+    let (offer, quic_cert) = http3(&server, Method::POST, "/transport", Some(ORIGIN)).await;
+    assert_eq!(offer.status(), StatusCode::OK);
+    assert_eq!(header(&offer, CACHE_CONTROL), "no-store");
+    let offer: serde_json::Value = serde_json::from_slice(offer.body()).unwrap();
+    assert_eq!(offer["port"], server.addr.port());
+    assert_eq!(offer["path"], "/wt");
+    assert_eq!(offer["ticket"].as_str().unwrap().len(), 64);
+    use sha2::Digest as _;
+    let hash: String = sha2::Sha256::digest(&quic_cert)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    assert_eq!(offer["hashes"], serde_json::json!([hash]));
 }

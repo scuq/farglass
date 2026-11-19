@@ -65,6 +65,8 @@ pub struct Server {
     context: Arc<Context>,
     /// Reports whether `dev_user` is active. Then each connection must come from loopback.
     dev_mode: bool,
+    /// The QUIC endpoint for HTTP/3 and WebTransport.
+    quic: Option<quinn::Endpoint>,
 }
 
 impl fmt::Debug for Server {
@@ -99,6 +101,40 @@ impl Server {
         let agent_listener = agents::bind(&config.agent_socket)?;
         let registry = Registry::new();
         let dev_mode = dev_user.is_some();
+        // HTTP/3 is optional: if the UDP port does not open, the WebSocket stays.
+        let quic = if config.http3 {
+            match crate::quic::QuicCerts::for_store(&certs).and_then(|quic_certs| {
+                Ok((
+                    crate::quic::bind(local_addr, quic_certs.clone(), certs.provider())?,
+                    quic_certs,
+                ))
+            }) {
+                Ok(quic) => Some(quic),
+                Err(error) => {
+                    tracing::warn!(%error, "no HTTP/3 and no WebTransport");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let transport = quic.as_ref().map(|(_, quic_certs)| {
+            Arc::new(crate::quic::TransportInfo {
+                port: local_addr.port(),
+                certs: quic_certs.clone(),
+                tickets: crate::quic::Tickets::default(),
+            })
+        });
+        // Alt-Svc only with a certificate of the administrator: a browser uses HTTP/3 for pages only with a trusted certificate.
+        let alt_svc = (hsts && quic.is_some())
+            .then(|| {
+                axum::http::HeaderValue::from_str(&format!(
+                    "h3=\":{}\"; ma=86400",
+                    local_addr.port()
+                ))
+                .ok()
+            })
+            .flatten();
         let context = Arc::new(Context {
             dev_user,
             origin: OriginPolicy {
@@ -106,6 +142,8 @@ impl Server {
                 loopback_only: dev_mode,
             },
             hsts,
+            transport,
+            alt_svc,
             idle_logout: (config.idle_logout_minutes > 0)
                 .then(|| Duration::from_secs(config.idle_logout_minutes * 60)),
             idle_lock: (config.idle_lock_minutes > 0)
@@ -122,6 +160,7 @@ impl Server {
             agent_listener,
             registry,
             dev_mode,
+            quic: quic.map(|(endpoint, _)| endpoint),
         })
     }
 
@@ -173,6 +212,18 @@ impl Server {
             self.context.presence.clone(),
             self.context.registry.clone(),
         ));
+        let quic_loop = self.quic.clone().map(|endpoint| {
+            tracing::info!(
+                port = self.local_addr.port(),
+                "HTTP/3 and WebTransport on UDP"
+            );
+            tokio::spawn(crate::quic::accept_loop(
+                endpoint,
+                self.router.clone(),
+                self.context.clone(),
+                self.dev_mode,
+            ))
+        });
 
         tokio::pin!(shutdown);
         loop {
@@ -181,6 +232,12 @@ impl Server {
                     agent_loop.abort();
                     idle_loop.abort();
                     lock_loop.abort();
+                    if let Some(endpoint) = &self.quic {
+                        endpoint.close(0_u32.into(), b"shutdown");
+                    }
+                    if let Some(quic_loop) = quic_loop {
+                        quic_loop.abort();
+                    }
                     return;
                 }
                 accepted = self.listener.accept() => accepted,

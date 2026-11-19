@@ -14,9 +14,15 @@ axum.workspace = true
 bytes.workspace = true
 clap.workspace = true
 futures-util.workspace = true
+h3.workspace = true
+h3-quinn.workspace = true
+h3-webtransport.workspace = true
+http.workspace = true
+http-body-util.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
 nix.workspace = true
+quinn.workspace = true
 rcgen.workspace = true
 rustls.workspace = true
 serde.workspace = true
@@ -36,6 +42,11 @@ x509-parser.workspace = true
 
 [dev-dependencies]
 farglass-session.workspace = true
+serde_json.workspace = true
+h3.workspace = true
+h3-quinn.workspace = true
+quinn.workspace = true
+sha2.workspace = true
 zeroize.workspace = true
 http-body-util.workspace = true
 hyper = { workspace = true, features = ["client"] }

@@ -35,6 +35,8 @@ export default function About(props: { context: AppContext }) {
         <dd data-field="kernel">{system()?.kernel ?? "loading"}</dd>
         <dt>Channel protocol</dt>
         <dd>Version {PROTOCOL_VERSION}</dd>
+        <dt>Transport</dt>
+        <dd data-field="transport">{props.context.connection.transport === "webtransport" ? "WebTransport (HTTP/3)" : "WebSocket"}</dd>
       </dl>
     </section>
   );

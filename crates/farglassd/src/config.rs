@@ -83,6 +83,8 @@ pub struct Config {
     /// The time in minutes with no keyboard or pointer activity in a tab of the user
     /// before farglassd locks the session. 0 turns the idle lock off.
     pub idle_lock_minutes: u64,
+    /// Reports whether farglassd serves HTTP/3 and WebTransport on the UDP port with the number of the TCP port.
+    pub http3: bool,
     /// The user of each browser connection, with no login. Only for development.
     ///
     /// A username or a numeric uid. farglassd refuses this option if it does
@@ -115,6 +117,7 @@ impl Default for Config {
             allowed_origins: Vec::new(),
             idle_logout_minutes: 480,
             idle_lock_minutes: 15,
+            http3: true,
             dev_user: None,
             tls: TlsConfig::default(),
         }

@@ -20,11 +20,16 @@ farglass-session = { path = "crates/farglass-session" }
 farglass-login = { path = "crates/farglass-login" }
 http-body-util = "0.1.5"
 nix = { version = "0.32", default-features = false, features = ["user"] }
+h3 = "0.0.8"
+h3-quinn = { version = "0.0.10", features = ["datagram"] }
+h3-webtransport = "0.1.2"
+http = "1"
 hyper = { version = "1.12", features = ["http1", "http2", "server"] }
 libc = "0.2.191"
 hyper-util = { version = "0.1.21", features = ["http1", "http2", "server-auto", "service", "tokio"] }
 proptest = "1.12"
 pty-process = { version = "0.5.4", features = ["async"] }
+quinn = { version = "0.11.12", default-features = false, features = ["runtime-tokio", "rustls-aws-lc-rs"] }
 rcgen = { version = "0.14.10", default-features = false, features = ["aws_lc_rs", "pem"] }
 rustls = "0.23.46"
 serde = { version = "1.0.229", features = ["derive"] }

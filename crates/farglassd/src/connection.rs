@@ -54,6 +54,10 @@ pub struct Context {
     /// certificate of the administrator: with a self-signed certificate, the
     /// header stops the user from accepting the next certificate.
     pub hsts: bool,
+    /// The QUIC endpoint for HTTP/3 and WebTransport, if farglassd has one.
+    pub transport: Option<Arc<crate::quic::TransportInfo>>,
+    /// The value of the Alt-Svc header that points to HTTP/3. Only with a certificate of the administrator.
+    pub alt_svc: Option<axum::http::HeaderValue>,
 }
 
 impl Context {
@@ -71,6 +75,8 @@ impl Context {
             idle_logout: Some(IDLE_LOGOUT),
             idle_lock: Some(IDLE_LOCK),
             hsts: false,
+            transport: None,
+            alt_svc: None,
         }
     }
 }

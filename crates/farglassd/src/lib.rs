@@ -15,6 +15,7 @@ pub mod lock;
 pub mod login;
 pub mod origin;
 pub mod presence;
+pub mod quic;
 pub mod server;
 pub mod tls;
 mod ws;

@@ -24,6 +24,9 @@ pub const WS_PATH: &str = "/ws";
 /// The path of the session endpoint: POST redeems a ticket, DELETE logs out.
 pub const SESSION_PATH: &str = "/session";
 
+/// The path of the transport endpoint: POST gives a ticket for WebTransport.
+pub const TRANSPORT_PATH: &str = "/transport";
+
 /// The Content Security Policy of all responses.
 ///
 /// Only files of this server can run. No inline script, no eval, no frames,
@@ -70,6 +73,7 @@ pub fn router(web_root: &Path, state: Arc<Context>) -> Router {
         // `any` accepts GET for HTTP/1.1 and CONNECT for HTTP/2 (RFC 8441).
         .route(WS_PATH, any(ws::upgrade))
         .route(SESSION_PATH, post(create_session).delete(delete_session))
+        .route(TRANSPORT_PATH, post(create_transport))
         .layer(DefaultBodyLimit::max(1024))
         .merge(files)
         .layer(middleware::from_fn_with_state(
@@ -143,6 +147,47 @@ async fn delete_session(
     response
 }
 
+/// Gives a single-use ticket for a WebTransport session, with the port and the certificate hashes.
+///
+/// A WebTransport request has no cookie, thus the ticket carries the user of the cookie.
+/// Without a QUIC endpoint, the answer is 404 and the shell uses the WebSocket.
+async fn create_transport(
+    State(context): State<Arc<Context>>,
+    headers: HeaderMap,
+    uri: Uri,
+) -> Response {
+    if !context.origin.allows(&headers, &uri) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let Some(transport) = &context.transport else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let identity = context
+        .sessions
+        .user(&headers)
+        .or_else(|| context.dev_user.clone());
+    let hex = |bytes: &[u8]| {
+        bytes
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    };
+    let body = serde_json::json!({
+        "port": transport.port,
+        "path": crate::quic::WT_PATH,
+        "ticket": transport.tickets.issue(identity),
+        "hashes": transport.certs.hashes().iter().map(|hash| hex(hash)).collect::<Vec<_>>(),
+    });
+    let mut response = body.to_string().into_response();
+    let headers = response.headers_mut();
+    headers.insert(CACHE_CONTROL, CACHE_NEVER);
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    response
+}
+
 /// Sets the security headers on each response.
 async fn security_headers(
     State(context): State<Arc<Context>>,
@@ -159,6 +204,9 @@ async fn security_headers(
     }
     if context.hsts {
         headers.insert(HeaderName::from_static("strict-transport-security"), HSTS);
+    }
+    if let Some(alt_svc) = &context.alt_svc {
+        headers.insert(HeaderName::from_static("alt-svc"), alt_svc.clone());
     }
     response
 }
