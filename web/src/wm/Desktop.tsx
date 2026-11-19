@@ -1,4 +1,5 @@
 import { Panel } from "../panel/Panel";
+import { PolkitDialog } from "../polkit/PolkitDialog";
 import type { Connection } from "../proto";
 import { createDesktopController } from "./controller";
 import { Surface } from "./Surface";
@@ -16,6 +17,7 @@ export function Desktop(props: { connection: Connection; user: string; onlogout:
     <div class="wm">
       <Panel controller={controller} user={props.user} onlogout={props.onlogout} />
       <Surface controller={controller} />
+      <PolkitDialog connection={props.connection} />
     </div>
   );
 }

@@ -80,6 +80,10 @@ pub enum Open {
         /// The bus.
         bus: Bus,
     },
+    /// The polkit prompts of the session. The shell keeps one open while the desktop shows.
+    ///
+    /// The agent sends [`PolkitEvent`] and gets [`PolkitReply`], as control messages.
+    Polkit,
     /// The state store of the session in the agent. The shell keeps its state
     /// there, for example the open windows, and gets it back after it connects again.
     ///
@@ -195,6 +199,79 @@ pub enum DbusEvent {
         /// The values, in the JSON form.
         #[ts(type = "unknown[]")]
         values: Vec<serde_json::Value>,
+    },
+}
+
+/// A message of the agent on a polkit channel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum PolkitEvent {
+    /// A program asks for an action that needs an authentication. The shell shows a dialog.
+    Begin {
+        /// The number of the request.
+        request: u32,
+        /// The polkit action, for example `org.freedesktop.timedate1.set-timezone`.
+        action: String,
+        /// The text of polkit for the user.
+        message: String,
+        /// The users who can authenticate.
+        identities: Vec<String>,
+        /// The user of the first attempt.
+        identity: String,
+    },
+    /// The PAM conversation asks a question.
+    Prompt {
+        /// The number of the request.
+        request: u32,
+        /// The question, for example "Password: ".
+        text: String,
+        /// Reports whether the dialog can show the answer as the user types it.
+        echo: bool,
+    },
+    /// The PAM conversation gives information.
+    Info {
+        /// The number of the request.
+        request: u32,
+        /// The text.
+        text: String,
+    },
+    /// The authentication failed, for example after a wrong password. The user can try again.
+    Failed {
+        /// The number of the request.
+        request: u32,
+    },
+    /// The request ended: with a success, or with a cancel by the user, by polkit, or by a different tab.
+    Done {
+        /// The number of the request.
+        request: u32,
+        /// Reports whether the authentication succeeded.
+        success: bool,
+    },
+}
+
+/// A message of the shell on a polkit channel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum PolkitReply {
+    /// Starts an attempt as `identity`, for example after a failure or to change the user.
+    Start {
+        /// The number of the request.
+        request: u32,
+        /// One of the identities of the request.
+        identity: String,
+    },
+    /// Answers the last prompt.
+    Answer {
+        /// The number of the request.
+        request: u32,
+        /// The text that the user typed.
+        #[ts(type = "string")]
+        text: zeroize::Zeroizing<String>,
+    },
+    /// Cancels the request.
+    Cancel {
+        /// The number of the request.
+        request: u32,
     },
 }
 

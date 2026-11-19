@@ -9,8 +9,8 @@ use std::time::Duration;
 use bytes::Bytes;
 use farglass_proto::codec::{CodecError, FrameCodec};
 use farglass_proto::message::{
-    Bus, Close, CloseReason, DbusEvent, DbusRequest, LinkMessage, Open, PtyEvent, PtyRequest,
-    Ready, StateEvent, StateRequest,
+    Bus, Close, CloseReason, DbusEvent, DbusRequest, LinkMessage, Open, PolkitReply, PtyEvent,
+    PtyRequest, Ready, StateEvent, StateRequest,
 };
 use farglass_proto::{ChannelId, Frame, FrameError, FrameType, PROTOCOL_VERSION, Side};
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -20,6 +20,7 @@ use tokio::sync::mpsc;
 use tokio_util::codec::Framed;
 
 use crate::dbus::{self, Buses, DbusOptions, Filter, Subscriptions};
+use crate::polkit::{HELPER, Polkit, ViewerGuard};
 use crate::state::StateStore;
 use crate::terminal::{
     AttachError, Output, Sink, TerminalLink, TerminalOptions, Terminals, ViewerId,
@@ -61,6 +62,8 @@ pub struct Session {
     pub terminals: Terminals,
     /// The connections to the D-Bus buses.
     pub buses: Arc<Buses>,
+    /// The polkit authentication agent.
+    pub polkit: Arc<Polkit>,
 }
 
 impl Default for Session {
@@ -69,6 +72,7 @@ impl Default for Session {
             store: StateStore::default(),
             terminals: Terminals::new(TerminalOptions::from_env()),
             buses: Buses::new(DbusOptions::default()),
+            polkit: Polkit::new(HELPER),
         }
     }
 }
@@ -196,7 +200,7 @@ where
                     "farglassd cannot open channel {channel}"
                 )));
             }
-            let (state, answer) = open(channel, &frame, &mut session.terminals, &sink)?;
+            let (state, answer) = open(channel, &frame, session, &sink, &events)?;
             if let Kind::Pty(terminal) = &state.kind {
                 viewers.insert(terminal.viewer(), channel);
             }
@@ -251,6 +255,19 @@ where
                         .await
                     }
                     Kind::Dbus { .. } => None,
+                    Kind::Polkit { .. } if frame.frame_type() == FrameType::Control => {
+                        match frame.parse::<PolkitReply>() {
+                            Ok(reply) => {
+                                session.polkit.reply(reply);
+                                None
+                            }
+                            Err(error) => Some((
+                                CloseReason::ProtocolError,
+                                format!("The polkit reply is not valid: {error}"),
+                            )),
+                        }
+                    }
+                    Kind::Polkit { .. } => None,
                     Kind::State if frame.frame_type() == FrameType::Control => {
                         state_request(
                             &mut link,
@@ -488,6 +505,11 @@ enum Kind {
     State,
     /// Is attached to a terminal.
     Pty(TerminalLink),
+    /// Gets the polkit requests of the session. Dropping the channel removes it.
+    Polkit {
+        /// Dropping the guard removes the channel from the agent.
+        _viewer: ViewerGuard,
+    },
     /// Calls methods and gets signals on a D-Bus bus.
     Dbus {
         bus: Bus,
@@ -510,9 +532,11 @@ struct Channel {
 fn open(
     channel: ChannelId,
     frame: &Frame,
-    terminals: &mut Terminals,
+    session: &mut Session,
     sink: &Sink,
+    events: &mpsc::UnboundedSender<Frame>,
 ) -> Result<(Channel, Frame), LinkError> {
+    let terminals = &mut session.terminals;
     let accept = |kind| {
         Ok((
             Channel {
@@ -538,6 +562,15 @@ fn open(
     match frame.parse::<Open>() {
         Ok(Open::Echo) => accept(Kind::Echo),
         Ok(Open::State) => accept(Kind::State),
+        Ok(Open::Polkit) => {
+            let events = events.clone();
+            let guard = session.polkit.add_viewer(move |event| {
+                if let Ok(frame) = Frame::json(channel, FrameType::Control, &event) {
+                    let _ = events.send(frame);
+                }
+            });
+            accept(Kind::Polkit { _viewer: guard })
+        }
         Ok(Open::Dbus { bus }) => accept(Kind::Dbus {
             bus,
             subscriptions: Subscriptions::default(),

@@ -216,6 +216,35 @@ The values use this JSON form:
 
 A property is a call of `org.freedesktop.DBus.Properties`, for example `Get` with the signature `ss`.
 
+## Polkit channel
+
+The agent is the polkit authentication agent of its logind session.
+At its start, it registers with polkit for the session in `XDG_SESSION_ID`.
+logind elects the web session as the display session of the user, thus polkit also finds the agent for programs in the terminals.
+
+The shell keeps a channel `{"kind":"polkit"}` open while the desktop shows.
+When a program asks for an action that needs an authentication, the agent sends the request to each polkit channel of the user:
+
+| Event | Meaning |
+|---|---|
+| `{"type":"begin","request":1,"action":"…","message":"…","identities":["alice","root"],"identity":"alice"}` | A new request. The first attempt uses `identity`. |
+| `{"type":"prompt","request":1,"text":"Password: ","echo":false}` | The PAM conversation asks a question. |
+| `{"type":"info","request":1,"text":"…"}` | The PAM conversation gives information or an error message. |
+| `{"type":"failed","request":1}` | The attempt failed. The shell can start a new attempt. |
+| `{"type":"done","request":1,"success":true}` | The request ended. |
+
+The shell answers with these messages:
+
+| Reply | Meaning |
+|---|---|
+| `{"type":"answer","request":1,"text":"…"}` | Answers the prompt. |
+| `{"type":"start","request":1,"identity":"root"}` | Starts a new attempt as a different user, or after a failure. |
+| `{"type":"cancel","request":1}` | Cancels the request. |
+
+The agent runs `polkit-agent-helper-1` for each attempt, which tells polkit the result.
+The agent cancels a request if no polkit channel is open, if the last one closes, after 5 minutes, or when polkit cancels it.
+The agent accepts `BeginAuthentication` only from the owner of `org.freedesktop.PolicyKit1`, thus a different program cannot show a false prompt.
+
 ## Session cookie
 
 A WebSocket message cannot set a cookie.
@@ -300,6 +329,7 @@ Version 1 has one kind:
 | `state` | The state store of the session in the agent. See the section on the state channel. |
 | `pty` | A terminal in the agent. See the section on the pty channel. |
 | `dbus` | Method calls and signals on the system bus or the session bus, as the user. See the section on the dbus channel. |
+| `polkit` | The polkit prompts of the session. See the section on the polkit channel. |
 
 `Ready` is an empty object.
 

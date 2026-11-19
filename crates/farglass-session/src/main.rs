@@ -32,6 +32,22 @@ async fn main() {
         .map_or_else(|| PathBuf::from(DEFAULT_AGENT_SOCKET), PathBuf::from);
     // The state store and the terminals live as long as the agent, also when the link to farglassd breaks.
     let mut session = Session::default();
+    // The polkit agent of the logind session: polkit asks it for the authentications of the session.
+    if let Ok(session_id) = std::env::var("XDG_SESSION_ID") {
+        let polkit = session.polkit.clone();
+        let buses = session.buses.clone();
+        tokio::spawn(async move {
+            let result = match buses.connection(farglass_proto::message::Bus::System).await {
+                Ok(connection) => {
+                    farglass_session::polkit::register(polkit, &connection, &session_id).await
+                }
+                Err(error) => Err(error),
+            };
+            if let Err(error) = result {
+                tracing::warn!(%error, "the agent is not the polkit agent of the session");
+            }
+        });
+    }
     let mut wait = RETRY_MIN;
     loop {
         match link::connect(&path, &mut session).await {

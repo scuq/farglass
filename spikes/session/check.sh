@@ -11,6 +11,7 @@
 #   1. It creates the temporary user farglass-test, which has no local session.
 #      A login through the shell must give a logind session of type web, with
 #      the agent as farglass-test. A second login must attach to the same session.
+#      pkexec in a terminal must show the polkit dialog, and Cancel must end it.
 #      The Log out button must end the web session and the agent.
 #   2. If the user who runs sudo has a local graphical session, a login as that
 #      user must show the confirm step. The script clicks Cancel only, and the
@@ -134,6 +135,14 @@ if browser "$TEST_USER" success; then
         pass "a second login attaches to the same session $sessions"
     else
         fail "the second login did not attach to session $sessions"
+    fi
+    echo "INFO: logind: $(loginctl show-user "$TEST_USER" -p Display -p Sessions | tr '\n' ' ')"
+    if browser "$TEST_USER" polkit; then
+        pass "the polkit agent of the web session shows the prompt of pkexec in the shell"
+    else
+        fail "the polkit prompt of pkexec did not work"
+        journalctl _UID="$TEST_UID" --since "-2 min" --no-pager -o cat 2>/dev/null | grep -i polkit | tail -5
+        journalctl -u polkit --since "-2 min" --no-pager -o cat | tail -5
     fi
     if browser "$TEST_USER" logout; then
         gone=no

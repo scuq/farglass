@@ -1,0 +1,48 @@
+/* The polkit dialog: a modal dialog in the top layer. */
+.polkit-dialog {
+  width: min(28rem, calc(100vw - 2rem));
+  padding: 1.25rem;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.35);
+}
+.polkit-dialog::backdrop {
+  background: rgb(0 0 0 / 0.35);
+}
+.polkit-dialog form {
+  display: grid;
+  gap: 0.6rem;
+}
+.polkit-dialog h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+.polkit-dialog p {
+  margin: 0;
+}
+.polkit-action {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-family: ui-monospace, monospace;
+}
+.polkit-failed {
+  color: var(--bad);
+}
+.polkit-dialog input {
+  padding: 0.5rem;
+  font: inherit;
+}
+.polkit-state {
+  min-height: 1.2em;
+  color: var(--muted);
+}
+.polkit-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+.polkit-buttons .primary {
+  font-weight: 600;
+}

@@ -200,6 +200,14 @@ In fullscreen mode with Keyboard Lock (F017), these keys go to the terminal.
 It measures the delay from each key press to its echo with the Performance API.
 It fails at a 95th percentile of 5 ms or more.
 
+## Administrator actions
+
+farglass is the polkit authentication agent of the web session.
+When a program asks for an administrator action, for example `pkexec` in a terminal or a change of the time zone, the shell shows a dialog.
+The dialog shows the message of polkit and asks for the password of a permitted user.
+Cancel or Escape stops the action.
+With no open tab, polkit gets no answer, and the action fails.
+
 ## Write an app
 
 Each app is a folder in `web/src/apps/`.

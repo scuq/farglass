@@ -34,7 +34,7 @@ rows: number, } | { "kind": "dbus",
 /**
  * The bus.
  */
-bus: Bus, } | { "kind": "state" } | { "kind": "login" };
+bus: Bus, } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" };
 
 /**
  * The payload of a ready frame. The receiver of the open frame accepts the channel.
@@ -173,6 +173,88 @@ member: string,
  * The values, in the JSON form.
  */
 values: unknown[], };
+
+/**
+ * A message of the agent on a polkit channel.
+ */
+export type PolkitEvent = { "type": "begin", 
+/**
+ * The number of the request.
+ */
+request: number, 
+/**
+ * The polkit action, for example `org.freedesktop.timedate1.set-timezone`.
+ */
+action: string, 
+/**
+ * The text of polkit for the user.
+ */
+message: string, 
+/**
+ * The users who can authenticate.
+ */
+identities: Array<string>, 
+/**
+ * The user of the first attempt.
+ */
+identity: string, } | { "type": "prompt", 
+/**
+ * The number of the request.
+ */
+request: number, 
+/**
+ * The question, for example "Password: ".
+ */
+text: string, 
+/**
+ * Reports whether the dialog can show the answer as the user types it.
+ */
+echo: boolean, } | { "type": "info", 
+/**
+ * The number of the request.
+ */
+request: number, 
+/**
+ * The text.
+ */
+text: string, } | { "type": "failed", 
+/**
+ * The number of the request.
+ */
+request: number, } | { "type": "done", 
+/**
+ * The number of the request.
+ */
+request: number, 
+/**
+ * Reports whether the authentication succeeded.
+ */
+success: boolean, };
+
+/**
+ * A message of the shell on a polkit channel.
+ */
+export type PolkitReply = { "type": "start", 
+/**
+ * The number of the request.
+ */
+request: number, 
+/**
+ * One of the identities of the request.
+ */
+identity: string, } | { "type": "answer", 
+/**
+ * The number of the request.
+ */
+request: number, 
+/**
+ * The text that the user typed.
+ */
+text: string, } | { "type": "cancel", 
+/**
+ * The number of the request.
+ */
+request: number, };
 
 /**
  * A control message of the shell on a pty channel.
