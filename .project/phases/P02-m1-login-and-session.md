@@ -1,7 +1,7 @@
 ---
 id: P02
 title: M1 login and session
-status: planned
+status: done
 ---
 
 ## Goal
