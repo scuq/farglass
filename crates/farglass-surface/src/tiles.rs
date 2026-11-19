@@ -12,6 +12,7 @@
 //! | 1 | frame | sequence u32, width u16, height u16 |
 //! | 2 | tile | x u16, y u16, w u8, h u8, length u32, LZ4 block of `w * h * 4` BGRA bytes. It takes the next cache slot. |
 //! | 3 | ref | x u16, y u16, slot u16: draws the tile of a cache slot |
+//! | 4 | move | x u16, y u16, w u16, h u16, dy i16: copies a block of the canvas `dy` rows down (up if negative) |
 //! | 5 | keep | slot u16: copies a cache slot to the next slot, with no drawing |
 //! | 6 | fill | x u16, y u16, w u8, h u8, BGRA u32 |
 //! | 8 | end | sequence u32 |
@@ -24,6 +25,7 @@ use std::time::Instant;
 
 use crate::Rect;
 use crate::cache::{Cache, Hit, SLOTS};
+use crate::scroll;
 
 /// The version of the message stream.
 pub const VERSION: u8 = 1;
@@ -41,6 +43,8 @@ pub mod code {
     pub const TILE: u8 = 2;
     /// A tile from a cache slot.
     pub const REF: u8 = 3;
+    /// A copy of a block of the canvas to a different height, for a scroll.
+    pub const MOVE: u8 = 4;
     /// A copy of a cache slot to the next slot.
     pub const KEEP: u8 = 5;
     /// A tile of one color.
@@ -60,6 +64,8 @@ pub struct Stats {
     pub fills: u32,
     /// The tiles that the client had in its cache.
     pub cached: u32,
+    /// The rows that a move message copied on the client.
+    pub moved_rows: u32,
     /// The tiles in the damage that did not change.
     pub unchanged: u32,
     /// The bytes of the frame.
@@ -97,6 +103,8 @@ pub struct Encoder {
     shown: Option<(usize, usize, Vec<u8>)>,
     seq: u32,
     cache: Cache,
+    /// Reports whether the encoder looks for scrolls (F027).
+    pub scroll: bool,
 }
 
 impl Default for Encoder {
@@ -105,6 +113,7 @@ impl Default for Encoder {
             shown: None,
             seq: 0,
             cache: Cache::new(SLOTS),
+            scroll: true,
         }
     }
 }
@@ -152,6 +161,27 @@ fn single_color(bytes: &[u8]) -> Option<[u8; 4]> {
         .then_some(*first)
 }
 
+/// Returns the bounding box of the damage in the buffer, as left, top, right, and bottom.
+fn bounds(damage: &[Rect], width: usize, height: usize) -> Option<(usize, usize, usize, usize)> {
+    let clamp = |value: i32, max: usize| usize::try_from(value.max(0)).unwrap_or(0).min(max);
+    let mut result: Option<(usize, usize, usize, usize)> = None;
+    for rect in damage {
+        let (x0, y0) = (clamp(rect.x, width), clamp(rect.y, height));
+        let (x1, y1) = (
+            clamp(rect.x.saturating_add(rect.width), width),
+            clamp(rect.y.saturating_add(rect.height), height),
+        );
+        if x1 <= x0 || y1 <= y0 {
+            continue;
+        }
+        result = Some(match result {
+            None => (x0, y0, x1, y1),
+            Some((a, b, c, d)) => (a.min(x0), b.min(y0), c.max(x1), d.max(y1)),
+        });
+    }
+    result
+}
+
 /// Returns the tiles that a damage rectangle touches, as (column, row) pairs.
 fn tiles_of(rect: Rect, width: usize, height: usize, into: &mut [bool], columns: usize) {
     let clamp = |value: i32, max: usize| usize::try_from(value.max(0)).unwrap_or(0).min(max);
@@ -197,7 +227,6 @@ impl Encoder {
         let Some((_, _, shown)) = &mut self.shown else {
             return None;
         };
-
         let mut out = Out(Vec::new());
         let mut stats = Stats::default();
         let next = self.seq.wrapping_add(1);
@@ -205,6 +234,32 @@ impl Encoder {
         out.u32(next);
         out.u16(width);
         out.u16(height);
+
+        // A scroll: the client copies the rows that moved, and the tile diff then sends the new strip only.
+        if self.scroll
+            && !resized
+            && let Some((x0, y0, x1, y1)) = bounds(damage, width, height)
+            && let Some(step) = scroll::detect(shown, image.pixels, width, x0, y0, x1, y1)
+        {
+            out.u8(code::MOVE);
+            out.u16(step.x);
+            out.u16(step.y);
+            out.u16(step.width);
+            out.u16(step.height);
+            out.0
+                .extend_from_slice(&i16::try_from(step.dy).unwrap_or(0).to_le_bytes());
+            scroll::apply(shown, width, step);
+            stats.moved_rows = u32::try_from(step.height).unwrap_or(u32::MAX);
+            // The move changed the copy of the client in the whole region, also between the damage rectangles.
+            let region = Rect {
+                x: i32::try_from(x0).unwrap_or(0),
+                y: i32::try_from(y0).unwrap_or(0),
+                width: i32::try_from(x1 - x0).unwrap_or(0),
+                height: i32::try_from(y1 - y0).unwrap_or(0),
+            };
+            tiles_of(region, width, height, &mut dirty, columns);
+        }
+
         let mut current = Vec::with_capacity(TILE * TILE * 4);
         let mut before = Vec::with_capacity(TILE * TILE * 4);
         for row in 0..rows {
@@ -277,7 +332,7 @@ impl Encoder {
                 }
             }
         }
-        if stats.tiles + stats.fills + stats.cached == 0 && !resized {
+        if stats.tiles + stats.fills + stats.cached + stats.moved_rows == 0 && !resized {
             return None;
         }
         self.seq = next;
@@ -351,6 +406,17 @@ pub(crate) mod tests {
                             self.height = h;
                             self.pixels = vec![0; w * h * 4];
                         }
+                    }
+                    code::MOVE => {
+                        let f = take(&mut bytes, 10);
+                        let step = scroll::Move {
+                            x: u16_(&f[0..2]),
+                            y: u16_(&f[2..4]),
+                            width: u16_(&f[4..6]),
+                            height: u16_(&f[6..8]),
+                            dy: isize::from(i16::from_le_bytes([f[8], f[9]])),
+                        };
+                        scroll::apply(&mut self.pixels, self.width, step);
                     }
                     code::KEEP => {
                         let slot = u16_(&take(&mut bytes, 2));
@@ -629,5 +695,87 @@ mod cache_tests {
             assert_eq!(canvas.pixels, pixels, "round {round}");
         }
         assert!(hits >= 12, "tile A came from the cache {hits} times");
+    }
+}
+
+#[cfg(test)]
+mod scroll_tests {
+    use super::tests::Canvas;
+    use super::*;
+
+    /// A text page of 800 x 600, scrolled by `scroll` rows.
+    fn page(scroll: usize) -> Vec<u8> {
+        let (w, h) = (800, 600);
+        let mut pixels = vec![255; w * h * 4];
+        for y in 0..h {
+            let line = y + scroll;
+            for x in 0..w {
+                // Each row of a glyph is different, as in real text: a hash of the column block and the row.
+                let cell = u64::try_from((x / 3) * 4096 + line)
+                    .unwrap()
+                    .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+                    >> 59;
+                if (line % 20) < 13 && cell < 9 {
+                    pixels[(y * w + x) * 4..][..3].copy_from_slice(&[25, 25, 25]);
+                }
+            }
+        }
+        pixels
+    }
+
+    fn bytes_of_scroll(scroll: bool) -> (usize, Vec<u8>, Vec<u8>) {
+        let mut encoder = Encoder {
+            scroll,
+            ..Encoder::new()
+        };
+        let mut canvas = Canvas::default();
+        canvas.apply(&hello(SLOTS));
+        let full = [Rect {
+            x: 0,
+            y: 0,
+            width: 800,
+            height: 600,
+        }];
+        canvas.apply(
+            &encoder
+                .encode(
+                    &Image {
+                        width: 800,
+                        height: 600,
+                        pixels: &page(0),
+                    },
+                    &full,
+                )
+                .unwrap()
+                .bytes,
+        );
+        let after = page(53);
+        let encoded = encoder
+            .encode(
+                &Image {
+                    width: 800,
+                    height: 600,
+                    pixels: &after,
+                },
+                &full,
+            )
+            .unwrap();
+        canvas.apply(&encoded.bytes);
+        (encoded.bytes.len(), canvas.pixels, after)
+    }
+
+    #[test]
+    fn a_scroll_sends_a_move_and_the_new_strip_only() {
+        let (with, pixels, after) = bytes_of_scroll(true);
+        assert_eq!(pixels, after, "the canvas has the exact new frame");
+        let (without, pixels, after) = bytes_of_scroll(false);
+        assert_eq!(pixels, after);
+        eprintln!(
+            "a scroll of 53 rows of an 800 x 600 text page: {with} bytes with the move, {without} bytes without"
+        );
+        assert!(
+            with * 3 < without,
+            "{with} bytes with the move, {without} without"
+        );
     }
 }

@@ -19,6 +19,11 @@ class Canvas {
         this.rgba.set(rgba.subarray(row * w * 4, (row + 1) * w * 4), ((y + row) * this.width + x) * 4);
       }
     },
+    move: (x: number, y: number, w: number, h: number, dy: number) => {
+      const block = [];
+      for (let row = 0; row < h; row++) block.push(this.rgba.slice(((y + row) * this.width + x) * 4, ((y + row) * this.width + x + w) * 4));
+      block.forEach((line, row) => this.rgba.set(line, ((y + row + dy) * this.width + x) * 4));
+    },
     end: (seq: number) => this.ended.push(seq),
   };
   pixel(x: number, y: number) {
@@ -109,6 +114,23 @@ describe("surface decoder", () => {
       [255, 0, 0, 255],
     ]);
     expect(() => decoder.push(new Stream().u8(Code.REF).u16(0).u16(0).u16(1).array)).not.toThrow();
+  });
+
+  test("a move copies a block of the canvas up, as a scroll does", () => {
+    const canvas = new Canvas();
+    const decoder = new SurfaceDecoder(canvas.target);
+    const s = new Stream().u8(Code.FRAME).u32(1).u16(1).u16(3);
+    s.u8(Code.FILL).u16(0).u16(1).u8(1).u8(1).u32(0xff0000ff);
+    s.u8(Code.FILL).u16(0).u16(2).u8(1).u8(1).u32(0xff00ff00);
+    // Rows 1 and 2 go one row up.
+    s.u8(Code.MOVE).u16(0).u16(1).u16(1).u16(2).u16(0xffff);
+    s.u8(Code.END).u32(1);
+    decoder.push(s.array);
+    // The fills are BGRA: 0xff0000ff is blue.
+    expect([canvas.pixel(0, 0), canvas.pixel(0, 1)]).toEqual([
+      [0, 0, 255, 255],
+      [0, 255, 0, 255],
+    ]);
   });
 
   test("an unknown message stops the stream", () => {

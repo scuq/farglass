@@ -7,7 +7,7 @@
 import { decodeLz4Block } from "./lz4";
 
 /** The message codes. They are the same as in crates/farglass-surface/src/tiles.rs. */
-export const Code = { HELLO: 0, FRAME: 1, TILE: 2, REF: 3, KEEP: 5, FILL: 6, END: 8 } as const;
+export const Code = { HELLO: 0, FRAME: 1, TILE: 2, REF: 3, MOVE: 4, KEEP: 5, FILL: 6, END: 8 } as const;
 
 /** One cache slot: the pixels of a tile, ready for the target. */
 interface Slot {
@@ -22,6 +22,8 @@ export interface SurfaceTarget {
   resize(width: number, height: number): void;
   /** Replaces the pixels of a rectangle with `rgba`, not premultiplied. */
   put(x: number, y: number, width: number, height: number, rgba: Uint8ClampedArray<ArrayBuffer>): void;
+  /** Copies the block (x, y, width, height) of the canvas `dy` rows down, or up if negative: a scroll. */
+  move(x: number, y: number, width: number, height: number, dy: number): void;
   /** The frame is complete. */
   end(seq: number): void;
 }
@@ -51,6 +53,7 @@ const FIXED: Record<number, number> = {
   [Code.FRAME]: 8,
   [Code.TILE]: 10,
   [Code.REF]: 6,
+  [Code.MOVE]: 10,
   [Code.KEEP]: 2,
   [Code.FILL]: 10,
   [Code.END]: 4,
@@ -149,6 +152,9 @@ export class SurfaceDecoder {
         this.#target.put(view.getUint16(0, true), view.getUint16(2, true), slot.width, slot.height, slot.rgba);
         return 1 + fixed;
       }
+      case Code.MOVE:
+        this.#target.move(view.getUint16(0, true), view.getUint16(2, true), view.getUint16(4, true), view.getUint16(6, true), view.getInt16(8, true));
+        return 1 + fixed;
       case Code.KEEP:
         this.#store(this.#ring[view.getUint16(0, true)]);
         return 1 + fixed;

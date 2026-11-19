@@ -23,6 +23,11 @@ const decoder = new SurfaceDecoder({
   put(x, y, width, height, rgba) {
     context?.putImageData(new ImageData(rgba, width, height), x, y);
   },
+  move(x, y, width, height, dy) {
+    if (context) {
+      context.putImageData(context.getImageData(x, y, width, height), x, y + dy);
+    }
+  },
   end(seq) {
     postMessage({ type: "end", seq });
   },
