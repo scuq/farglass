@@ -4,27 +4,32 @@
 
 use std::sync::Arc;
 
-use axum::extract::State;
+use std::net::SocketAddr;
+
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade, close_code};
+use axum::extract::{ConnectInfo, State};
 use axum::response::Response;
 use farglass_proto::{Frame, HEADER_LEN, MAX_PAYLOAD_LEN};
 use futures_util::{SinkExt as _, StreamExt as _, future};
 
-use crate::connection::{self, Violation};
-use crate::http::AppState;
+use crate::connection::{self, Context, Violation};
 
 /// The largest WebSocket message: one frame with the largest payload.
 const MAX_MESSAGE_LEN: usize = HEADER_LEN + MAX_PAYLOAD_LEN;
 
 /// Accepts the WebSocket handshake and starts the connection task.
-pub async fn upgrade(State(state): State<Arc<AppState>>, ws: WebSocketUpgrade) -> Response {
+pub async fn upgrade(
+    State(context): State<Arc<Context>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    ws: WebSocketUpgrade,
+) -> Response {
     ws.max_message_size(MAX_MESSAGE_LEN)
         .max_frame_size(MAX_MESSAGE_LEN)
-        .on_upgrade(move |socket| serve(socket, state))
+        .on_upgrade(move |socket| serve(socket, context, Some(peer)))
 }
 
 /// Runs one connection until the peer closes it or breaks the protocol.
-async fn serve(socket: WebSocket, state: Arc<AppState>) {
+async fn serve(socket: WebSocket, context: Arc<Context>, peer: Option<SocketAddr>) {
     let (sink, stream) = socket.split();
     let mut outgoing =
         sink.with(|frame: Frame| future::ok::<_, axum::Error>(Message::Binary(frame.to_bytes())));
@@ -42,10 +47,8 @@ async fn serve(socket: WebSocket, state: Arc<AppState>) {
             })
         });
 
-    let user = state.user;
-    if let Err(violation) =
-        connection::run(&state.registry, user, &mut incoming, &mut outgoing).await
-    {
+    let peer = peer.map(|addr| addr.ip());
+    if let Err(violation) = connection::run(&context, peer, &mut incoming, &mut outgoing).await {
         tracing::debug!(%violation, "closing the WebSocket connection");
         let frame = CloseFrame {
             code: close_code::PROTOCOL,

@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { FakeServer } from "./testing";
 import {
   type Close,
   Connection,
@@ -7,40 +8,12 @@ import {
   dataFrame,
   decodeFrame,
   encodeJsonFrame,
-  type Frame,
   FrameType,
   helloFrame,
   parseJson,
   PROTOCOL_VERSION,
   readyFrame,
-  type Transport,
 } from "./index";
-
-/** A transport that the test controls as the server. */
-class FakeServer implements Transport {
-  onmessage: ((message: ArrayBuffer) => void) | null = null;
-  onclose: ((reason: string) => void) | null = null;
-  readonly received: Frame[] = [];
-  closed = false;
-
-  send(message: Uint8Array<ArrayBuffer>): void {
-    this.received.push(decodeFrame(message.slice()));
-  }
-
-  close(): void {
-    this.closed = true;
-  }
-
-  /** Sends an encoded frame to the shell. */
-  push(frame: Uint8Array<ArrayBuffer>): void {
-    this.onmessage?.(frame.slice().buffer);
-  }
-
-  /** Returns the frames that the shell sent since the last call. */
-  take(): Frame[] {
-    return this.received.splice(0);
-  }
-}
 
 async function started(): Promise<{ server: FakeServer; connection: Connection }> {
   const server = new FakeServer();

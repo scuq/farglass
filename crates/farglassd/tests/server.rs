@@ -269,7 +269,11 @@ where
 }
 
 fn hello(version: u16) -> Frame {
-    Frame::connection(&ConnectionMessage::Hello { version }).unwrap()
+    Frame::connection(&ConnectionMessage::Hello {
+        version,
+        user: None,
+    })
+    .unwrap()
 }
 
 /// Does the protocol exchange that each transport must give.
@@ -282,7 +286,8 @@ where
     assert_eq!(
         first.parse::<ConnectionMessage>().unwrap(),
         ConnectionMessage::Hello {
-            version: PROTOCOL_VERSION
+            version: PROTOCOL_VERSION,
+            user: None
         }
     );
 

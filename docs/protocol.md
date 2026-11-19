@@ -79,6 +79,41 @@ Each side sends a hello message as its first frame:
 
 If the versions are different, the receiver closes the connection.
 
+If the connection already has a user, the hello message of farglassd has the field `user`:
+
+```json
+{"type":"hello","version":1,"user":"alice"}
+```
+
+With no `user`, the shell must log in on a login channel first.
+Before the login, farglassd refuses each other channel with the reason `access-denied`.
+
+## Login channel
+
+The shell opens a channel of kind `login`.
+farglassd serves this channel itself and relays the PAM conversation of farglass-login.
+farglassd sends each event as a control message:
+
+| Event | Meaning |
+|---|---|
+| `{"type":"prompt","prompt":1,"text":"Password: ","echo":false}` | A PAM module asks a question. If `echo` is `false`, the answer is secret. |
+| `{"type":"info","text":"..."}` | A PAM module gives information. |
+| `{"type":"error","text":"..."}` | A PAM module gives an error message. |
+| `{"type":"success","user":"alice","uid":1000}` | The login succeeded. The connection has the user from now on. |
+| `{"type":"failure","message":"The login failed."}` | The login failed. |
+| `{"type":"blocked","retry_after":30}` | Too many failures. A new attempt can start after `retry_after` seconds. |
+
+The shell answers a prompt with a control message:
+
+```json
+{"prompt":1,"text":"secret"}
+```
+
+After `success`, `failure`, or `blocked`, farglassd closes the channel with the reason `done`.
+If the shell closes the channel before the result, the attempt stops.
+One login channel can be open at a time.
+If the connection already has a user, farglassd refuses the channel with the reason `not-supported`.
+
 ## Agent link
 
 farglass-session, the agent, connects to the Unix socket of farglassd, by default `/run/farglass/agent.sock`.
@@ -119,6 +154,7 @@ Version 1 has one kind:
 | Kind | Function |
 |---|---|
 | `echo` | Sends each data frame back to the sender |
+| `login` | A PAM login, served by farglassd. See the section on the login channel. |
 
 `Ready` is an empty object.
 

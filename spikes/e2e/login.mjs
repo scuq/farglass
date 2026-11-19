@@ -1,0 +1,118 @@
+// login.mjs - end-to-end test of the PAM login in the shell
+//
+// Usage: npm --prefix spikes/e2e run login
+//
+// The script starts farglass-login with a PAM directory that needs no root:
+// pam_exec asks for the password and accepts "secret". It starts farglassd
+// with no dev_user, and the agent. Then Chromium logs in through the login
+// screen, first with a wrong password, then with the correct one, and uses
+// the echo channel.
+//
+// Exit status: 0 if all steps pass, 1 if a step fails.
+
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir, userInfo } from "node:os";
+import { join } from "node:path";
+import { chromium } from "playwright";
+import { buildAll, echo, start, TIMEOUT_MS } from "./lib.mjs";
+
+const state = mkdtempSync(join(tmpdir(), "farglass-e2e-"));
+const children = [];
+let browser;
+let failed = false;
+
+/** Writes a PAM directory with a stack that accepts the password "secret". */
+function pamDirectory() {
+  const dir = join(state, "pam.d");
+  mkdirSync(dir);
+  const check = join(state, "check.sh");
+  writeFileSync(check, '#!/bin/sh\nIFS= read -r password; [ "$password" = secret ]\n');
+  chmodSync(check, 0o755);
+  writeFileSync(
+    join(dir, "farglass"),
+    `auth required pam_exec.so expose_authtok quiet ${check}\naccount required pam_permit.so\n`,
+  );
+  return dir;
+}
+
+/** Answers the prompt with the label `label` on the login screen. */
+async function answer(page, label, text) {
+  const field = page.getByLabel(label, { exact: true });
+  await field.waitFor({ timeout: TIMEOUT_MS });
+  await field.fill(text);
+  await page.getByRole("button", { name: "Continue" }).click();
+  return field;
+}
+
+try {
+  buildAll();
+  const user = userInfo().username;
+  const loginSocket = join(state, "login.sock");
+  const agentSocket = join(state, "agent.sock");
+
+  const login = start(
+    "farglass-login",
+    "target/debug/farglass-login",
+    ["--socket", loginSocket, "--pam-dir", pamDirectory(), "--fail-delay-ms", "0"],
+    {},
+    /ready/,
+  );
+  children.push(login.child);
+  await login.match;
+
+  const daemon = start(
+    "farglassd",
+    "target/debug/farglassd",
+    [
+      "--listen", "127.0.0.1:0",
+      "--web-root", "web/dist",
+      "--state-dir", state,
+      "--agent-socket", agentSocket,
+      "--login-socket", loginSocket,
+    ],
+    {},
+    /listening on (https:\/\/\S+)/,
+  );
+  children.push(daemon.child);
+  const [, url] = await daemon.match;
+
+  const agent = start("farglass-session", "target/debug/farglass-session", [], { FARGLASS_AGENT_SOCKET: agentSocket }, /connected to farglassd/);
+  children.push(agent.child);
+  await agent.match;
+
+  browser = await chromium.launch();
+  const context = await browser.newContext({ ignoreHTTPSErrors: true });
+  const page = await context.newPage();
+  await page.goto(url);
+  await page.getByRole("heading", { name: /Log in to/ }).waitFor({ timeout: TIMEOUT_MS });
+  console.log("PASS: the shell shows the login screen");
+
+  // PAM asks for the username, because farglassd gives none.
+  await answer(page, "Login", user);
+  const password = await answer(page, "Password", "guess");
+  if ((await password.getAttribute("type")) !== "password") {
+    throw new Error("The password field shows the password.");
+  }
+  await page.getByRole("alert").filter({ hasText: "The login failed." }).waitFor({ timeout: TIMEOUT_MS });
+  console.log("PASS: a wrong password fails");
+
+  await page.getByRole("button", { name: "Try again" }).click();
+  await answer(page, "Login", user);
+  await answer(page, "Password", "secret");
+  await page.getByText(`Logged in as ${user}`).waitFor({ timeout: TIMEOUT_MS });
+  console.log("PASS: the correct password logs in");
+
+  const time = await echo(page, "hello after the login");
+  console.log(`PASS: the echo channel works after the login, round trip ${time} ms`);
+} catch (error) {
+  failed = true;
+  console.error(`FAIL: ${error.message}`);
+} finally {
+  await browser?.close();
+  for (const child of children) {
+    child.kill("SIGTERM");
+  }
+  rmSync(state, { recursive: true, force: true });
+}
+
+process.exit(failed ? 1 : 0);

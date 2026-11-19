@@ -9,11 +9,9 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-test("the shell renders the echo panel in the connecting state", () => {
+test("the shell shows that it connects to the host", () => {
   const host = document.createElement("div");
   document.body.append(host);
-  dispose = render(() => <App />, host);
-  expect(host.querySelector("main.shell h1")?.textContent).toBe("Echo channel");
-  expect(host.querySelector("[role=status]")?.textContent).toBe("Connecting");
-  expect(host.querySelector<HTMLInputElement>("#echo-input")?.disabled).toBe(true);
+  dispose = render(() => <App connect={() => new Promise(() => {})} />, host);
+  expect(host.querySelector("[role=status]")?.textContent).toBe("Connecting to the host");
 });

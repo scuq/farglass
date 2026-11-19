@@ -123,19 +123,27 @@ cargo run -p farglass-login -- --socket target/farglass/login.sock --pam-dir DIR
 ```
 
 `DIR` must have a file `farglass` with a PAM stack that works for an unprivileged user.
+Then start farglassd with `--login-socket target/farglass/login.sock` and with no `--dev-user`.
+The shell shows the login screen with each prompt of the PAM modules.
 
-## End-to-end test
+## End-to-end tests
 
-The end-to-end test builds all parts, starts farglassd in development mode and the agent, and uses Chromium through Playwright:
+The end-to-end tests build all parts, start them, and use Chromium through Playwright:
 
 ```sh
 npm --prefix spikes/e2e ci
 npx --prefix spikes/e2e playwright install chromium
-npm --prefix spikes/e2e run echo
+npm --prefix spikes/e2e test
 ```
 
-The test opens the shell in two tabs and sends a message on the echo channel of each tab.
+`npm --prefix spikes/e2e run echo` starts farglassd in development mode.
+It opens the shell in two tabs and sends a message on the echo channel of each tab.
 It passes if each tab gets only its own echo.
+
+`npm --prefix spikes/e2e run login` starts farglass-login with a PAM stack that accepts the password `secret`.
+It logs in through the login screen, first with a wrong password and then with `secret`.
+Then it sends a message on the echo channel.
+The tests need no root.
 
 Open `https://localhost:8443` in the browser.
 farglassd serves HTTP/2 and HTTP/1.1 through TLS.

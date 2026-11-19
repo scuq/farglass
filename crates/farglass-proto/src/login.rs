@@ -4,6 +4,7 @@
 //! JSON in a control frame on channel 0.
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 use zeroize::Zeroizing;
 
 /// A message from farglassd to farglass-login.
@@ -27,8 +28,8 @@ pub enum LoginRequest {
     },
 }
 
-/// A message from farglass-login to farglassd.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// A message from farglass-login to farglassd. farglassd gives it to the shell on the login channel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum LoginEvent {
     /// A PAM module asks a question.
@@ -65,8 +66,19 @@ pub enum LoginEvent {
     /// Too many failures from the address or for the user. The connection ends after this message.
     Blocked {
         /// The time in seconds until the next attempt can start.
+        #[ts(type = "number")]
         retry_after: u64,
     },
+}
+
+/// The answer of the shell to a prompt, on the login channel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct LoginAnswer {
+    /// The number of the prompt.
+    pub prompt: u32,
+    /// The text that the user typed.
+    #[ts(type = "string")]
+    pub text: Zeroizing<String>,
 }
 
 #[cfg(test)]

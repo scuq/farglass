@@ -10,6 +10,7 @@ pub mod agents;
 pub mod config;
 pub mod connection;
 mod http;
+pub mod login;
 pub mod server;
 pub mod tls;
 mod ws;

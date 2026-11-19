@@ -17,6 +17,7 @@ bytes = "1.12"
 clap = { version = "4.6.8", features = ["derive", "env"] }
 futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
 farglass-session = { path = "crates/farglass-session" }
+farglass-login = { path = "crates/farglass-login" }
 http-body-util = "0.1.5"
 nix = { version = "0.32", default-features = false, features = ["user"] }
 hyper = { version = "1.12", features = ["http1", "http2", "server"] }

@@ -16,6 +16,11 @@ pub enum ConnectionMessage {
     Hello {
         /// The protocol version of the sender.
         version: u16,
+        /// From farglassd: the user of the connection, if it has one.
+        /// With no user, the shell must log in on a channel of kind login.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        user: Option<String>,
     },
 }
 
@@ -50,6 +55,12 @@ pub enum LinkMessage {
 pub enum Open {
     /// A channel that sends each data frame back to the sender.
     Echo,
+    /// A PAM login. farglassd serves this channel itself.
+    ///
+    /// farglassd sends each [`crate::login::LoginEvent`] as a control message.
+    /// The shell answers a prompt with [`crate::login::LoginAnswer`].
+    /// After the result, farglassd closes the channel.
+    Login,
 }
 
 /// The payload of a ready frame. The receiver of the open frame accepts the channel.

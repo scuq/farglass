@@ -72,6 +72,8 @@ pub struct Config {
     pub state_dir: PathBuf,
     /// The Unix socket that the agents connect to.
     pub agent_socket: PathBuf,
+    /// The Unix socket of farglass-login.
+    pub login_socket: PathBuf,
     /// The user of each browser connection, with no login. Only for development.
     ///
     /// A username or a numeric uid. farglassd refuses this option if it does
@@ -100,6 +102,7 @@ impl Default for Config {
             web_root: PathBuf::from("/usr/share/farglass/web"),
             state_dir: PathBuf::from("/var/lib/farglass"),
             agent_socket: PathBuf::from("/run/farglass/agent.sock"),
+            login_socket: PathBuf::from("/run/farglass/login.sock"),
             dev_user: None,
             tls: TlsConfig::default(),
         }

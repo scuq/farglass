@@ -172,7 +172,8 @@ fn open(channel: ChannelId, frame: &Frame) -> Result<(Channel, Frame), LinkError
             };
             Ok((state, Frame::ready(channel, &Ready {})?))
         }
-        Err(_) => {
+        // farglassd serves the login channel itself. It never gives it to the agent.
+        Ok(Open::Login) | Err(_) => {
             let close = Close {
                 reason: CloseReason::NotSupported,
                 message: Some("The agent does not know this channel kind.".to_owned()),

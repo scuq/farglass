@@ -8,7 +8,8 @@ use farglass_proto::codec::FrameCodec;
 use farglass_proto::message::{Close, CloseReason, ConnectionMessage, LinkMessage, Open};
 use farglass_proto::{ChannelId, Frame, FrameType, PROTOCOL_VERSION};
 use farglassd::agents::{self, Registry};
-use farglassd::connection::{self, User, Violation};
+use farglassd::connection::{self, Context, Violation};
+use farglassd::login::Identity;
 use futures_util::{SinkExt as _, StreamExt as _, sink, stream};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
@@ -29,11 +30,18 @@ struct Browser {
 }
 
 impl Browser {
-    /// Connects as `user` and does the hello exchange.
-    async fn connect(registry: &Arc<Registry>, user: User) -> Self {
+    /// Connects as the user with the uid `user`, with no login, and does the hello exchange.
+    async fn connect(registry: &Arc<Registry>, user: Option<u32>) -> Self {
         let (to_server, server_in) = mpsc::channel(16);
         let (server_out, from_server) = mpsc::channel(16);
-        let registry = registry.clone();
+        let context = Context {
+            registry: registry.clone(),
+            login_socket: "/nonexistent/login.sock".into(),
+            dev_user: user.map(|uid| Identity {
+                uid,
+                name: format!("user{uid}"),
+            }),
+        };
         let task = tokio::spawn(async move {
             let mut incoming = stream::unfold(server_in, |mut rx| async move {
                 rx.recv().await.map(|item| (item, rx))
@@ -43,7 +51,7 @@ impl Browser {
                 tx.send(frame).await.map(|()| tx)
             });
             let mut outgoing = std::pin::pin!(outgoing);
-            connection::run(&registry, user, &mut incoming, &mut outgoing).await
+            connection::run(&context, None, &mut incoming, &mut outgoing).await
         });
         let mut browser = Self {
             to_server,
@@ -56,6 +64,7 @@ impl Browser {
             .send(
                 Frame::connection(&ConnectionMessage::Hello {
                     version: PROTOCOL_VERSION,
+                    user: None,
                 })
                 .unwrap(),
             )
@@ -468,6 +477,7 @@ async fn shell_violations_stop_the_connection() {
         .send(
             Frame::connection(&ConnectionMessage::Hello {
                 version: PROTOCOL_VERSION,
+                user: None,
             })
             .unwrap(),
         )

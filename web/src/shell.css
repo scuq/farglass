@@ -83,3 +83,37 @@ body {
 .echo-log li[data-kind="error"] {
   color: var(--bad);
 }
+
+.shell-header {
+  margin-bottom: 1.5rem;
+  color: var(--muted);
+}
+
+.login h1 {
+  font-size: 1.25rem;
+  margin: 0 0 1rem;
+}
+.login form {
+  display: grid;
+  gap: 0.5rem;
+  max-width: 20rem;
+}
+.login input {
+  padding: 0.5rem;
+  font: inherit;
+}
+.login-messages {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem;
+}
+.login-messages li {
+  padding: 0.25rem 0;
+}
+.login-messages li[data-kind="error"] {
+  color: var(--bad);
+}
+.login-state {
+  min-height: 1.5em;
+  color: var(--muted);
+}

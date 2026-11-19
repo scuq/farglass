@@ -1,21 +1,39 @@
-//! One browser connection: the hello exchange and the relay to the agent of its user.
+//! One browser connection: the hello exchange, the login, and the relay to the agent of its user.
 //!
 //! The code does not know the transport. A transport gives a stream of frames
 //! and a sink for frames (ADR-005).
 
 use std::collections::{HashMap, VecDeque};
+use std::net::IpAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use farglass_proto::message::{Close, CloseReason, ConnectionMessage};
+use farglass_proto::login::LoginAnswer;
+use farglass_proto::message::{Close, CloseReason, ConnectionMessage, Open};
 use farglass_proto::{ChannelId, Frame, FrameError, FrameType, PROTOCOL_VERSION, Side};
 use futures_util::{Sink, SinkExt as _, Stream, StreamExt as _};
 use tokio::sync::mpsc;
 
 use crate::agents::{Agent, ConnectionId, Registry, ToAgent};
+use crate::login::{Identity, LoginTask, SharedUser};
 
 /// The frames from the agent that wait for the browser. When the queue is
 /// full, the agent link of the user waits. Flow control comes with F014.
 const TO_SHELL_QUEUE: usize = 64;
+
+/// The answers that wait for farglass-login.
+const ANSWER_QUEUE: usize = 4;
+
+/// The state that all connections share.
+#[derive(Debug)]
+pub struct Context {
+    /// The connected agents.
+    pub registry: Arc<Registry>,
+    /// The login socket of farglass-login.
+    pub login_socket: PathBuf,
+    /// The user of each connection with no login. Only for development.
+    pub dev_user: Option<Identity>,
+}
 
 /// A cause to close the browser connection.
 #[derive(Debug, thiserror::Error)]
@@ -43,17 +61,59 @@ pub enum Violation {
     NotOpen(ChannelId),
 }
 
-/// The user of a browser connection, or no user before the login.
-pub type User = Option<u32>;
-
 /// The state of one channel of the shell.
 #[derive(Debug)]
-struct Local {
-    agent: Arc<Agent>,
-    /// The number of the channel on the agent link.
-    number: ChannelId,
-    closed_by_shell: bool,
-    closed_by_agent: bool,
+enum Local {
+    /// A channel of the agent.
+    Agent {
+        agent: Arc<Agent>,
+        /// The number of the channel on the agent link.
+        number: ChannelId,
+        closed_by_shell: bool,
+        closed_by_peer: bool,
+    },
+    /// The login channel, which farglassd serves.
+    Login {
+        /// The queue to the login task. `None` after the shell closed the channel.
+        answers: Option<mpsc::Sender<LoginAnswer>>,
+        closed_by_shell: bool,
+        closed_by_peer: bool,
+    },
+}
+
+impl Local {
+    fn closed_by_shell(&self) -> bool {
+        match self {
+            Self::Agent {
+                closed_by_shell, ..
+            }
+            | Self::Login {
+                closed_by_shell, ..
+            } => *closed_by_shell,
+        }
+    }
+
+    /// Marks the close of one side. Returns `true` if the two sides closed the channel.
+    fn mark_closed(&mut self, by_shell: bool) -> bool {
+        let (shell, peer) = match self {
+            Self::Agent {
+                closed_by_shell,
+                closed_by_peer,
+                ..
+            }
+            | Self::Login {
+                closed_by_shell,
+                closed_by_peer,
+                ..
+            } => (closed_by_shell, closed_by_peer),
+        };
+        if by_shell {
+            *shell = true;
+        } else {
+            *peer = true;
+        }
+        *shell && *peer
+    }
 }
 
 /// A frame for an agent, and the channel of the shell that it belongs to.
@@ -65,8 +125,9 @@ struct Pending {
 
 struct Connection<'a, O> {
     id: ConnectionId,
-    user: User,
-    registry: &'a Registry,
+    context: &'a Context,
+    rhost: String,
+    user: SharedUser,
     outgoing: &'a mut O,
     to_shell: mpsc::Sender<Frame>,
     channels: HashMap<ChannelId, Local>,
@@ -79,15 +140,16 @@ struct Connection<'a, O> {
 
 /// Runs one browser connection until the shell closes it or breaks the protocol.
 ///
-/// `user` is the uid of the user who logged in, or `None`. The function sends
-/// the hello message first. It gives each channel to the agent of the user.
+/// `peer` is the address of the browser, for the rate limiter of the login.
+/// The function sends the hello message first, with the user if the
+/// connection has one. It gives each channel to the agent of the user.
 ///
 /// # Errors
 ///
 /// [`Violation`] if the shell breaks the protocol. The caller must close the transport.
 pub async fn run<I, O, E>(
-    registry: &Registry,
-    user: User,
+    context: &Context,
+    peer: Option<IpAddr>,
     incoming: &mut I,
     outgoing: &mut O,
 ) -> Result<(), Violation>
@@ -95,8 +157,10 @@ where
     I: Stream<Item = Result<Frame, Violation>> + Unpin,
     O: Sink<Frame, Error = E> + Unpin,
 {
+    let user = SharedUser::new(context.dev_user.clone());
     let hello = ConnectionMessage::Hello {
         version: PROTOCOL_VERSION,
+        user: user.get().map(|identity| identity.name),
     };
     if outgoing.send(Frame::connection(&hello)?).await.is_err() {
         return Ok(());
@@ -109,17 +173,20 @@ where
                 return Err(Violation::NoHello);
             }
             match frame.parse::<ConnectionMessage>()? {
-                ConnectionMessage::Hello { version } if version == PROTOCOL_VERSION => {}
-                ConnectionMessage::Hello { version } => return Err(Violation::Version(version)),
+                ConnectionMessage::Hello { version, .. } if version == PROTOCOL_VERSION => {}
+                ConnectionMessage::Hello { version, .. } => {
+                    return Err(Violation::Version(version));
+                }
             }
         }
     }
 
     let (to_shell, mut from_agents) = mpsc::channel(TO_SHELL_QUEUE);
     let mut conn = Connection {
-        id: registry.connection_id(),
+        id: context.registry.connection_id(),
+        context,
+        rhost: peer.map_or_else(String::new, |ip| ip.to_canonical().to_string()),
         user,
-        registry,
         outgoing,
         to_shell,
         channels: HashMap::new(),
@@ -149,7 +216,7 @@ where
                 // Frames to the browser first: they free the queue of the agent link.
                 biased;
                 Some(frame) = from_agents.recv() => {
-                    self.note_agent_frame(&frame);
+                    self.note_peer_frame(&frame);
                     if self.outgoing.send(frame).await.is_err() {
                         return Ok(());
                     }
@@ -187,7 +254,11 @@ where
                 return Err(Violation::ChannelNumber(channel));
             }
             self.last_opened = channel.get();
-            return self.open(&frame).await;
+            return match frame.parse::<Open>() {
+                Ok(Open::Login) => self.open_login(channel).await,
+                // farglassd gives each other kind to the agent, also a kind that it does not know.
+                Ok(_) | Err(_) => self.open_agent(&frame).await,
+            };
         }
 
         let Some(local) = self.channels.get_mut(&channel) else {
@@ -197,29 +268,87 @@ where
             }
             return Err(Violation::NotOpen(channel));
         };
-        if local.closed_by_shell {
+        if local.closed_by_shell() {
             return Ok(true);
         }
-        let Some(to_agent) = local.agent.forward(local.number, &frame) else {
-            return Ok(true);
-        };
-        if frame.frame_type() == FrameType::Close {
-            local.closed_by_shell = true;
-            if local.closed_by_agent {
-                self.channels.remove(&channel);
+        let is_close = frame.frame_type() == FrameType::Close;
+        match local {
+            Local::Agent { agent, number, .. } => {
+                if let Some(to_agent) = agent.forward(*number, &frame) {
+                    self.pending.push_back(Pending {
+                        shell: channel,
+                        frame: to_agent,
+                    });
+                }
+            }
+            Local::Login { answers, .. } => {
+                if is_close {
+                    // Dropping the queue stops the attempt. The task answers with a close frame.
+                    *answers = None;
+                } else if frame.frame_type() == FrameType::Control {
+                    let answer = frame.parse::<LoginAnswer>()?;
+                    if let Some(answers) = answers {
+                        // A full queue means the shell sends answers that nobody asked for.
+                        let _ = answers.try_send(answer);
+                    }
+                }
             }
         }
-        self.pending.push_back(Pending {
-            shell: channel,
-            frame: to_agent,
-        });
+        if is_close && local.mark_closed(true) {
+            self.channels.remove(&channel);
+        }
+        Ok(true)
+    }
+
+    /// Starts a login on a new channel, or refuses it.
+    async fn open_login(&mut self, channel: ChannelId) -> Result<bool, Violation> {
+        if self.user.get().is_some() {
+            return self
+                .refuse(
+                    channel,
+                    CloseReason::NotSupported,
+                    "The connection already has a user.",
+                )
+                .await;
+        }
+        if self
+            .channels
+            .values()
+            .any(|local| matches!(local, Local::Login { .. }))
+        {
+            return self
+                .refuse(
+                    channel,
+                    CloseReason::ResourceLimit,
+                    "A login is already running.",
+                )
+                .await;
+        }
+        let (answers, receiver) = mpsc::channel(ANSWER_QUEUE);
+        let task = LoginTask {
+            socket: self.context.login_socket.clone(),
+            rhost: self.rhost.clone(),
+            channel,
+            answers: receiver,
+            to_shell: self.to_shell.clone(),
+            user: self.user.clone(),
+        };
+        tokio::spawn(task.run());
+        self.channels.insert(
+            channel,
+            Local::Login {
+                answers: Some(answers),
+                closed_by_shell: false,
+                closed_by_peer: false,
+            },
+        );
         Ok(true)
     }
 
     /// Gives a new channel to the agent of the user, or refuses it.
-    async fn open(&mut self, frame: &Frame) -> Result<bool, Violation> {
+    async fn open_agent(&mut self, frame: &Frame) -> Result<bool, Violation> {
         let channel = frame.channel();
-        let Some(uid) = self.user else {
+        let Some(user) = self.user.get() else {
             return self
                 .refuse(
                     channel,
@@ -228,7 +357,7 @@ where
                 )
                 .await;
         };
-        let Some(agent) = self.registry.get(uid) else {
+        let Some(agent) = self.context.registry.get(user.uid) else {
             return self
                 .refuse(
                     channel,
@@ -247,11 +376,11 @@ where
         }
         self.channels.insert(
             channel,
-            Local {
+            Local::Agent {
                 agent,
                 number,
                 closed_by_shell: false,
-                closed_by_agent: false,
+                closed_by_peer: false,
             },
         );
         self.pending.extend(frames.into_iter().map(|frame| Pending {
@@ -276,27 +405,26 @@ where
         Ok(self.outgoing.send(frame).await.is_ok())
     }
 
-    /// Updates the state of a channel for a frame that goes from the agent to the shell.
-    fn note_agent_frame(&mut self, frame: &Frame) {
+    /// Updates the state of a channel for a frame that goes from the agent or the login task to the shell.
+    fn note_peer_frame(&mut self, frame: &Frame) {
         if frame.frame_type() != FrameType::Close {
             return;
         }
         let channel = frame.channel();
-        if let Some(local) = self.channels.get_mut(&channel) {
-            local.closed_by_agent = true;
-            if local.closed_by_shell {
-                self.channels.remove(&channel);
-            }
+        if let Some(local) = self.channels.get_mut(&channel)
+            && local.mark_closed(false)
+        {
+            self.channels.remove(&channel);
         }
     }
 
     /// The agent of a channel stopped before it got a frame. Closes the channel
     /// on the browser side. Returns `false` if the browser stopped.
     async fn agent_gone(&mut self, channel: ChannelId) -> bool {
-        let Some(local) = self.channels.remove(&channel) else {
+        let Some(Local::Agent { closed_by_peer, .. }) = self.channels.remove(&channel) else {
             return true;
         };
-        if local.closed_by_agent {
+        if closed_by_peer {
             return true;
         }
         let close = Close {
@@ -311,7 +439,9 @@ where
 
     /// Tells each agent that the connection stopped. The agents get the frames
     /// in a separate task, thus a full queue does not delay the end of the connection.
+    /// Dropping the login channels stops their attempts.
     fn detach(&mut self) {
+        self.channels.clear();
         let mut frames: Vec<ToAgent> = self.pending.drain(..).map(|p| p.frame).collect();
         for agent in self.agents.drain(..) {
             frames.extend(agent.detach(self.id));

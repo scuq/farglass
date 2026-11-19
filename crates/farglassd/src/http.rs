@@ -13,18 +13,8 @@ use axum::routing::any;
 use tower_http::compression::CompressionLayer;
 use tower_http::services::ServeDir;
 
-use crate::agents::Registry;
-use crate::connection::User;
+use crate::connection::Context;
 use crate::ws;
-
-/// The state that all requests share.
-#[derive(Debug)]
-pub struct AppState {
-    /// The connected agents.
-    pub registry: Arc<Registry>,
-    /// The user of each browser connection. Before the login (F006), there is no user.
-    pub user: User,
-}
 
 /// The path of the WebSocket endpoint.
 pub const WS_PATH: &str = "/ws";
@@ -40,7 +30,7 @@ const CACHE_NEVER: HeaderValue = HeaderValue::from_static("no-store");
 const NOSNIFF: HeaderValue = HeaderValue::from_static("nosniff");
 
 /// Returns the router of farglassd. `web_root` is the directory with the shell files.
-pub fn router(web_root: &Path, state: Arc<AppState>) -> Router {
+pub fn router(web_root: &Path, state: Arc<Context>) -> Router {
     let files = Router::new()
         .fallback_service(ServeDir::new(web_root))
         .layer(CompressionLayer::new())

@@ -642,6 +642,7 @@ dependencies = [
  "axum",
  "bytes",
  "clap",
+ "farglass-login",
  "farglass-proto",
  "farglass-session",
  "futures-util",
@@ -666,6 +667,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "x509-parser",
+ "zeroize",
 ]
 
 [[package]]

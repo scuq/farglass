@@ -16,7 +16,9 @@ use tokio_rustls::TlsAcceptor;
 
 use crate::agents::{self, BindError, Registry};
 use crate::config::{Config, ConfigError};
-use crate::http::{self, AppState};
+use crate::connection::Context;
+use crate::http;
+use crate::login::Identity;
 use crate::tls::{CertStore, TlsError};
 
 /// A client must complete the TLS handshake in this time.
@@ -81,7 +83,7 @@ impl Server {
     ///
     /// [`ServerError`] if the configuration, the certificate, or the listener is not usable.
     pub async fn bind(config: &Config) -> Result<Self, ServerError> {
-        let dev_uid = config.dev_uid()?;
+        let dev_user = config.dev_uid()?.map(Identity::from_uid);
         let certs = CertStore::open(config.tls_source()?)?;
         let acceptor = TlsAcceptor::from(Arc::new(certs.server_config()?));
         let bind_error = |source| ServerError::Bind {
@@ -92,19 +94,21 @@ impl Server {
         let local_addr = listener.local_addr().map_err(bind_error)?;
         let agent_listener = agents::bind(&config.agent_socket)?;
         let registry = Registry::new();
-        let state = Arc::new(AppState {
+        let dev_mode = dev_user.is_some();
+        let context = Arc::new(Context {
             registry: registry.clone(),
-            user: dev_uid,
+            login_socket: config.login_socket.clone(),
+            dev_user,
         });
         Ok(Self {
             listener,
             local_addr,
             certs,
             acceptor,
-            router: http::router(&config.web_root, state),
+            router: http::router(&config.web_root, context),
             agent_listener,
             registry,
-            dev_mode: dev_uid.is_some(),
+            dev_mode,
         })
     }
 
@@ -169,7 +173,11 @@ impl Server {
                 continue;
             }
             let acceptor = self.acceptor.clone();
-            let router = self.router.clone();
+            // The handlers read the address of the browser from this extension.
+            let router = self
+                .router
+                .clone()
+                .layer(axum::Extension(axum::extract::ConnectInfo(peer)));
             let builder = builder.clone();
             tokio::spawn(async move {
                 if let Err(error) = serve(stream, acceptor, router, &builder).await {

@@ -153,6 +153,8 @@ export class Connection {
   readonly #channels = new Map<number, Channel>();
   /** Called when the connection stops, with the cause. */
   onclose: ((reason: string) => void) | null = null;
+  /** The user of the connection, from the hello message of the server. `null` before a login. */
+  user: string | null = null;
 
   private constructor(transport: Transport) {
     this.#transport = transport;
@@ -236,6 +238,7 @@ export class Connection {
         `The server has protocol version ${hello.version}, the shell has ${PROTOCOL_VERSION}.`,
       );
     }
+    this.user = hello.user ?? null;
     this.#state = "open";
   }
 

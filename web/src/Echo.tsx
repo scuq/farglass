@@ -1,5 +1,5 @@
 import { createSignal, For, onCleanup, Show } from "solid-js";
-import { type Channel, type Close, type Connection, connect, endpointUrl } from "./proto";
+import type { Channel, Close, Connection } from "./proto";
 
 /** One line of the log of the echo panel. */
 interface Line {
@@ -12,7 +12,7 @@ interface Line {
 type LinkState = "connecting" | "ready" | "refused" | "closed";
 
 const LINK_LABEL: Record<LinkState, string> = {
-  connecting: "Connecting",
+  connecting: "Opening the echo channel",
   ready: "Echo channel open",
   refused: "Channel refused",
   closed: "Connection closed",
@@ -23,12 +23,11 @@ const LINK_LABEL: Record<LinkState, string> = {
  *
  * The panel proves the path from the shell to the agent and back (milestone M0).
  */
-export function Echo() {
+export function Echo(props: { connection: Connection }) {
   const [state, setState] = createSignal<LinkState>("connecting");
   const [lines, setLines] = createSignal<readonly Line[]>([]);
   const [text, setText] = createSignal("");
   let nextLine = 0;
-  let connection: Connection | undefined;
   let channel: Channel | undefined;
   const sentAt: number[] = [];
 
@@ -44,36 +43,28 @@ export function Echo() {
     log("error", `Channel closed: ${close.reason}${close.message ? `. ${close.message}` : ""}`);
   };
 
-  connect(endpointUrl())
-    .then(async (opened) => {
-      connection = opened;
-      opened.onclose = (reason) => {
-        setState("closed");
-        log("error", `Connection closed: ${reason}`);
-      };
-      channel = opened.openChannel(
-        { kind: "echo" },
-        {
-          ondata: (bytes) => {
-            const start = sentAt.shift();
-            const time = start === undefined ? "" : ` (${(performance.now() - start).toFixed(1)} ms)`;
-            log("echo", `${new TextDecoder().decode(bytes)}${time}`);
-          },
-          onclose: closed,
-        },
-      );
-      await channel.ready;
+  channel = props.connection.openChannel(
+    { kind: "echo" },
+    {
+      ondata: (bytes) => {
+        const start = sentAt.shift();
+        const time = start === undefined ? "" : ` (${(performance.now() - start).toFixed(1)} ms)`;
+        log("echo", `${new TextDecoder().decode(bytes)}${time}`);
+      },
+      onclose: closed,
+    },
+  );
+  const opened = channel;
+  opened.ready.then(
+    () => {
       setState("ready");
-      log("info", `Channel ${channel.id} is open.`);
-    })
-    .catch((error: unknown) => {
-      if (state() === "connecting" && !(error && typeof error === "object" && "reason" in error)) {
-        setState("closed");
-        log("error", error instanceof Error ? error.message : String(error));
-      }
-    });
+      log("info", `Channel ${opened.id} is open.`);
+    },
+    // The close callback shows the cause.
+    () => {},
+  );
 
-  onCleanup(() => connection?.close());
+  onCleanup(() => channel?.close());
 
   const send = (event: SubmitEvent) => {
     event.preventDefault();
