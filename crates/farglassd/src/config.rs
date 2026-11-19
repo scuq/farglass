@@ -74,6 +74,9 @@ pub struct Config {
     pub agent_socket: PathBuf,
     /// The Unix socket of farglass-login.
     pub login_socket: PathBuf,
+    /// More origins that the WebSocket endpoint and the session endpoint accept,
+    /// for example `http://localhost:5173` for the Vite server.
+    pub allowed_origins: Vec<String>,
     /// The user of each browser connection, with no login. Only for development.
     ///
     /// A username or a numeric uid. farglassd refuses this option if it does
@@ -103,6 +106,7 @@ impl Default for Config {
             state_dir: PathBuf::from("/var/lib/farglass"),
             agent_socket: PathBuf::from("/run/farglass/agent.sock"),
             login_socket: PathBuf::from("/run/farglass/login.sock"),
+            allowed_origins: Vec::new(),
             dev_user: None,
             tls: TlsConfig::default(),
         }

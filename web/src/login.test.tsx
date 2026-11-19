@@ -166,6 +166,26 @@ describe("App", () => {
     expect(host.querySelector("h1")?.textContent).toContain("Log in to");
   });
 
+  test("a login with a ticket stores the session", async () => {
+    const { server, connection } = await fakeConnection();
+    const tickets: string[] = [];
+    const host = mount(() => (
+      <App
+        connect={() => Promise.resolve(connection)}
+        storeSession={(ticket) => {
+          tickets.push(ticket);
+          return Promise.resolve(true);
+        }}
+      />
+    ));
+    await settle();
+    server.take();
+    server.push(event(1, { type: "success", user: "alice", uid: 1000, ticket: "t1" }));
+    await settle();
+    expect(tickets).toEqual(["t1"]);
+    expect(host.textContent).toContain("Logged in as alice");
+  });
+
   test("a connection with a user shows the desktop", async () => {
     const { connection } = await fakeConnection("alice");
     const host = mount(() => <App connect={() => Promise.resolve(connection)} />);

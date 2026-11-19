@@ -70,10 +70,8 @@ impl LoginService {
 
         let registry = Registry::new();
         let context = Arc::new(Context {
-            registry: registry.clone(),
-            login_socket: socket,
-            dev_user: None,
             agent_wait,
+            ..Context::new(registry.clone(), socket)
         });
         Self {
             context,
@@ -106,7 +104,14 @@ impl Browser {
             });
             let mut outgoing = std::pin::pin!(outgoing);
             let peer = Some("192.0.2.10".parse().unwrap());
-            connection::run(&context, peer, &mut incoming, &mut outgoing).await
+            connection::run(
+                &context,
+                peer,
+                context.dev_user.clone(),
+                &mut incoming,
+                &mut outgoing,
+            )
+            .await
         });
         let hello = tokio::time::timeout(WAIT, from_server.recv())
             .await
@@ -227,7 +232,10 @@ async fn login_gives_the_connection_its_user_and_the_agent_of_that_user() {
     );
 
     let result = browser.login(3, &name, "secret").await;
-    assert_eq!(result, LoginEvent::Success { user: name, uid });
+    assert!(
+        matches!(result, LoginEvent::Success { ref user, uid: u, ticket: Some(_) } if *user == name && u == uid),
+        "{result:?}"
+    );
 
     browser.send(Frame::open(ch(5), &Open::Echo).unwrap()).await;
     let attach = tokio::time::timeout(WAIT, agent.next())
@@ -267,7 +275,10 @@ async fn failed_login_leaves_the_connection_with_no_user_and_a_new_login_can_fol
     );
 
     let result = browser.login(5, &name, "secret").await;
-    assert_eq!(result, LoginEvent::Success { user: name, uid });
+    assert!(
+        matches!(result, LoginEvent::Success { ref user, uid: u, ticket: Some(_) } if *user == name && u == uid),
+        "{result:?}"
+    );
 }
 
 #[tokio::test]
@@ -338,6 +349,9 @@ async fn missing_login_service_closes_the_channel_with_an_error() {
         login_socket: dir.path().join("missing.sock"),
         dev_user: None,
         agent_wait: Duration::ZERO,
+        sessions: Default::default(),
+        origin: Default::default(),
+        hsts: false,
     });
     let mut browser = Browser::connect(&context).await;
     browser
@@ -359,6 +373,9 @@ async fn dev_user_sends_the_user_in_the_hello_message() {
         login_socket: "/nonexistent".into(),
         dev_user: Some(farglassd::login::Identity::from_uid(uid)),
         agent_wait: Duration::ZERO,
+        sessions: Default::default(),
+        origin: Default::default(),
+        hsts: false,
     });
     let browser = Browser::connect(&context).await;
     assert_eq!(browser.hello_user, Some(current_user().0));
@@ -421,7 +438,10 @@ async fn confirm_goes_to_the_shell_and_its_answer_back() {
             }
             LoginEvent::Info { .. } => {}
             result => {
-                assert_eq!(result, LoginEvent::Success { user: name, uid });
+                assert!(
+                    matches!(result, LoginEvent::Success { ref user, uid: u, ticket: Some(_) } if *user == name && u == uid),
+                    "{result:?}"
+                );
                 return;
             }
         }
@@ -440,7 +460,10 @@ async fn success_waits_for_the_agent_of_the_new_session() {
     });
     let mut browser = Browser::connect(&service.context).await;
     let result = browser.login(1, &name, "secret").await;
-    assert_eq!(result, LoginEvent::Success { user: name, uid });
+    assert!(
+        matches!(result, LoginEvent::Success { ref user, uid: u, ticket: Some(_) } if *user == name && u == uid),
+        "{result:?}"
+    );
     assert!(
         service.registry.get(uid).is_some(),
         "the success came before the agent"

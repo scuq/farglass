@@ -25,7 +25,7 @@ type Stage = "waiting" | "prompt" | "checking" | "confirm" | "failed" | "blocked
  * The screen asks only what the PAM modules ask, for example a username,
  * a password, and then a one-time code.
  */
-export function LoginScreen(props: { connection: Connection; onlogin: (user: string) => void }) {
+export function LoginScreen(props: { connection: Connection; onlogin: (user: string, ticket?: string) => void }) {
   const [stage, setStage] = createSignal<Stage>("waiting");
   const [prompt, setPrompt] = createSignal<Prompt | null>(null);
   const [messages, setMessages] = createSignal<readonly Message[]>([]);
@@ -62,7 +62,7 @@ export function LoginScreen(props: { connection: Connection; onlogin: (user: str
         queueMicrotask(() => cancelButton?.focus());
         break;
       case "success":
-        props.onlogin(event.user);
+        props.onlogin(event.user, event.ticket);
         break;
       case "failure":
         setPrompt(null);

@@ -97,6 +97,29 @@ npm --prefix web run dev
 The Vite server sends `/ws` to `https://localhost:8443`.
 To use a different farglassd, set `FARGLASSD_URL`.
 
+## Browser security
+
+After a login, the shell gets the session cookie `__Host-farglass`.
+The cookie is HttpOnly, Secure, and SameSite=Strict, and scripts cannot read it.
+A reload or a new tab uses the cookie and skips the login for 12 hours.
+`docs/protocol.md` describes the cookie and the Origin check.
+
+farglassd accepts a WebSocket and a session request only from a page of the same origin.
+Each response has these headers:
+
+- `Content-Security-Policy` with only files of this server, no inline script, and no frames
+- `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`
+- `Strict-Transport-Security`, only with a certificate from `cert` and `key`
+
+With a self-signed certificate, farglassd sends no `Strict-Transport-Security` header.
+That header would stop the browser from accepting the next self-signed certificate after 30 days.
+
+For the Vite development server, add its origin to the configuration file:
+
+```toml
+allowed_origins = ["http://localhost:5173"]
+```
+
 ## Login service
 
 farglass-login does the PAM login and runs as root.

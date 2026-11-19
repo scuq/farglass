@@ -82,6 +82,12 @@ try {
 
   browser = await chromium.launch();
   const context = await browser.newContext({ ignoreHTTPSErrors: true });
+  const cspViolations = [];
+  context.on("console", (message) => {
+    if (message.text().includes("Content Security Policy")) {
+      cspViolations.push(message.text());
+    }
+  });
   const page = await context.newPage();
   await page.goto(url);
   await page.getByRole("heading", { name: /Log in to/ }).waitFor({ timeout: TIMEOUT_MS });
@@ -104,6 +110,37 @@ try {
 
   const time = await echo(page, "hello after the login");
   console.log(`PASS: the echo channel works after the login, round trip ${time} ms`);
+
+  // The session cookie: a reload and a new tab skip the login.
+  await page.waitForResponse((response) => response.url().endsWith("/session"), { timeout: TIMEOUT_MS }).catch(() => {});
+  const cookies = await context.cookies();
+  const session = cookies.find((cookie) => cookie.name === "__Host-farglass");
+  if (!session || !session.httpOnly || !session.secure || session.sameSite !== "Strict") {
+    throw new Error(`The session cookie is missing or not protected: ${JSON.stringify(session)}`);
+  }
+  if ((await page.evaluate(() => document.cookie)).includes("__Host-farglass")) {
+    throw new Error("A script can read the session cookie.");
+  }
+  console.log("PASS: the session cookie is HttpOnly, Secure, and SameSite=Strict");
+
+  await page.reload();
+  await page.getByText(`Logged in as ${user}`).waitFor({ timeout: TIMEOUT_MS });
+  const tab = await context.newPage();
+  await tab.goto(url);
+  await tab.getByText(`Logged in as ${user}`).waitFor({ timeout: TIMEOUT_MS });
+  await echo(tab, "hello from a new tab");
+  console.log("PASS: a reload and a new tab skip the login");
+
+  // A different browser profile has no cookie and must log in.
+  const other = await (await browser.newContext({ ignoreHTTPSErrors: true })).newPage();
+  await other.goto(url);
+  await other.getByRole("heading", { name: /Log in to/ }).waitFor({ timeout: TIMEOUT_MS });
+  console.log("PASS: a browser with no cookie gets the login screen");
+
+  if (cspViolations.length > 0) {
+    throw new Error(`The page broke the Content Security Policy: ${cspViolations.join("; ")}`);
+  }
+  console.log("PASS: no Content Security Policy violation");
 } catch (error) {
   failed = true;
   console.error(`FAIL: ${error.message}`);

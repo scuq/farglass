@@ -12,6 +12,7 @@ use farglassd::{Config, Server};
 use futures_util::{SinkExt as _, StreamExt as _};
 use http_body_util::{BodyExt as _, Empty};
 use hyper::header::{ACCEPT_ENCODING, CACHE_CONTROL, CONTENT_ENCODING, CONTENT_TYPE, HOST};
+use hyper::header::{ORIGIN as ORIGIN_HEADER, SET_COOKIE};
 use hyper::{Method, Request, Response, StatusCode, Version};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use rustls::pki_types::pem::PemObject as _;
@@ -28,8 +29,12 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
 const INDEX: &str = "<!doctype html><title>farglass</title>";
 
+/// The origin of the shell on the test server. The client connects to the name `localhost`.
+const ORIGIN: &str = "https://localhost";
+
 struct TestServer {
     addr: SocketAddr,
+    sessions: Arc<farglassd::cookie::SessionStore>,
     /// The certificate that the server uses. The client trusts only this certificate.
     cert: CertificateDer<'static>,
     _dir: TempDir,
@@ -66,9 +71,11 @@ impl TestServer {
         };
         let server = Server::bind(&config).await.unwrap();
         let addr = server.local_addr();
+        let sessions = server.sessions();
         tokio::spawn(server.run(std::future::pending()));
         Self {
             addr,
+            sessions,
             cert: CertificateDer::from_pem_file(cert_path).unwrap(),
             _dir: dir,
         }
@@ -101,14 +108,28 @@ impl TestServer {
         alpn: &[&str],
         headers: &[(hyper::header::HeaderName, &str)],
     ) -> Response<Bytes> {
+        self.request(Method::GET, path, alpn, headers, Bytes::new())
+            .await
+    }
+
+    async fn request(
+        &self,
+        method: Method,
+        path: &str,
+        alpn: &[&str],
+        headers: &[(hyper::header::HeaderName, &str)],
+        body: Bytes,
+    ) -> Response<Bytes> {
         let tls = self.connect(alpn).await;
         let h2 = tls.get_ref().1.alpn_protocol() == Some(b"h2");
-        let mut request =
-            Request::get(format!("https://localhost{path}")).header(HOST, "localhost");
+        let mut request = Request::builder()
+            .method(method)
+            .uri(format!("https://localhost{path}"))
+            .header(HOST, "localhost");
         for (name, value) in headers {
             request = request.header(name, *value);
         }
-        let request = request.body(Empty::<Bytes>::new()).unwrap();
+        let request = request.body(http_body_util::Full::new(body)).unwrap();
 
         let response = if h2 {
             let (mut sender, conn) =
@@ -245,7 +266,13 @@ async fn certificate_files_of_the_administrator_serve_requests() {
     let state_dir = config.state_dir.clone();
 
     let server = TestServer::start_with(config, dir).await;
-    assert_eq!(server.get("/").await.status(), StatusCode::OK);
+    let response = server.get("/").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    // With a certificate of the administrator, the browser can keep HTTPS for the host.
+    assert_eq!(
+        header(&response, "strict-transport-security".parse().unwrap()),
+        "max-age=31536000"
+    );
     assert!(!Path::new(&state_dir).join("tls").exists());
 }
 
@@ -309,13 +336,25 @@ where
     ws.close(None).await.unwrap();
 }
 
-async fn websocket_http1(server: &TestServer) -> Ws<TlsStream<TcpStream>> {
+/// Opens a WebSocket through HTTP/1.1 with the headers `headers`.
+async fn try_websocket(
+    server: &TestServer,
+    headers: &[(&str, &str)],
+) -> Result<Ws<TlsStream<TcpStream>>, tokio_tungstenite::tungstenite::Error> {
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
     let tls = server.connect(&["http/1.1"]).await;
-    let (ws, response) = tokio_tungstenite::client_async("wss://localhost/ws", tls)
-        .await
-        .unwrap();
+    let mut request = "wss://localhost/ws".into_client_request().unwrap();
+    for (name, value) in headers {
+        let name = hyper::header::HeaderName::from_bytes(name.as_bytes()).unwrap();
+        request.headers_mut().insert(name, value.parse().unwrap());
+    }
+    let (ws, response) = tokio_tungstenite::client_async(request, tls).await?;
     assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
-    ws
+    Ok(ws)
+}
+
+async fn websocket_http1(server: &TestServer) -> Ws<TlsStream<TcpStream>> {
+    try_websocket(server, &[("origin", ORIGIN)]).await.unwrap()
 }
 
 #[tokio::test]
@@ -342,6 +381,7 @@ async fn websocket_works_through_http2_extended_connect() {
         .uri("https://localhost/ws")
         .extension(hyper::ext::Protocol::from_static("websocket"))
         .header("sec-websocket-version", "13")
+        .header("origin", ORIGIN)
         .body(Empty::<Bytes>::new())
         .unwrap();
     let response = sender.send_request(request).await.unwrap();
@@ -407,4 +447,152 @@ async fn protocol_violations_close_the_connection() {
             "{name}"
         );
     }
+}
+
+#[tokio::test]
+async fn websocket_from_a_different_origin_or_with_no_origin_is_refused() {
+    let server = TestServer::start().await;
+    for headers in [&[("origin", "https://evil.example")][..], &[][..]] {
+        let response = match try_websocket(&server, headers).await {
+            Ok(_) => panic!("the server accepted the WebSocket with {headers:?}"),
+            Err(tokio_tungstenite::tungstenite::Error::Http(response)) => response,
+            Err(error) => panic!("unexpected error {error:?}"),
+        };
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{headers:?}");
+    }
+}
+
+#[tokio::test]
+async fn each_response_has_the_security_headers_and_no_hsts_with_a_self_signed_certificate() {
+    let server = TestServer::start().await;
+    for path in ["/", "/assets/index-BcmqJDP6.js", "/missing.js"] {
+        let response = server.get(path).await;
+        let csp = header(&response, "content-security-policy".parse().unwrap());
+        assert!(csp.contains("script-src 'self'"), "{path}: {csp}");
+        assert!(csp.contains("frame-ancestors 'none'"), "{path}: {csp}");
+        assert!(
+            !csp.contains("unsafe-inline") && !csp.contains("unsafe-eval"),
+            "{path}: {csp}"
+        );
+        assert_eq!(
+            header(&response, "cross-origin-opener-policy".parse().unwrap()),
+            "same-origin"
+        );
+        assert_eq!(
+            header(&response, "cross-origin-embedder-policy".parse().unwrap()),
+            "require-corp"
+        );
+        assert_eq!(
+            header(&response, "strict-transport-security".parse().unwrap()),
+            "",
+            "{path}"
+        );
+    }
+}
+
+fn identity() -> farglassd::login::Identity {
+    farglassd::login::Identity {
+        uid: 4242,
+        name: "alice".to_owned(),
+    }
+}
+
+/// Redeems `ticket` with `POST /session`.
+async fn post_session(server: &TestServer, ticket: &str, origin: &str) -> Response<Bytes> {
+    let body = Bytes::from(format!(r#"{{"ticket":"{ticket}"}}"#));
+    let headers = [
+        (ORIGIN_HEADER, origin),
+        (hyper::header::CONTENT_TYPE, "application/json"),
+    ];
+    server
+        .request(Method::POST, "/session", &["h2"], &headers, body)
+        .await
+}
+
+/// Returns the user in the hello message of a WebSocket with the cookie `cookie`.
+async fn hello_user(server: &TestServer, cookie: &str) -> Option<String> {
+    let mut ws = try_websocket(server, &[("origin", ORIGIN), ("cookie", cookie)])
+        .await
+        .unwrap();
+    let ConnectionMessage::Hello { user, .. } = next_frame(&mut ws).await.parse().unwrap();
+    user
+}
+
+#[tokio::test]
+async fn ticket_gives_a_cookie_and_the_cookie_gives_the_user_to_a_new_connection() {
+    let server = TestServer::start().await;
+    let ticket = server.sessions.ticket(identity());
+
+    let response = post_session(&server, &ticket, ORIGIN).await;
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    let set_cookie = header(&response, SET_COOKIE).to_owned();
+    for attribute in [
+        "__Host-farglass=",
+        "HttpOnly",
+        "Secure",
+        "SameSite=Strict",
+        "Path=/",
+    ] {
+        assert!(
+            set_cookie.contains(attribute),
+            "{attribute} is missing in {set_cookie}"
+        );
+    }
+    let cookie = set_cookie.split(';').next().unwrap().to_owned();
+
+    // A reload: the new connection has the user with no login.
+    assert_eq!(hello_user(&server, &cookie).await.as_deref(), Some("alice"));
+    assert_eq!(hello_user(&server, "__Host-farglass=forged").await, None);
+
+    // The ticket works one time only.
+    assert_eq!(
+        post_session(&server, &ticket, ORIGIN).await.status(),
+        StatusCode::FORBIDDEN
+    );
+
+    // DELETE /session removes the session, and the cookie no longer works.
+    let headers = [
+        (ORIGIN_HEADER, ORIGIN),
+        (hyper::header::COOKIE, cookie.as_str()),
+    ];
+    let response = server
+        .request(Method::DELETE, "/session", &["h2"], &headers, Bytes::new())
+        .await;
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert!(header(&response, SET_COOKIE).contains("Max-Age=0"));
+    assert_eq!(hello_user(&server, &cookie).await, None);
+}
+
+#[tokio::test]
+async fn session_endpoint_refuses_a_different_origin_and_a_bad_body() {
+    let server = TestServer::start().await;
+    let ticket = server.sessions.ticket(identity());
+    assert_eq!(
+        post_session(&server, &ticket, "https://evil.example")
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    // The refused request did not use the ticket.
+    assert_eq!(
+        post_session(&server, &ticket, ORIGIN).await.status(),
+        StatusCode::NO_CONTENT
+    );
+
+    let headers = [(ORIGIN_HEADER, ORIGIN)];
+    let response = server
+        .request(
+            Method::POST,
+            "/session",
+            &["h2"],
+            &headers,
+            Bytes::from("not json"),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let large = Bytes::from(vec![b'a'; 4096]);
+    let response = server
+        .request(Method::POST, "/session", &["h2"], &headers, large)
+        .await;
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
 }

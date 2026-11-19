@@ -78,7 +78,12 @@ user: string,
 /**
  * The uid of the user.
  */
-uid: number, } | { "type": "failure", 
+uid: number, 
+/**
+ * From farglassd to the shell: a one-time ticket. The shell gives it to
+ * `POST /session`, and the answer sets the session cookie.
+ */
+ticket?: string, } | { "type": "failure", 
 /**
  * The text for the user. It does not tell if the user exists.
  */

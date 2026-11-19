@@ -12,6 +12,7 @@ use farglass_proto::{ChannelId, Frame, FrameType};
 use tokio::sync::mpsc;
 
 use crate::agents::Registry;
+use crate::cookie::SessionStore;
 
 /// A user who logged in, or the user of `dev_user`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -78,6 +79,8 @@ pub struct LoginTask {
     pub registry: Arc<Registry>,
     /// The longest wait for the agent of the user after a success.
     pub agent_wait: Duration,
+    /// The store that gives the ticket for the session cookie.
+    pub sessions: Arc<SessionStore>,
 }
 
 impl LoginTask {
@@ -109,14 +112,16 @@ impl LoginTask {
         loop {
             tokio::select! {
                 event = attempt.next() => {
-                    let event = event.map_err(|error| {
+                    let mut event = event.map_err(|error| {
                         tracing::error!(%error, "the login service stopped during a login");
                         "The login service stopped.".to_owned()
                     })?;
-                    let done = match &event {
-                        LoginEvent::Success { user, uid } => {
+                    let done = match &mut event {
+                        LoginEvent::Success { user, uid, ticket } => {
                             self.wait_for_agent(*uid).await;
-                            self.user.set(Identity { uid: *uid, name: user.clone() });
+                            let identity = Identity { uid: *uid, name: user.clone() };
+                            *ticket = Some(self.sessions.ticket(identity.clone()));
+                            self.user.set(identity);
                             true
                         }
                         LoginEvent::Failure { .. } | LoginEvent::Blocked { .. } => true,

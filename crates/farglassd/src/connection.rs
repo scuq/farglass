@@ -17,7 +17,9 @@ use futures_util::{Sink, SinkExt as _, Stream, StreamExt as _};
 use tokio::sync::mpsc;
 
 use crate::agents::{Agent, ConnectionId, Registry, ToAgent};
+use crate::cookie::SessionStore;
 use crate::login::{Identity, LoginTask, SharedUser};
+use crate::origin::OriginPolicy;
 
 /// The frames from the agent that wait for the browser. When the queue is
 /// full, the agent link of the user waits. Flow control comes with F014.
@@ -37,6 +39,30 @@ pub struct Context {
     pub dev_user: Option<Identity>,
     /// The longest wait for the agent of a user after a login.
     pub agent_wait: Duration,
+    /// The tickets and the sessions of the cookies.
+    pub sessions: Arc<SessionStore>,
+    /// The Origin check.
+    pub origin: OriginPolicy,
+    /// Reports whether responses get Strict-Transport-Security. Only with a
+    /// certificate of the administrator: with a self-signed certificate, the
+    /// header stops the user from accepting the next certificate.
+    pub hsts: bool,
+}
+
+impl Context {
+    /// Returns a context with `registry` and `login_socket` and the defaults for all other fields.
+    #[must_use]
+    pub fn new(registry: Arc<Registry>, login_socket: PathBuf) -> Self {
+        Self {
+            registry,
+            login_socket,
+            dev_user: None,
+            agent_wait: AGENT_WAIT,
+            sessions: Arc::new(SessionStore::default()),
+            origin: OriginPolicy::default(),
+            hsts: false,
+        }
+    }
 }
 
 /// The default wait for the agent after a login. A new session starts the agent in about one second.
@@ -148,6 +174,7 @@ struct Connection<'a, O> {
 /// Runs one browser connection until the shell closes it or breaks the protocol.
 ///
 /// `peer` is the address of the browser, for the rate limiter of the login.
+/// `user` is the user from the session cookie or from `dev_user`, or `None`.
 /// The function sends the hello message first, with the user if the
 /// connection has one. It gives each channel to the agent of the user.
 ///
@@ -157,6 +184,7 @@ struct Connection<'a, O> {
 pub async fn run<I, O, E>(
     context: &Context,
     peer: Option<IpAddr>,
+    user: Option<Identity>,
     incoming: &mut I,
     outgoing: &mut O,
 ) -> Result<(), Violation>
@@ -164,7 +192,7 @@ where
     I: Stream<Item = Result<Frame, Violation>> + Unpin,
     O: Sink<Frame, Error = E> + Unpin,
 {
-    let user = SharedUser::new(context.dev_user.clone());
+    let user = SharedUser::new(user);
     let hello = ConnectionMessage::Hello {
         version: PROTOCOL_VERSION,
         user: user.get().map(|identity| identity.name),
@@ -341,6 +369,7 @@ where
             user: self.user.clone(),
             registry: self.context.registry.clone(),
             agent_wait: self.context.agent_wait,
+            sessions: self.context.sessions.clone(),
         };
         tokio::spawn(task.run());
         self.channels.insert(

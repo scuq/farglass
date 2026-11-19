@@ -8,7 +8,8 @@ use std::net::SocketAddr;
 
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade, close_code};
 use axum::extract::{ConnectInfo, State};
-use axum::response::Response;
+use axum::http::{HeaderMap, StatusCode, Uri};
+use axum::response::{IntoResponse as _, Response};
 use farglass_proto::{Frame, HEADER_LEN, MAX_PAYLOAD_LEN};
 use futures_util::{SinkExt as _, StreamExt as _, future};
 
@@ -18,18 +19,36 @@ use crate::connection::{self, Context, Violation};
 const MAX_MESSAGE_LEN: usize = HEADER_LEN + MAX_PAYLOAD_LEN;
 
 /// Accepts the WebSocket handshake and starts the connection task.
+///
+/// The handshake must come from a page of this server (the Origin check).
+/// The user of the connection comes from `dev_user` or from the session cookie.
 pub async fn upgrade(
     State(context): State<Arc<Context>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    uri: Uri,
     ws: WebSocketUpgrade,
 ) -> Response {
+    if !context.origin.allows(&headers, &uri) {
+        tracing::warn!(%peer, origin = ?headers.get("origin"), "refused a WebSocket from a different origin");
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let user = context
+        .dev_user
+        .clone()
+        .or_else(|| context.sessions.user(&headers));
     ws.max_message_size(MAX_MESSAGE_LEN)
         .max_frame_size(MAX_MESSAGE_LEN)
-        .on_upgrade(move |socket| serve(socket, context, Some(peer)))
+        .on_upgrade(move |socket| serve(socket, context, Some(peer), user))
 }
 
 /// Runs one connection until the peer closes it or breaks the protocol.
-async fn serve(socket: WebSocket, context: Arc<Context>, peer: Option<SocketAddr>) {
+async fn serve(
+    socket: WebSocket,
+    context: Arc<Context>,
+    peer: Option<SocketAddr>,
+    user: Option<crate::login::Identity>,
+) {
     let (sink, stream) = socket.split();
     let mut outgoing =
         sink.with(|frame: Frame| future::ok::<_, axum::Error>(Message::Binary(frame.to_bytes())));
@@ -48,7 +67,9 @@ async fn serve(socket: WebSocket, context: Arc<Context>, peer: Option<SocketAddr
         });
 
     let peer = peer.map(|addr| addr.ip());
-    if let Err(violation) = connection::run(&context, peer, &mut incoming, &mut outgoing).await {
+    if let Err(violation) =
+        connection::run(&context, peer, user, &mut incoming, &mut outgoing).await
+    {
         tracing::debug!(%violation, "closing the WebSocket connection");
         let frame = CloseFrame {
             code: close_code::PROTOCOL,

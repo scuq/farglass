@@ -135,7 +135,14 @@ async fn correct_password_succeeds_with_the_prompt_and_the_information_message()
     assert!(!echo, "a password prompt must not show the answer");
 
     let uid = nix::unistd::getuid().as_raw();
-    assert_eq!(events.last(), Some(&LoginEvent::Success { user, uid }));
+    assert_eq!(
+        events.last(),
+        Some(&LoginEvent::Success {
+            user,
+            uid,
+            ticket: None
+        })
+    );
 }
 
 #[tokio::test]
@@ -209,7 +216,8 @@ async fn root_cannot_log_in_by_default() {
         events.last(),
         Some(&LoginEvent::Success {
             user: "root".to_owned(),
-            uid: 0
+            uid: 0,
+            ticket: None
         })
     );
 }

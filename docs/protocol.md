@@ -100,7 +100,7 @@ farglassd sends each event as a control message:
 | `{"type":"info","text":"..."}` | A PAM module gives information. |
 | `{"type":"error","text":"..."}` | A PAM module gives an error message. |
 | `{"type":"confirm","sessions":[{"id":"2","kind":"wayland","seat":"seat0"}]}` | The password is correct, but the user has a local graphical session. The shell must ask the user. |
-| `{"type":"success","user":"alice","uid":1000}` | The login succeeded. The connection has the user from now on. |
+| `{"type":"success","user":"alice","uid":1000,"ticket":"..."}` | The login succeeded. The connection has the user from now on. The ticket gives the session cookie. |
 | `{"type":"failure","message":"The login failed."}` | The login failed. |
 | `{"type":"blocked","retry_after":30}` | Too many failures. A new attempt can start after `retry_after` seconds. |
 
@@ -113,6 +113,33 @@ The shell answers a prompt with a control message:
 The shell answers a confirm event with `{"type":"confirm","accept":true}` or `{"type":"confirm","accept":false}`.
 With `true`, the local graphical session ends, and the web session starts.
 With `false`, the login stops with a failure, and the local session continues.
+
+## Session cookie
+
+A WebSocket message cannot set a cookie.
+Thus the success event has a one-time ticket, which is valid for 60 seconds.
+The shell sends the ticket to `POST /session` with the body `{"ticket":"..."}`.
+The answer is `204 No Content` with this cookie:
+
+```
+Set-Cookie: __Host-farglass=TOKEN; Path=/; Secure; HttpOnly; SameSite=Strict
+```
+
+The browser sends the cookie with each later WebSocket handshake.
+farglassd then gives the connection the user, and the hello message has the field `user`.
+The session is valid for 12 hours.
+`DELETE /session` removes the session and the cookie.
+farglassd keeps only the SHA-256 hash of each ticket and token, in memory.
+After a restart of farglassd, each browser must log in again.
+
+## Origin check
+
+farglassd accepts a WebSocket handshake, `POST /session`, and `DELETE /session` only if the `Origin` header is `https://HOST`.
+`HOST` is the host of the request, with the port.
+A request with no `Origin` header, or with a different origin, gets `403 Forbidden`.
+The option `allowed_origins` adds more origins, for example the Vite server.
+In `dev_user` mode, the host must also be `localhost` or a loopback address.
+Thus a different site cannot use DNS rebinding to get a user with no login.
 
 farglassd sends `success` after the agent of the user connected, at most 30 seconds after PAM accepted the user.
 

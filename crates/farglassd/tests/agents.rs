@@ -42,6 +42,9 @@ impl Browser {
                 name: format!("user{uid}"),
             }),
             agent_wait: Duration::ZERO,
+            sessions: Default::default(),
+            origin: Default::default(),
+            hsts: false,
         };
         let task = tokio::spawn(async move {
             let mut incoming = stream::unfold(server_in, |mut rx| async move {
@@ -52,7 +55,14 @@ impl Browser {
                 tx.send(frame).await.map(|()| tx)
             });
             let mut outgoing = std::pin::pin!(outgoing);
-            connection::run(&context, None, &mut incoming, &mut outgoing).await
+            connection::run(
+                &context,
+                None,
+                context.dev_user.clone(),
+                &mut incoming,
+                &mut outgoing,
+            )
+            .await
         });
         let mut browser = Self {
             to_server,

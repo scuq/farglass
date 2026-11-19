@@ -16,10 +16,11 @@ use tokio_rustls::TlsAcceptor;
 
 use crate::agents::{self, BindError, Registry};
 use crate::config::{Config, ConfigError};
-use crate::connection::{AGENT_WAIT, Context};
+use crate::connection::Context;
 use crate::http;
 use crate::login::Identity;
-use crate::tls::{CertStore, TlsError};
+use crate::origin::OriginPolicy;
+use crate::tls::{CertStore, TlsError, TlsSource};
 
 /// A client must complete the TLS handshake in this time.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -61,6 +62,7 @@ pub struct Server {
     router: Router,
     agent_listener: UnixListener,
     registry: Arc<Registry>,
+    context: Arc<Context>,
     /// Reports whether `dev_user` is active. Then each connection must come from loopback.
     dev_mode: bool,
 }
@@ -84,7 +86,9 @@ impl Server {
     /// [`ServerError`] if the configuration, the certificate, or the listener is not usable.
     pub async fn bind(config: &Config) -> Result<Self, ServerError> {
         let dev_user = config.dev_uid()?.map(Identity::from_uid);
-        let certs = CertStore::open(config.tls_source()?)?;
+        let source = config.tls_source()?;
+        let hsts = matches!(source, TlsSource::Files { .. });
+        let certs = CertStore::open(source)?;
         let acceptor = TlsAcceptor::from(Arc::new(certs.server_config()?));
         let bind_error = |source| ServerError::Bind {
             addr: config.listen,
@@ -96,17 +100,21 @@ impl Server {
         let registry = Registry::new();
         let dev_mode = dev_user.is_some();
         let context = Arc::new(Context {
-            registry: registry.clone(),
-            login_socket: config.login_socket.clone(),
             dev_user,
-            agent_wait: AGENT_WAIT,
+            origin: OriginPolicy {
+                extra: config.allowed_origins.clone(),
+                loopback_only: dev_mode,
+            },
+            hsts,
+            ..Context::new(registry.clone(), config.login_socket.clone())
         });
         Ok(Self {
             listener,
             local_addr,
             certs,
             acceptor,
-            router: http::router(&config.web_root, context),
+            router: http::router(&config.web_root, context.clone()),
+            context,
             agent_listener,
             registry,
             dev_mode,
@@ -123,6 +131,12 @@ impl Server {
     #[must_use]
     pub fn certs(&self) -> Arc<CertStore> {
         self.certs.clone()
+    }
+
+    /// Returns the sessions of the cookies.
+    #[must_use]
+    pub fn sessions(&self) -> Arc<crate::cookie::SessionStore> {
+        self.context.sessions.clone()
     }
 
     /// Returns the registry of the connected agents.

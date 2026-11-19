@@ -84,6 +84,11 @@ pub enum LoginEvent {
         user: String,
         /// The uid of the user.
         uid: u32,
+        /// From farglassd to the shell: a one-time ticket. The shell gives it to
+        /// `POST /session`, and the answer sets the session cookie.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        ticket: Option<String>,
     },
     /// The login failed. The connection ends after this message.
     Failure {

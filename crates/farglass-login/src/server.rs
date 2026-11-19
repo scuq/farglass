@@ -284,7 +284,15 @@ impl Service {
                 return session_failed(link).await;
             }
         }
-        send(link, &LoginEvent::Success { user: name, uid }).await
+        send(
+            link,
+            &LoginEvent::Success {
+                user: name,
+                uid,
+                ticket: None,
+            },
+        )
+        .await
     }
 
     /// Waits for the answer to a confirm event. Returns `false` for a decline, a timeout,

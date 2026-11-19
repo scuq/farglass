@@ -2,6 +2,7 @@ import { createSignal, Match, Switch } from "solid-js";
 import { Echo } from "./Echo";
 import { LoginScreen } from "./LoginScreen";
 import { type Connection, connect, endpointUrl } from "./proto";
+import { storeSession } from "./session";
 
 /** The state of the connection to farglassd. */
 type Stage =
@@ -14,7 +15,7 @@ type Stage =
  * The root of the shell. It connects to farglassd, shows the login screen if
  * the connection has no user, and then the desktop. In M1, the desktop has only the echo panel.
  */
-export function App(props: { connect?: () => Promise<Connection> }) {
+export function App(props: { connect?: () => Promise<Connection>; storeSession?: (ticket: string) => Promise<boolean> }) {
   const [stage, setStage] = createSignal<Stage>({ kind: "connecting" });
 
   const open = (props.connect ?? (() => connect(endpointUrl())))();
@@ -42,9 +43,13 @@ export function App(props: { connect?: () => Promise<Connection> }) {
             return (
               <LoginScreen
                 connection={connection}
-                onlogin={(user) => {
+                onlogin={(user, ticket) => {
                   connection.user = user;
                   setStage({ kind: "desktop", connection, user });
+                  if (ticket) {
+                    // The cookie lets a reload or a new tab skip the login.
+                    void (props.storeSession ?? storeSession)(ticket);
+                  }
                 }}
               />
             );
