@@ -1,7 +1,7 @@
 ---
 id: P01
 title: M0 skeleton: workspace, web server, echo channel
-status: planned
+status: done
 ---
 
 ## Goal
