@@ -9,6 +9,7 @@ export const PAGES = [
   { id: "datetime", label: "Date and time", keywords: ["clock", "time", "timezone", "time zone", "ntp", "date"] },
   { id: "system", label: "System", keywords: ["hostname", "host name", "computer name", "kernel", "operating system", "about"] },
   { id: "network", label: "Network", keywords: ["ip", "address", "ethernet", "wifi", "wi-fi", "wireless", "dns", "networkmanager"] },
+  { id: "passkeys", label: "Passkeys", keywords: ["passkey", "security key", "webauthn", "fido", "two-factor", "2fa", "second factor", "recovery code", "login", "password"] },
   { id: "users", label: "Users and sessions", keywords: ["user", "session", "log out", "logout", "logind"] },
   { id: "resources", label: "Resources", keywords: ["cpu", "memory", "ram", "bandwidth", "data rate", "performance", "usage", "score", "cost"] },
   { id: "power", label: "Power", keywords: ["restart", "reboot", "shut down", "shutdown", "power off"] },

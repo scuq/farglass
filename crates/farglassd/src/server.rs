@@ -144,6 +144,9 @@ impl Server {
             hsts,
             transport,
             alt_svc,
+            passkeys: Some(Arc::new(crate::passkeys::PasskeyStore::new(
+                config.state_dir.join("passkeys"),
+            ))),
             idle_logout: (config.idle_logout_minutes > 0)
                 .then(|| Duration::from_secs(config.idle_logout_minutes * 60)),
             idle_lock: (config.idle_lock_minutes > 0)

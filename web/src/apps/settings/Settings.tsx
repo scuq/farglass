@@ -7,6 +7,7 @@ import { FocusPage } from "./pages/Focus";
 import { KeyboardPage } from "./pages/Keyboard";
 import { NetworkPage } from "./pages/Network";
 import { PowerPage } from "./pages/Power";
+import { PasskeysPage } from "./pages/Passkeys";
 import { ResourcesPage } from "./pages/Resources";
 import { SystemPage } from "./pages/System";
 import { UsersPage } from "./pages/Users";
@@ -83,6 +84,9 @@ export default function Settings(props: { context: AppContext }) {
           </Match>
           <Match when={page() === "network"}>
             <NetworkPage dbus={dbus} />
+          </Match>
+          <Match when={page() === "passkeys"}>
+            <PasskeysPage context={props.context} />
           </Match>
           <Match when={page() === "users"}>
             <UsersPage dbus={dbus} user={props.context.user} />

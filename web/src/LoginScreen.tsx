@@ -1,5 +1,6 @@
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import { describeSession, Login, promptAutocomplete, promptLabel } from "./login";
+import { credentialJson, hasPasskeys, passkeyError, requestOptions } from "./passkey";
 import type { Connection, LocalSession, LoginEvent } from "./proto";
 
 /** The prompt that waits for an answer. */
@@ -17,7 +18,15 @@ interface Message {
 }
 
 /** The state of the login screen. */
-type Stage = "waiting" | "prompt" | "checking" | "confirm" | "failed" | "blocked";
+type Stage = "waiting" | "prompt" | "checking" | "confirm" | "passkey" | "failed" | "blocked";
+
+/** The passkey step of a login (F034). */
+interface PasskeyStep {
+  /** The options of `navigator.credentials.get`, or null if no passkey belongs to this host name. */
+  readonly options: unknown;
+  /** The host names of the other passkeys of the user. */
+  readonly elsewhere: readonly string[];
+}
 
 /**
  * The login screen. It shows each PAM prompt and message from farglassd.
@@ -40,6 +49,10 @@ export function LoginScreen(props: {
   const [answer, setAnswer] = createSignal("");
   const [retryIn, setRetryIn] = createSignal(0);
   const [local, setLocal] = createSignal<readonly LocalSession[]>([]);
+  const [passkey, setPasskey] = createSignal<PasskeyStep | null>(null);
+  const [useCode, setUseCode] = createSignal(false);
+  let codeInput: HTMLInputElement | undefined;
+  let passkeyButton: HTMLButtonElement | undefined;
   let nextMessage = 0;
   let login: Login | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -68,6 +81,18 @@ export function LoginScreen(props: {
         setLocal(event.sessions);
         setStage("confirm");
         queueMicrotask(() => cancelButton?.focus());
+        break;
+      case "passkey": {
+        setPrompt(null);
+        const options = event.options ?? null;
+        setPasskey({ options, elsewhere: event.elsewhere });
+        // With no passkey for this host name, or no WebAuthn in this browser, only a recovery code works.
+        setUseCode(options === null || !hasPasskeys());
+        setStage("passkey");
+        queueMicrotask(() => (useCode() ? codeInput?.focus() : passkeyButton?.focus()));
+        break;
+      }
+      case "verified":
         break;
       case "success":
         props.onlogin(event.user, event.ticket);
@@ -130,10 +155,34 @@ export function LoginScreen(props: {
     setStage("checking");
   };
 
+  /** Asks the browser for the passkey and gives it to farglassd. A failed request lets the user try again or use a code. */
+  const usePasskey = async () => {
+    const step = passkey();
+    if (!login || !step?.options) return;
+    try {
+      const credential = (await navigator.credentials.get({ publicKey: requestOptions(step.options) })) as PublicKeyCredential | null;
+      if (!credential) throw new DOMException("no credential", "NotAllowedError");
+      login.passkey(credentialJson(credential));
+      setStage("checking");
+    } catch (error) {
+      say("error", passkeyError(error));
+    }
+  };
+
+  const submitCode = (event: SubmitEvent) => {
+    event.preventDefault();
+    const code = codeInput?.value.trim() ?? "";
+    if (!login || !code) return;
+    login.recoveryCode(code);
+    if (codeInput) codeInput.value = "";
+    setStage("checking");
+  };
+
   /** Starts a new attempt after a failure or a block. */
   const retry = () => {
     setMessages([]);
     setPrompt(null);
+    setPasskey(null);
     setStage("waiting");
     begin();
   };
@@ -216,6 +265,62 @@ export function LoginScreen(props: {
             </button>
           </div>
         </div>
+      </Show>
+
+      <Show when={stage() === "passkey" && passkey()}>
+        {(step) => (
+          <div class="login-passkey">
+            <h2>Second step: your passkey</h2>
+            <Show when={step().elsewhere.length > 0 && !step().options}>
+              <p>
+                Your passkeys belong to {step().elsewhere.join(" and ")}. A passkey works only on its host name: open farglass at{" "}
+                {step().elsewhere.map((host) => `https://${host}`).join(" or ")}, or use a recovery code.
+              </p>
+            </Show>
+            <Show when={step().options && !hasPasskeys()}>
+              <p>This browser cannot use a passkey on this page. A passkey needs HTTPS with a valid certificate. Use a recovery code.</p>
+            </Show>
+            <Show when={step().options && hasPasskeys()}>
+              <p>Use the passkey that you added in Settings &gt; Passkeys: your phone, a security key, or this computer.</p>
+              <button
+                type="button"
+                class="primary"
+                ref={(element) => {
+                  passkeyButton = element;
+                }}
+                onClick={() => void usePasskey()}
+              >
+                Use my passkey
+              </button>
+            </Show>
+            <Show
+              when={useCode()}
+              fallback={
+                <button type="button" class="login-link" onClick={() => setUseCode(true)}>
+                  I lost my passkey: use a recovery code
+                </button>
+              }
+            >
+              <form onSubmit={submitCode}>
+                <label for="login-code">Recovery code</label>
+                <input
+                  id="login-code"
+                  ref={(element) => {
+                    codeInput = element;
+                  }}
+                  type="text"
+                  autocomplete="one-time-code"
+                  autocapitalize="off"
+                  spellcheck={false}
+                  placeholder="xxxx-xxxx-xxxx-xxxx"
+                  required
+                />
+                <button type="submit">Continue</button>
+              </form>
+              <p class="login-hint">Each recovery code works one time. With no code left, the administrator can remove your passkeys.</p>
+            </Show>
+          </div>
+        )}
       </Show>
 
       <p class="login-state" role="status">

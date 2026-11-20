@@ -222,3 +222,37 @@ button.danger {
   border: 0;
   cursor: pointer;
 }
+
+/* The passkey step of the login (F034). */
+.login-passkey {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 28rem;
+  margin-bottom: 1rem;
+}
+.login-passkey h2 {
+  font-size: 1.1rem;
+  margin: 0;
+}
+.login-passkey p {
+  margin: 0;
+}
+.login-passkey > button {
+  justify-self: start;
+  padding: 0.5rem 1rem;
+  font: inherit;
+}
+.login-link {
+  justify-self: start;
+  padding: 0;
+  color: var(--focus);
+  font: inherit;
+  text-decoration: underline;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.login-hint {
+  color: var(--muted);
+  font-size: 0.9rem;
+}

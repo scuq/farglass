@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use farglass_proto::login::LoginReply;
-use farglass_proto::message::{Close, CloseReason, ConnectionMessage, Open};
+use farglass_proto::message::{Close, CloseReason, ConnectionMessage, Open, PasskeyRequest};
 use farglass_proto::{ChannelId, Frame, FrameError, FrameType, PROTOCOL_VERSION, Side};
 use futures_util::{Sink, SinkExt as _, Stream, StreamExt as _};
 use tokio::sync::mpsc;
@@ -46,6 +46,8 @@ pub struct Context {
     pub origin: OriginPolicy,
     /// The browser connections of each user, and the logout announcement.
     pub presence: Arc<Presence>,
+    /// The passkeys of the users (F034). `None` turns the second factor and the passkeys channel off.
+    pub passkeys: Option<Arc<crate::passkeys::PasskeyStore>>,
     /// The time with no browser connection before the idle logout. `None` turns it off.
     pub idle_logout: Option<Duration>,
     /// The time with no keyboard or pointer activity before the idle lock. `None` turns it off.
@@ -72,6 +74,7 @@ impl Context {
             sessions: Arc::new(SessionStore::default()),
             origin: OriginPolicy::default(),
             presence: Arc::new(Presence::default()),
+            passkeys: None,
             idle_logout: Some(IDLE_LOGOUT),
             idle_lock: Some(IDLE_LOCK),
             hsts: false,
@@ -131,6 +134,13 @@ enum Local {
         closed_by_shell: bool,
         closed_by_peer: bool,
     },
+    /// The passkeys channel, which farglassd serves (F034).
+    Passkeys {
+        /// The queue to the passkeys task. `None` after the shell closed the channel.
+        requests: Option<mpsc::Sender<PasskeyRequest>>,
+        closed_by_shell: bool,
+        closed_by_peer: bool,
+    },
 }
 
 impl Local {
@@ -140,6 +150,9 @@ impl Local {
                 closed_by_shell, ..
             }
             | Self::Login {
+                closed_by_shell, ..
+            }
+            | Self::Passkeys {
                 closed_by_shell, ..
             } => *closed_by_shell,
         }
@@ -154,6 +167,11 @@ impl Local {
                 ..
             }
             | Self::Login {
+                closed_by_shell,
+                closed_by_peer,
+                ..
+            }
+            | Self::Passkeys {
                 closed_by_shell,
                 closed_by_peer,
                 ..
@@ -179,6 +197,8 @@ struct Connection<'a, O> {
     id: ConnectionId,
     context: &'a Context,
     rhost: String,
+    /// The origin of the page, from the checked `Origin` header.
+    origin: Option<String>,
     user: SharedUser,
     /// The user of a locked session. The connection then has no user until a login of this user.
     locked: Option<Identity>,
@@ -196,6 +216,7 @@ struct Connection<'a, O> {
 ///
 /// `peer` is the address of the browser, for the rate limiter of the login.
 /// `user` is the user from the session cookie or from `dev_user`, or `None`.
+/// `origin` is the `Origin` header that the transport checked: a passkey belongs to its host name (F034).
 /// The function sends the hello message first, with the user if the
 /// connection has one. It gives each channel to the agent of the user.
 ///
@@ -206,6 +227,7 @@ pub async fn run<I, O, E>(
     context: &Context,
     peer: Option<IpAddr>,
     user: Option<Identity>,
+    origin: Option<String>,
     incoming: &mut I,
     outgoing: &mut O,
 ) -> Result<(), Violation>
@@ -249,6 +271,7 @@ where
         id: context.registry.connection_id(),
         context,
         rhost: peer.map_or_else(String::new, |ip| ip.to_canonical().to_string()),
+        origin,
         user,
         locked,
         outgoing,
@@ -371,6 +394,7 @@ where
             self.last_opened = channel.get();
             return match frame.parse::<Open>() {
                 Ok(Open::Login) => self.open_login(channel).await,
+                Ok(Open::Passkeys) => self.open_passkeys(channel).await,
                 // farglassd gives each other kind to the agent, also a kind that it does not know.
                 Ok(_) | Err(_) => self.open_agent(&frame).await,
             };
@@ -394,6 +418,16 @@ where
                         shell: channel,
                         frame: to_agent,
                     });
+                }
+            }
+            Local::Passkeys { requests, .. } => {
+                if is_close {
+                    *requests = None;
+                } else if frame.frame_type() == FrameType::Control {
+                    let request = frame.parse::<PasskeyRequest>()?;
+                    if let Some(requests) = requests {
+                        let _ = requests.try_send(request);
+                    }
                 }
             }
             Local::Login { answers, .. } => {
@@ -452,12 +486,55 @@ where
             registry: self.context.registry.clone(),
             agent_wait: self.context.agent_wait,
             sessions: self.context.sessions.clone(),
+            passkeys: self.context.passkeys.clone(),
+            origin: self.origin.clone(),
         };
         tokio::spawn(task.run());
         self.channels.insert(
             channel,
             Local::Login {
                 answers: Some(answers),
+                closed_by_shell: false,
+                closed_by_peer: false,
+            },
+        );
+        Ok(true)
+    }
+
+    /// Opens the passkeys channel of the user, or refuses it (F034).
+    async fn open_passkeys(&mut self, channel: ChannelId) -> Result<bool, Violation> {
+        let Some(user) = self.user.get() else {
+            return self
+                .refuse(
+                    channel,
+                    CloseReason::AccessDenied,
+                    "The connection has no login.",
+                )
+                .await;
+        };
+        let Some(store) = self.context.passkeys.clone() else {
+            return self
+                .refuse(
+                    channel,
+                    CloseReason::NotSupported,
+                    "This server has no passkeys.",
+                )
+                .await;
+        };
+        let (requests, receiver) = mpsc::channel(ANSWER_QUEUE);
+        let task = crate::passkeys::PasskeysTask {
+            store,
+            user,
+            origin: self.origin.clone(),
+            channel,
+            requests: receiver,
+            to_shell: self.to_shell.clone(),
+        };
+        tokio::spawn(task.run());
+        self.channels.insert(
+            channel,
+            Local::Passkeys {
+                requests: Some(requests),
                 closed_by_shell: false,
                 closed_by_peer: false,
             },

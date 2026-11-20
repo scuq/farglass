@@ -10,11 +10,11 @@ use std::time::Duration;
 use std::io;
 use std::sync::{Arc, Mutex};
 
-use farglass_login::client::Attempt;
+use farglass_login::client::{Attempt, ClientError};
 use farglass_login::host::{Host, Started};
 use farglass_login::server::{Service, Settings};
 use farglass_login::{activation, limiter};
-use farglass_proto::login::{LocalSession, LoginEvent};
+use farglass_proto::login::{LocalSession, LoginEvent, LoginRequest};
 use tempfile::TempDir;
 use zeroize::Zeroizing;
 
@@ -90,7 +90,7 @@ impl Harness {
         let mut attempt = self.attempt(Some(user)).await;
         let mut events = Vec::new();
         loop {
-            let event = tokio::time::timeout(WAIT, attempt.next())
+            let event = tokio::time::timeout(WAIT, next_event(&mut attempt))
                 .await
                 .unwrap()
                 .unwrap();
@@ -164,7 +164,7 @@ async fn pam_asks_for_the_username_when_farglassd_gives_none() {
     let mut attempt = harness.attempt(None).await;
     let mut asked_for_user = false;
     loop {
-        match tokio::time::timeout(WAIT, attempt.next())
+        match tokio::time::timeout(WAIT, next_event(&mut attempt))
             .await
             .unwrap()
             .unwrap()
@@ -257,7 +257,7 @@ async fn closed_connection_stops_the_attempt_and_frees_its_place() {
 
     let mut first = harness.attempt(Some(&user)).await;
     loop {
-        if let LoginEvent::Prompt { .. } = tokio::time::timeout(WAIT, first.next())
+        if let LoginEvent::Prompt { .. } = tokio::time::timeout(WAIT, next_event(&mut first))
             .await
             .unwrap()
             .unwrap()
@@ -338,6 +338,21 @@ impl Host for FakeHost {
     }
 }
 
+/// Returns the next event of the attempt. It answers [`LoginEvent::Verified`] as farglassd does
+/// for a user with no passkey, thus the tests see the events of the shell only.
+async fn next_event(attempt: &mut Attempt) -> Result<LoginEvent, ClientError> {
+    loop {
+        let event = attempt.next().await?;
+        if matches!(event, LoginEvent::Verified { .. }) {
+            attempt
+                .request(LoginRequest::SecondFactor { accept: true })
+                .await?;
+            continue;
+        }
+        return Ok(event);
+    }
+}
+
 fn gnome() -> LocalSession {
     LocalSession {
         id: "2".to_owned(),
@@ -352,7 +367,7 @@ async fn login_with_confirm(harness: &Harness, accept: bool) -> Vec<LoginEvent> 
     let mut attempt = harness.attempt(Some(&user)).await;
     let mut events = Vec::new();
     loop {
-        let event = tokio::time::timeout(WAIT, attempt.next())
+        let event = tokio::time::timeout(WAIT, next_event(&mut attempt))
             .await
             .unwrap()
             .unwrap();
@@ -467,7 +482,7 @@ async fn closed_connection_at_the_confirm_ends_no_session() {
     .await;
     let mut attempt = harness.attempt(Some(&current_user())).await;
     loop {
-        match tokio::time::timeout(WAIT, attempt.next())
+        match tokio::time::timeout(WAIT, next_event(&mut attempt))
             .await
             .unwrap()
             .unwrap()
@@ -518,4 +533,39 @@ async fn logout_ends_the_web_sessions_of_the_user() {
         .unwrap();
     assert_eq!(ended, 1);
     assert_eq!(host.actions(), ["logout 4242"]);
+}
+
+#[tokio::test]
+async fn a_refused_second_factor_fails_and_starts_no_session() {
+    let host = Arc::new(FakeHost::default());
+    let harness = Harness::start({
+        let host = host.clone();
+        |settings| settings.host = host
+    })
+    .await;
+    let mut attempt = harness.attempt(Some(&current_user())).await;
+    let uid = nix::unistd::getuid().as_raw();
+    let result = loop {
+        let event = tokio::time::timeout(WAIT, attempt.next())
+            .await
+            .unwrap()
+            .unwrap();
+        match event {
+            LoginEvent::Prompt { prompt, .. } => attempt
+                .answer(prompt, Zeroizing::new("secret".to_owned()))
+                .await
+                .unwrap(),
+            LoginEvent::Verified { uid: verified, .. } => {
+                assert_eq!(verified, uid);
+                attempt
+                    .request(LoginRequest::SecondFactor { accept: false })
+                    .await
+                    .unwrap();
+            }
+            LoginEvent::Info { .. } => {}
+            other => break other,
+        }
+    };
+    assert!(matches!(result, LoginEvent::Failure { .. }), "{result:?}");
+    assert!(host.actions().is_empty(), "{:?}", host.actions());
 }

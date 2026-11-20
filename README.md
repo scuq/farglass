@@ -469,6 +469,30 @@ Text sessions, for example SSH, continue in all cases.
 
 `--session none` starts no session. Use it for development with no root, with an agent that you start yourself.
 
+### Passkeys
+
+A user can add a passkey as a second factor in Settings > Passkeys.
+After that, each login asks for the passkey after the password: a phone, a security key, or the computer.
+farglass-login waits after PAM until farglassd checks the passkey, thus no session starts before it.
+A wrong passkey counts as a failed login for the block of the address and of the user.
+
+The first passkey gives 8 recovery codes, and the page shows them one time.
+On the login screen, "I lost my passkey: use a recovery code" takes a code in place of the passkey.
+Each code works one time.
+Settings > Passkeys makes new codes, and the old codes then stop working.
+The removal of the last passkey also removes the codes, and the login then asks only for the password.
+
+farglassd keeps the passkeys of each user in `STATE_DIR/passkeys/UID.json` with mode 0600, by default in `/var/lib/farglass/passkeys`.
+The file keeps only the SHA-256 hash of each recovery code.
+To remove all passkeys of a user, for example after the loss of the passkey and of the codes, remove the file of the user as root.
+
+A passkey belongs to the host name of the page where you added it.
+It does not work on a different host name of the same host, and an IP address cannot have a passkey.
+The login screen then names the host name of the passkeys, and a recovery code works on each host name.
+Chromium, Firefox, and Safari use a passkey only on HTTPS with a valid certificate, or on `localhost`.
+With the self-signed certificate of farglassd, use a certificate of the administrator first.
+`npm --prefix spikes/e2e run passkey` adds a passkey with a virtual authenticator of Chromium, logs in with it and with a recovery code, and checks that a used code fails.
+
 The tests of farglass-login need no root.
 They use a PAM directory with `pam_exec` that accepts the password `secret`:
 

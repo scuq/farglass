@@ -111,7 +111,7 @@ impl Browser {
             });
             let mut outgoing = std::pin::pin!(outgoing);
             let peer = Some("192.0.2.10".parse().unwrap());
-            connection::run(&context, peer, user, &mut incoming, &mut outgoing).await
+            connection::run(&context, peer, user, None, &mut incoming, &mut outgoing).await
         });
         let hello = tokio::time::timeout(WAIT, from_server.recv())
             .await

@@ -47,7 +47,7 @@ id: number,
 /**
  * Reports whether the shell decodes the video messages (F037). A shell before this field sends none and gets tiles only.
  */
-video?: boolean, } | { "kind": "surface-input" } | { "kind": "clipboard" } | { "kind": "audio" } | { "kind": "redirect" } | { "kind": "stats" } | { "kind": "apps" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" };
+video?: boolean, } | { "kind": "surface-input" } | { "kind": "clipboard" } | { "kind": "audio" } | { "kind": "redirect" } | { "kind": "stats" } | { "kind": "apps" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" } | { "kind": "passkeys" };
 
 /**
  * The payload of a ready frame. The receiver of the open frame accepts the channel.
@@ -464,6 +464,77 @@ agent: Usage,
  * farglassd. None if the agent cannot read it.
  */
 server?: Usage, };
+
+/**
+ * A passkey of the user, for the list of the settings (F034).
+ */
+export type PasskeyInfo = { 
+/**
+ * The credential id in base64url.
+ */
+id: string, 
+/**
+ * The name that the user gave.
+ */
+name: string, 
+/**
+ * The host name that the passkey belongs to.
+ */
+host: string, 
+/**
+ * The time of the registration, in seconds since 1970.
+ */
+created: number, 
+/**
+ * The time of the last login with it, in seconds since 1970.
+ */
+used?: number, };
+
+/**
+ * A request of the shell on a passkeys channel (F034).
+ */
+export type PasskeyRequest = { "type": "list" } | { "type": "register", 
+/**
+ * The name of the passkey, for example "Phone".
+ */
+name: string, } | { "type": "finish", 
+/**
+ * The `PublicKeyCredential` as JSON.
+ */
+credential: unknown, } | { "type": "remove", 
+/**
+ * The credential id in base64url.
+ */
+id: string, } | { "type": "new-codes" };
+
+/**
+ * A message of farglassd on a passkeys channel (F034).
+ */
+export type PasskeyEvent = { "type": "list", 
+/**
+ * The passkeys.
+ */
+passkeys: Array<PasskeyInfo>, 
+/**
+ * The count of recovery codes that the user did not use.
+ */
+codes: number, 
+/**
+ * The host name of this connection. A passkey works only on its host name.
+ */
+host: string, } | { "type": "create", 
+/**
+ * The options.
+ */
+options: unknown, } | { "type": "codes", 
+/**
+ * The codes.
+ */
+codes: Array<string>, } | { "type": "error", 
+/**
+ * The text for the user.
+ */
+message: string, };
 
 /**
  * A control message of the agent on an audio channel.
@@ -960,7 +1031,24 @@ text: string, } | { "type": "confirm",
 /**
  * The local graphical sessions.
  */
-sessions: Array<LocalSession>, } | { "type": "success", 
+sessions: Array<LocalSession>, } | { "type": "verified", 
+/**
+ * The username that PAM accepted.
+ */
+user: string, 
+/**
+ * The uid of the user.
+ */
+uid: number, } | { "type": "passkey", 
+/**
+ * The `publicKey` options of `navigator.credentials.get`, with each binary value in base64url.
+ * `None` if no passkey of the user belongs to this host name: only a recovery code works.
+ */
+options?: unknown, 
+/**
+ * The host names of the passkeys of the user that are not this host name.
+ */
+elsewhere: Array<string>, } | { "type": "success", 
 /**
  * The username that PAM accepted.
  */
@@ -1019,4 +1107,12 @@ text: string, } | { "type": "confirm",
 /**
  * `true` ends the local graphical sessions. `false` stops the login.
  */
-accept: boolean, };
+accept: boolean, } | { "type": "passkey", 
+/**
+ * The `PublicKeyCredential` as JSON.
+ */
+credential: unknown, } | { "type": "recovery-code", 
+/**
+ * The code. farglassd uses each code one time.
+ */
+code: string, };

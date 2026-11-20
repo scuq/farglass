@@ -6,13 +6,14 @@ use std::sync::{Arc, Mutex, PoisonError};
 use farglass_login::client::Attempt;
 use std::time::{Duration, Instant};
 
-use farglass_proto::login::{LoginEvent, LoginReply};
+use farglass_proto::login::{LoginEvent, LoginReply, LoginRequest};
 use farglass_proto::message::{Close, CloseReason, Ready};
 use farglass_proto::{ChannelId, Frame, FrameType};
 use tokio::sync::mpsc;
 
 use crate::agents::Registry;
 use crate::cookie::SessionStore;
+use crate::passkeys::PasskeyStore;
 use crate::presence::{Presence, PresenceGuard};
 
 /// A user who logged in, or the user of `dev_user`.
@@ -101,6 +102,10 @@ pub struct LoginTask {
     pub agent_wait: Duration,
     /// The store that gives the ticket for the session cookie.
     pub sessions: Arc<SessionStore>,
+    /// The passkeys of the users (F034). `None` turns the second factor off.
+    pub passkeys: Option<Arc<PasskeyStore>>,
+    /// The origin of the page, from the checked `Origin` header. A passkey belongs to its host name.
+    pub origin: Option<String>,
 }
 
 impl LoginTask {
@@ -136,6 +141,16 @@ impl LoginTask {
                         tracing::error!(%error, "the login service stopped during a login");
                         "The login service stopped.".to_owned()
                     })?;
+                    if let LoginEvent::Verified { uid, .. } = event {
+                        // The shell does not get this event: farglassd answers it (F034).
+                        let Some(accept) = self.second_factor(uid).await else {
+                            return Ok(());
+                        };
+                        if attempt.request(LoginRequest::SecondFactor { accept }).await.is_err() {
+                            return Err("The login service stopped.".to_owned());
+                        }
+                        continue;
+                    }
                     let done = match &mut event {
                         LoginEvent::Success { user, uid, ticket } => {
                             self.wait_for_agent(*uid).await;
@@ -148,6 +163,8 @@ impl LoginTask {
                         }
                         LoginEvent::Failure { .. } | LoginEvent::Blocked { .. } | LoginEvent::LoggedOut { .. } => true,
                         LoginEvent::Prompt { .. }
+                        | LoginEvent::Verified { .. }
+                        | LoginEvent::Passkey { .. }
                         | LoginEvent::Info { .. }
                         | LoginEvent::Error { .. }
                         | LoginEvent::Confirm { .. } => false,
@@ -166,6 +183,34 @@ impl LoginTask {
                     // The shell closed the channel or the connection. Dropping the attempt stops PAM.
                     None => return Ok(()),
                 },
+            }
+        }
+    }
+
+    /// Asks the shell for the passkey of the user `uid`, if the user has one (F034).
+    /// Reports whether the second factor passed, or `None` if the shell closed the channel.
+    async fn second_factor(&mut self, uid: u32) -> Option<bool> {
+        let Some(store) = self.passkeys.clone() else {
+            return Some(true);
+        };
+        if !store.required(uid) {
+            return Some(true);
+        }
+        let challenge = store.challenge(uid, self.origin.as_deref());
+        let event = LoginEvent::Passkey {
+            options: challenge.options.clone(),
+            elsewhere: challenge.elsewhere.clone(),
+        };
+        self.send(Frame::json(self.channel, FrameType::Control, &event))
+            .await;
+        loop {
+            match self.answers.recv().await? {
+                LoginReply::Passkey { credential } => {
+                    return Some(store.verify(uid, self.origin.as_deref(), &challenge, credential));
+                }
+                LoginReply::RecoveryCode { code } => return Some(store.use_code(uid, &code)),
+                // An answer to a different question.
+                LoginReply::Answer { .. } | LoginReply::Confirm { .. } => {}
             }
         }
     }

@@ -119,7 +119,19 @@ impl Attempt {
         &mut self,
         reply: farglass_proto::login::LoginReply,
     ) -> Result<(), ClientError> {
-        self.send(&reply.into()).await
+        match reply.into_request() {
+            Some(request) => self.send(&request).await,
+            None => Ok(()),
+        }
+    }
+
+    /// Sends a request that farglassd makes itself, for example [`LoginRequest::SecondFactor`].
+    ///
+    /// # Errors
+    ///
+    /// [`ClientError`] if the link to farglass-login failed.
+    pub async fn request(&mut self, request: LoginRequest) -> Result<(), ClientError> {
+        self.send(&request).await
     }
 
     async fn send(&mut self, request: &LoginRequest) -> Result<(), ClientError> {

@@ -360,6 +360,11 @@ async fn serve_connection(
             continue;
         }
         // A WebTransport session: check the path, the Origin, and the ticket first.
+        let origin = request
+            .headers()
+            .get(http::header::ORIGIN)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
         let identity = match admit(&context, &request) {
             Ok(identity) => identity,
             Err(status) => {
@@ -371,7 +376,16 @@ async fn serve_connection(
         let session = WebTransportSession::accept(request, stream, h3)
             .await
             .map_err(|e| e.to_string())?;
-        run_session(session, identity, router, context, quic.clone(), peer).await;
+        run_session(
+            session,
+            identity,
+            origin,
+            router,
+            context,
+            quic.clone(),
+            peer,
+        )
+        .await;
         return Ok(());
     }
 }
@@ -468,6 +482,7 @@ type Routes = Arc<Mutex<RouteTable>>;
 async fn run_session(
     session: WebTransportSession<h3_quinn::Connection, Bytes>,
     identity: Option<Identity>,
+    origin: Option<String>,
     router: Router,
     context: Arc<Context>,
     quic: quinn::Connection,
@@ -511,6 +526,7 @@ async fn run_session(
         &context,
         Some(peer.ip()),
         identity,
+        origin,
         &mut incoming,
         &mut outgoing,
     )

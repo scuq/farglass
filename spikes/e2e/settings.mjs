@@ -127,7 +127,7 @@ try {
 
   // Back to the default appearance for the next tests of this state directory.
   await go("Appearance");
-  await win.getByLabel("Same as this computer").check();
+  await win.getByRole("group", { name: "Theme" }).getByLabel("Same as this computer").check();
   await win.getByLabel("Blue").check();
   check(cspViolations.length === 0, "no Content Security Policy violation");
 } catch (error) {

@@ -175,8 +175,8 @@ impl Service {
                         LoginRequest::Start { .. } | LoginRequest::Logout { .. } => {
                             return Err("a second start message".into());
                         }
-                        // A confirm before the question. Ignore it.
-                        LoginRequest::Confirm { .. } => {}
+                        // A confirm or a second factor before the question. Ignore it.
+                        LoginRequest::Confirm { .. } | LoginRequest::SecondFactor { .. } => {}
                     },
                     // farglassd stopped the attempt. Dropping `answers` stops the PAM conversation.
                     _ => {
@@ -231,6 +231,24 @@ impl Service {
             self.limiter.failed(address.clone());
             tokio::time::sleep(self.settings.fail_delay).await;
             let message = "The login as root is not permitted.".to_owned();
+            return send(link, &LoginEvent::Failure { message }).await;
+        }
+        // farglassd checks the passkey of the user, if the user has one (F034).
+        // A wrong passkey counts as a failed login.
+        send(
+            link,
+            &LoginEvent::Verified {
+                user: name.clone(),
+                uid,
+            },
+        )
+        .await?;
+        if !self.second_factor(link).await? {
+            tracing::info!(rhost, user = name, "the second factor failed");
+            self.limiter.failed(address.clone());
+            self.limiter.failed(Key::User(name));
+            tokio::time::sleep(self.settings.fail_delay).await;
+            let message = "The passkey or the recovery code was not accepted.".to_owned();
             return send(link, &LoginEvent::Failure { message }).await;
         }
         // The password is correct. Reset the counters before the session steps,
@@ -318,6 +336,25 @@ impl Service {
                 send(link, &LoginEvent::Failure { message }).await
             }
         }
+    }
+
+    /// Waits for the answer of farglassd to [`LoginEvent::Verified`]. Returns `false` for a
+    /// failed second factor, a timeout, or a closed connection.
+    async fn second_factor(
+        &self,
+        link: &mut Framed<UnixStream, FrameCodec>,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let wait = async {
+            while let Some(frame) = link.next().await {
+                if let LoginRequest::SecondFactor { accept } = request(&frame?)? {
+                    return Ok(accept);
+                }
+            }
+            Ok::<_, Box<dyn std::error::Error + Send + Sync>>(false)
+        };
+        tokio::time::timeout(PROMPT_TIMEOUT, wait)
+            .await
+            .unwrap_or(Ok(false))
     }
 
     /// Waits for the answer to a confirm event. Returns `false` for a decline, a timeout,

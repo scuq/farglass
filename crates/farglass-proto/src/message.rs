@@ -166,6 +166,10 @@ pub enum Open {
     /// The shell answers a prompt with [`crate::login::LoginAnswer`].
     /// After the result, farglassd closes the channel.
     Login,
+    /// The passkeys of the user who logged in (F034). farglassd serves it, not the agent.
+    ///
+    /// The shell sends [`PasskeyRequest`] and gets [`PasskeyEvent`], as control messages.
+    Passkeys,
 }
 
 /// A D-Bus bus.
@@ -1077,4 +1081,79 @@ mod tests {
         assert!(serde_json::from_value::<Close>(json!({"reason": "bored"})).is_err());
         assert!(serde_json::from_value::<ConnectionMessage>(json!({"type": "bye"})).is_err());
     }
+}
+
+/// A passkey of the user, for the list of the settings (F034).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct PasskeyInfo {
+    /// The credential id in base64url.
+    pub id: String,
+    /// The name that the user gave.
+    pub name: String,
+    /// The host name that the passkey belongs to.
+    pub host: String,
+    /// The time of the registration, in seconds since 1970.
+    #[ts(type = "number")]
+    pub created: u64,
+    /// The time of the last login with it, in seconds since 1970.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub used: Option<u64>,
+}
+
+/// A request of the shell on a passkeys channel (F034).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum PasskeyRequest {
+    /// Asks for the list.
+    List,
+    /// Starts the registration of a new passkey. farglassd answers with [`PasskeyEvent::Create`].
+    Register {
+        /// The name of the passkey, for example "Phone".
+        name: String,
+    },
+    /// Ends the registration with the credential of `navigator.credentials.create`, each binary value in base64url.
+    Finish {
+        /// The `PublicKeyCredential` as JSON.
+        #[ts(type = "unknown")]
+        credential: serde_json::Value,
+    },
+    /// Removes a passkey.
+    Remove {
+        /// The credential id in base64url.
+        id: String,
+    },
+    /// Makes new recovery codes. The old codes stop working.
+    NewCodes,
+}
+
+/// A message of farglassd on a passkeys channel (F034).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum PasskeyEvent {
+    /// The passkeys of the user, after each change too.
+    List {
+        /// The passkeys.
+        passkeys: Vec<PasskeyInfo>,
+        /// The count of recovery codes that the user did not use.
+        codes: u32,
+        /// The host name of this connection. A passkey works only on its host name.
+        host: String,
+    },
+    /// The `publicKey` options of `navigator.credentials.create`, each binary value in base64url.
+    Create {
+        /// The options.
+        #[ts(type = "unknown")]
+        options: serde_json::Value,
+    },
+    /// New recovery codes. farglassd keeps only their hashes: the shell shows them one time.
+    Codes {
+        /// The codes.
+        codes: Vec<String>,
+    },
+    /// A request failed.
+    Error {
+        /// The text for the user.
+        message: String,
+    },
 }

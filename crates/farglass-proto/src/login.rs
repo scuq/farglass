@@ -38,6 +38,11 @@ pub enum LoginRequest {
         /// `false` stops the login, and the local sessions continue.
         accept: bool,
     },
+    /// Answers [`LoginEvent::Verified`] (F034).
+    SecondFactor {
+        /// `true` if the user has no passkey or used one, or a recovery code. `false` stops the login as a failure.
+        accept: bool,
+    },
 }
 
 /// A local graphical session of the user, which a web login ends (ADR-015).
@@ -83,6 +88,25 @@ pub enum LoginEvent {
     Confirm {
         /// The local graphical sessions.
         sessions: Vec<LocalSession>,
+    },
+    /// PAM accepted the user (F034). farglass-login waits for [`LoginRequest::SecondFactor`]
+    /// before the session steps. farglassd does not give this event to the shell.
+    Verified {
+        /// The username that PAM accepted.
+        user: String,
+        /// The uid of the user.
+        uid: u32,
+    },
+    /// From farglassd to the shell: the user must use a passkey (F034).
+    /// The shell answers with [`LoginReply::Passkey`] or [`LoginReply::RecoveryCode`].
+    Passkey {
+        /// The `publicKey` options of `navigator.credentials.get`, with each binary value in base64url.
+        /// `None` if no passkey of the user belongs to this host name: only a recovery code works.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, type = "unknown")]
+        options: Option<serde_json::Value>,
+        /// The host names of the passkeys of the user that are not this host name.
+        elsewhere: Vec<String>,
     },
     /// The login succeeded. The connection ends after this message.
     Success {
@@ -131,13 +155,28 @@ pub enum LoginReply {
         /// `true` ends the local graphical sessions. `false` stops the login.
         accept: bool,
     },
+    /// Answers [`LoginEvent::Passkey`]: the credential of `navigator.credentials.get`, with each binary value in base64url.
+    Passkey {
+        /// The `PublicKeyCredential` as JSON.
+        #[ts(type = "unknown")]
+        credential: serde_json::Value,
+    },
+    /// Answers [`LoginEvent::Passkey`] with a recovery code instead of a passkey.
+    RecoveryCode {
+        /// The code. farglassd uses each code one time.
+        #[ts(type = "string")]
+        code: Zeroizing<String>,
+    },
 }
 
-impl From<LoginReply> for LoginRequest {
-    fn from(reply: LoginReply) -> Self {
-        match reply {
-            LoginReply::Answer { prompt, text } => Self::Answer { prompt, text },
-            LoginReply::Confirm { accept } => Self::Confirm { accept },
+impl LoginReply {
+    /// Returns the request for farglass-login, or `None` for an answer that farglassd checks itself.
+    #[must_use]
+    pub fn into_request(self) -> Option<LoginRequest> {
+        match self {
+            Self::Answer { prompt, text } => Some(LoginRequest::Answer { prompt, text }),
+            Self::Confirm { accept } => Some(LoginRequest::Confirm { accept }),
+            Self::Passkey { .. } | Self::RecoveryCode { .. } => None,
         }
     }
 }

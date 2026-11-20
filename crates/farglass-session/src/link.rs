@@ -1007,8 +1007,8 @@ fn open(
                 refuse(CloseReason::InternalError, error.to_string())
             }
         },
-        // farglassd serves the login channel itself. It never gives it to the agent.
-        Ok(Open::Login) | Err(_) => refuse(
+        // farglassd serves the login and the passkeys channels itself. It never gives them to the agent.
+        Ok(Open::Login | Open::Passkeys) | Err(_) => refuse(
             CloseReason::NotSupported,
             "The agent does not know this channel kind.".to_owned(),
         ),

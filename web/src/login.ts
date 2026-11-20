@@ -49,6 +49,18 @@ export class Login {
     this.#channel.control(reply);
   }
 
+  /** Answers a passkey event with the credential of `navigator.credentials.get`, as JSON (F034). */
+  passkey(credential: unknown): void {
+    const reply: LoginReply = { type: "passkey", credential };
+    this.#channel.control(reply);
+  }
+
+  /** Answers a passkey event with a recovery code (F034). */
+  recoveryCode(code: string): void {
+    const reply: LoginReply = { type: "recovery-code", code };
+    this.#channel.control(reply);
+  }
+
   /** Stops the attempt. */
   cancel(): void {
     this.#channel.close({ reason: "cancelled" });

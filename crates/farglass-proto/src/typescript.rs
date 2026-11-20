@@ -11,10 +11,10 @@ use crate::login::{LocalSession, LoginEvent, LoginReply};
 use crate::message::{
     AppsEvent, AppsRequest, AudioEvent, Bus, ClipboardMessage, ClipboardMime, Close, CloseReason,
     ConnectionMessage, DbusEvent, DbusRequest, HostApp, MAX_CLIPBOARD_LEN, Notification,
-    NotifyAction, NotifyEvent, NotifyReply, Open, PolkitEvent, PolkitReply, PtyEvent, PtyRequest,
-    Ready, RedirectEvent, RedirectRect, RedirectRequest, StateEvent, StateRequest, StatsEvent,
-    SurfaceAck, SurfaceEvent, SurfaceInput, SurfaceRect, SurfaceRequest, Urgency, Usage,
-    WindowUsage,
+    NotifyAction, NotifyEvent, NotifyReply, Open, PasskeyEvent, PasskeyInfo, PasskeyRequest,
+    PolkitEvent, PolkitReply, PtyEvent, PtyRequest, Ready, RedirectEvent, RedirectRect,
+    RedirectRequest, StateEvent, StateRequest, StatsEvent, SurfaceAck, SurfaceEvent, SurfaceInput,
+    SurfaceRect, SurfaceRequest, Urgency, Usage, WindowUsage,
 };
 use crate::{
     ChannelId, FrameError, FrameType, HEADER_LEN, MAX_PAYLOAD_LEN, PROTOCOL_VERSION,
@@ -109,6 +109,9 @@ fn messages() -> String {
     declare::<Usage>(&cfg, &mut out);
     declare::<WindowUsage>(&cfg, &mut out);
     declare::<StatsEvent>(&cfg, &mut out);
+    declare::<PasskeyInfo>(&cfg, &mut out);
+    declare::<PasskeyRequest>(&cfg, &mut out);
+    declare::<PasskeyEvent>(&cfg, &mut out);
     declare::<AudioEvent>(&cfg, &mut out);
     declare::<RedirectRect>(&cfg, &mut out);
     declare::<RedirectEvent>(&cfg, &mut out);

@@ -46,6 +46,27 @@ describe("prompt helpers", () => {
 });
 
 describe("LoginScreen", () => {
+  test("a passkey step with no passkey for this host name asks for a recovery code (F034)", async () => {
+    const { server, connection } = await fakeConnection();
+    let loggedIn = "";
+    const host = mount(() => <LoginScreen connection={connection} onlogin={(user) => (loggedIn = user)} />);
+    server.take();
+    server.push(readyFrame(1));
+    server.push(event(1, { type: "passkey", elsewhere: ["farglass.cyberdyne.example"] }));
+    await settle();
+    expect(host.textContent).toContain("Your passkeys belong to farglass.cyberdyne.example");
+    expect(host.textContent).not.toContain("Use my passkey");
+    const code = host.querySelector<HTMLInputElement>("#login-code")!;
+    code.value = "3f9a-0c41-77be-12d0";
+    code.closest("form")!.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
+    await settle();
+    expect(parseJson(server.take()[0]!)).toEqual({ type: "recovery-code", code: "3f9a-0c41-77be-12d0" });
+    expect(host.querySelector("[role=status]")?.textContent).toBe("Checking");
+    server.push(event(1, { type: "success", user: "alice", uid: 1000 }));
+    await settle();
+    expect(loggedIn).toBe("alice");
+  });
+
   test("a password and then a one-time code, each in its own field, then the success", async () => {
     const { server, connection } = await fakeConnection();
     let loggedIn = "";
