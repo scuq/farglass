@@ -3,9 +3,11 @@
 
 The window has a label and an area of 320 x 240 pixels that changes in each
 frame, as a video player does. With --tone, it also plays a sine tone of
-440 Hz through GStreamer to the sound server of the session.
+440 Hz through GStreamer to the sound server of the session. With --small,
+the area is 16 x 16 pixels: too small for a video region, as a spinner.
+With --fps, it prints "fps N" each second: the frames it drew in that second.
 
-Usage: animation.py [--tone]
+Usage: animation.py [--tone] [--small] [--fps]
 """
 
 import math
@@ -17,6 +19,8 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk  # noqa: E402
 
 TONE = "--tone" in sys.argv
+SMALL = "--small" in sys.argv
+FPS = "--fps" in sys.argv
 
 
 def start_tone():
@@ -52,9 +56,9 @@ def activate(app):
     box.set_margin_end(12)
     box.append(Gtk.Label(label="A region that changes in each frame"))
     area = Gtk.DrawingArea()
-    area.set_content_width(320)
-    area.set_content_height(240)
-    state = {"frame": 0}
+    area.set_content_width(16 if SMALL else 320)
+    area.set_content_height(16 if SMALL else 240)
+    state = {"frame": 0, "counted": 0}
     area.set_draw_func(draw, state)
 
     def tick(widget, clock):
@@ -63,6 +67,14 @@ def activate(app):
         return GLib.SOURCE_CONTINUE
 
     area.add_tick_callback(tick)
+
+    def report():
+        print(f"fps {state['frame'] - state['counted']}", flush=True)
+        state["counted"] = state["frame"]
+        return GLib.SOURCE_CONTINUE
+
+    if FPS:
+        GLib.timeout_add_seconds(1, report)
     box.append(area)
     window.set_child(box)
     window.present()

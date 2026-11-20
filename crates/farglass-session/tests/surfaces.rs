@@ -92,7 +92,7 @@ async fn the_channel_gets_the_windows_and_its_requests_go_to_the_compositor() {
         .await
         .unwrap();
     tokio::time::timeout(WAIT, async {
-        while commands.lock().unwrap().is_empty() {
+        while commands.lock().unwrap().len() < 2 {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
@@ -100,11 +100,19 @@ async fn the_channel_gets_the_windows_and_its_requests_go_to_the_compositor() {
     .unwrap();
     assert_eq!(
         *commands.lock().unwrap(),
-        [farglass_surface::Command::Configure {
-            id: 1,
-            width: 640,
-            height: 480
-        }]
+        [
+            // The window has no surface channel yet: it gets no frame callbacks (F048).
+            farglass_surface::Command::Viewers {
+                id: 1,
+                watched: false,
+                video: false,
+            },
+            farglass_surface::Command::Configure {
+                id: 1,
+                width: 640,
+                height: 480
+            }
+        ]
     );
 }
 

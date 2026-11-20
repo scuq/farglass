@@ -7,7 +7,7 @@
 //! close of each window. The pixels of the commits go to the shell with the
 //! tile codec (F025). The agent keeps the last buffer of each surface for it.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -69,6 +69,26 @@ struct Inner {
     watchers: HashMap<u32, HashMap<u64, FrameSink>>,
     /// The clipboard channels.
     clipboards: HashMap<u64, ClipSink>,
+    /// The surface channels of each surface that send a video region (F048).
+    videos: HashMap<u32, HashSet<u64>>,
+    /// The last channels and video of each surface that the compositor got (F048).
+    paced: HashMap<u32, (bool, bool)>,
+}
+
+impl Inner {
+    /// Returns the command for the compositor if the channels or the video of the surface `id` changed (F048).
+    fn viewers(&mut self, id: u32) -> Option<Command> {
+        let watched = self.watchers.get(&id).is_some_and(|w| !w.is_empty());
+        let video = self.videos.get(&id).is_some_and(|v| !v.is_empty());
+        (self.paced.insert(id, (watched, video)) != Some((watched, video)))
+            .then_some(Command::Viewers { id, watched, video })
+    }
+
+    /// Forgets the channel state of a closed surface.
+    fn forget(&mut self, id: u32) {
+        self.paced.remove(&id);
+        self.videos.remove(&id);
+    }
 }
 
 /// The windows of the compositor and the surfaces channels of the shell.
@@ -111,11 +131,74 @@ impl std::fmt::Debug for WatchGuard {
     }
 }
 
+impl WatchGuard {
+    /// Returns the flag that tells the compositor that this channel sends a video region (F048).
+    #[must_use]
+    pub fn video(&self) -> VideoFlag {
+        VideoFlag {
+            surfaces: self.surfaces.clone(),
+            surface: self.surface,
+            id: self.id,
+        }
+    }
+}
+
 impl Drop for WatchGuard {
     fn drop(&mut self) {
-        let mut inner = self.surfaces.lock();
-        if let Some(watchers) = inner.watchers.get_mut(&self.surface) {
-            watchers.remove(&self.id);
+        let command = {
+            let mut inner = self.surfaces.lock();
+            if let Some(watchers) = inner.watchers.get_mut(&self.surface) {
+                watchers.remove(&self.id);
+            }
+            if let Some(videos) = inner.videos.get_mut(&self.surface) {
+                videos.remove(&self.id);
+            }
+            inner.viewers(self.surface)
+        };
+        if let Some(command) = command {
+            self.surfaces.command(command);
+        }
+    }
+}
+
+/// Tells the compositor that a surface channel sends a video region: the window keeps the full frame rate (F048).
+pub struct VideoFlag {
+    surfaces: Arc<Surfaces>,
+    surface: u32,
+    id: u64,
+}
+
+impl std::fmt::Debug for VideoFlag {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VideoFlag")
+            .field("surface", &self.surface)
+            .finish()
+    }
+}
+
+impl VideoFlag {
+    /// Sets whether the channel sends a video region now.
+    pub fn set(&self, video: bool) {
+        let command = {
+            let mut inner = self.surfaces.lock();
+            // A channel that ended does not set its video again.
+            if !inner
+                .watchers
+                .get(&self.surface)
+                .is_some_and(|w| w.contains_key(&self.id))
+            {
+                return;
+            }
+            let videos = inner.videos.entry(self.surface).or_default();
+            if video {
+                videos.insert(self.id);
+            } else {
+                videos.remove(&self.id);
+            }
+            inner.viewers(self.surface)
+        };
+        if let Some(command) = command {
+            self.surfaces.command(command);
         }
     }
 }
@@ -252,15 +335,18 @@ impl Surfaces {
     ) -> WatchGuard {
         let id = self.next_viewer.fetch_add(1, Ordering::Relaxed);
         let send: FrameSink = Arc::new(send);
-        let last = {
+        let (last, command) = {
             let mut inner = self.lock();
             inner
                 .watchers
                 .entry(surface)
                 .or_default()
                 .insert(id, send.clone());
-            inner.pixels.get(&surface).cloned()
+            (inner.pixels.get(&surface).cloned(), inner.viewers(surface))
         };
+        if let Some(command) = command {
+            self.command(command);
+        }
         if let Some((width, height, pixels)) = last {
             let full = Rect {
                 x: 0,
@@ -363,10 +449,13 @@ impl Surfaces {
             }
             return;
         }
+        let mut pending = None;
         let message = {
             let mut inner = self.lock();
             match event {
                 Event::ToplevelNew { id, pid } => {
+                    // A window with no channel yet gets no frame callbacks until the shell opens one (F048).
+                    pending = inner.viewers(id);
                     inner.toplevels.insert(
                         id,
                         Toplevel {
@@ -405,6 +494,7 @@ impl Surfaces {
                     }
                 }
                 Event::ToplevelClosed { id } => {
+                    inner.forget(id);
                     inner.toplevels.remove(&id);
                     inner.commits.remove(&id);
                     inner.pixels.remove(&id);
@@ -427,6 +517,7 @@ impl Surfaces {
                     }
                 }
                 Event::PopupClosed { id } => {
+                    inner.forget(id);
                     inner.popups.remove(&id);
                     inner.commits.remove(&id);
                     inner.pixels.remove(&id);
@@ -490,6 +581,9 @@ impl Surfaces {
                 Event::Clipboard(_) => return,
             }
         };
+        if let Some(command) = pending {
+            self.command(command);
+        }
         let viewers: Vec<EventSink> = self.lock().viewers.values().cloned().collect();
         for send in viewers {
             send(message.clone());
@@ -563,7 +657,48 @@ mod tests {
         surfaces.request(SurfaceRequest::Activate { id: None });
         assert_eq!(
             *commands.lock().unwrap(),
-            [Command::Close { id: 3 }, Command::Activate { id: None }]
+            [
+                Command::Viewers {
+                    id: 3,
+                    watched: false,
+                    video: false
+                },
+                Command::Close { id: 3 },
+                Command::Activate { id: None }
+            ]
+        );
+    }
+
+    #[test]
+    fn the_compositor_gets_the_channels_and_the_video_of_a_window() {
+        let surfaces = Surfaces::new();
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let sink = commands.clone();
+        surfaces.set_commands(move |command| sink.lock().unwrap().push(command));
+        let viewers = |watched, video| Command::Viewers {
+            id: 5,
+            watched,
+            video,
+        };
+        surfaces.handle(Event::ToplevelNew { id: 5, pid: None });
+        let first = surfaces.watch(5, |_| {});
+        let second = surfaces.watch(5, |_| {});
+        first.video().set(true);
+        second.video().set(true);
+        first.video().set(false);
+        drop(second);
+        let flag = first.video();
+        drop(first);
+        flag.set(true);
+        assert_eq!(
+            *commands.lock().unwrap(),
+            [
+                viewers(false, false),
+                viewers(true, false),
+                viewers(true, true),
+                viewers(true, false),
+                viewers(false, false)
+            ]
         );
     }
 }

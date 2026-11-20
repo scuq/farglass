@@ -19,6 +19,7 @@
 pub mod cache;
 pub mod classify;
 pub mod clipboard;
+pub mod pace;
 pub mod scroll;
 mod state;
 pub mod tiles;

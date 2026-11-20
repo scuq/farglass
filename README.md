@@ -283,6 +283,16 @@ A blinking cursor or typing never starts a video.
 A hardware encoder with VAAPI is not available yet.
 `npm --prefix spikes/e2e run video` starts `spikes/e2e/fixtures/animation.py`, and the browser must decode its moving area as video.
 
+The compositor sets the frame rate of each app through its frame callbacks.
+After input or a change of the window, the window gets the full rate of about 60 frames each second for 2 s.
+After that, an app that draws all the time, for example a spinner or a clock, gets the idle rate: 10 frames each second by default.
+`FARGLASS_IDLE_FPS` in the environment of the agent sets the idle rate, and 0 turns it off.
+A window with a video region keeps the full rate.
+At the default idle rate, a video that starts with no input still becomes a video region: the detector needs about 8 frames each second.
+A window that no browser shows, for example after you close the tab, gets no frame callbacks, thus the app draws nothing.
+A popup follows its window.
+`npm --prefix spikes/e2e run pace` measures the frame rate and the host CPU of `spikes/e2e/fixtures/animation.py --small`, with the limit and with no limit.
+
 The sound of the apps plays in your browser.
 The agent adds the audio sink `farglass` to the PipeWire server of the user.
 The apps of the web session get `PULSE_SINK=farglass` and `PIPEWIRE_NODE=farglass`, thus PulseAudio and PipeWire clients play to it.

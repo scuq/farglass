@@ -55,6 +55,7 @@ use smithay::wayland::shm::{ShmHandler, ShmState, with_buffer_contents};
 use smithay::wayland::tablet_manager::TabletSeatHandler;
 
 use crate::clipboard::{self, Clip, ClipKind};
+use crate::pace::{Decision, Pace};
 
 /// The interval of the frame callbacks: a client draws at most this often.
 const FRAME_INTERVAL: Duration = Duration::from_millis(16);
@@ -233,6 +234,16 @@ pub enum Command {
     /// Sets the clipboard of the apps, for example to the clipboard of the client computer.
     /// The compositor owns the selection until an app sets a new one.
     SetClipboard(Clip),
+    /// The surface channels of the surface `id` changed (F048). A window with no channel gets no frame callbacks,
+    /// and a window with video keeps the full rate.
+    Viewers {
+        /// The surface: a window, a popup, or a subsurface.
+        id: u32,
+        /// At least one surface channel shows the surface.
+        watched: bool,
+        /// A surface channel sends a video region of the surface.
+        video: bool,
+    },
 }
 
 /// The bytes of a selection that a reader thread got: the generation of the selection, the kind, and the content.
@@ -273,7 +284,14 @@ pub(crate) struct State {
     /// The subsurfaces with their parent and their last place for the shell.
     subsurfaces: HashMap<u32, (WlSurface, u32, Option<Rect>)>,
     next_id: u32,
-    frame_callbacks: Vec<WlCallback>,
+    /// The parent of each popup and subsurface, for the window of a frame callback.
+    parents: HashMap<u32, u32>,
+    /// The frame callbacks that wait, with their surface.
+    frame_callbacks: Vec<(Option<u32>, WlCallback)>,
+    /// The rate of the frame callbacks of each window (F048).
+    pace: Pace,
+    /// The surface under the pointer, for the full rate after a click or a scroll.
+    pointer_on: Option<u32>,
     /// The window with the keyboard focus.
     focused: Option<u32>,
     /// The mime types of a new selection of an app. The compositor reads it after the dispatch,
@@ -379,7 +397,10 @@ fn setup(
         popups: HashMap::new(),
         subsurfaces: HashMap::new(),
         next_id: 0,
+        parents: HashMap::new(),
         frame_callbacks: Vec::new(),
+        pace: Pace::new(Pace::idle_fps_from_env(), FRAME_INTERVAL),
+        pointer_on: None,
         focused: None,
         selection: None,
         clip_generation: 0,
@@ -555,20 +576,63 @@ impl State {
         u32::try_from(self.started.elapsed().as_millis() % u128::from(u32::MAX)).unwrap_or(0)
     }
 
+    /// Returns the window of the surface `id`: the top of its chain of parents.
+    fn root(&self, id: u32) -> u32 {
+        let mut root = id;
+        // A chain is short: the limit only stops a loop.
+        for _ in 0..32 {
+            match self.parents.get(&root) {
+                Some(&parent) => root = parent,
+                None => break,
+            }
+        }
+        root
+    }
+
+    /// Gives the full rate to the window of the surface `id` (F048).
+    fn touch(&mut self, id: Option<u32>) {
+        if let Some(id) = id {
+            let root = self.root(id);
+            self.pace.touch(root, Instant::now());
+        }
+    }
+
+    /// Sends the frame callbacks that are due by the pace of their window, and keeps the others.
     fn send_frame_callbacks(&mut self) {
         if self.frame_callbacks.is_empty() {
             return;
         }
-        let time =
-            u32::try_from(self.started.elapsed().as_millis() % u128::from(u32::MAX)).unwrap_or(0);
-        for callback in self.frame_callbacks.drain(..) {
-            callback.done(time);
+        let now = Instant::now();
+        let time = self.now();
+        let mut decisions: HashMap<u32, Decision> = HashMap::new();
+        let callbacks = std::mem::take(&mut self.frame_callbacks);
+        for (id, callback) in callbacks {
+            if !callback.is_alive() {
+                continue;
+            }
+            // A surface with no id, for example with no role yet, gets its callback at once.
+            let decision = id.map_or(Decision::Send, |id| {
+                let root = self.root(id);
+                *decisions
+                    .entry(id)
+                    .or_insert_with(|| self.pace.decide(id, root, now))
+            });
+            match decision {
+                Decision::Send => callback.done(time),
+                Decision::Hold => self.frame_callbacks.push((id, callback)),
+            }
         }
     }
 
     fn command(&mut self, command: Command) {
+        tracing::trace!(?command, "a command of the shell");
         match command {
+            Command::Viewers { id, watched, video } => {
+                tracing::debug!(id, watched, video, "the channels of a surface changed");
+                self.pace.set_viewers(id, watched, video);
+            }
             Command::Configure { id, width, height } => {
+                self.touch(Some(id));
                 if let Some(toplevel) = self.toplevels.get(&id) {
                     toplevel.with_pending_state(|state| {
                         state.size = (width > 0 && height > 0).then(|| (width, height).into());
@@ -578,7 +642,10 @@ impl State {
                     }
                 }
             }
-            Command::Activate { id } => self.activate(id),
+            Command::Activate { id } => {
+                self.touch(id);
+                self.activate(id);
+            }
             Command::SetClipboard(clip) => {
                 // A read of the selection before this one must not replace it in the shell.
                 self.clip_generation += 1;
@@ -592,11 +659,14 @@ impl State {
                 }
             }
             Command::PopupDismiss { id } => {
+                self.touch(Some(id));
                 if let Some(popup) = self.popups.get(&id) {
                     popup.send_popup_done();
                 }
             }
             Command::PointerMotion { id, x, y } => {
+                self.pointer_on = Some(id);
+                self.touch(Some(id));
                 let surface = self
                     .toplevels
                     .get(&id)
@@ -615,6 +685,8 @@ impl State {
                 }
             }
             Command::PointerLeave => {
+                let left = self.pointer_on.take();
+                self.touch(left);
                 if let Some(pointer) = self.seat.get_pointer() {
                     let event = MotionEvent {
                         location: (-1.0, -1.0).into(),
@@ -626,6 +698,7 @@ impl State {
                 }
             }
             Command::PointerButton { button, pressed } => {
+                self.touch(self.pointer_on);
                 if let Some(pointer) = self.seat.get_pointer() {
                     let state = if pressed {
                         ButtonState::Pressed
@@ -643,6 +716,7 @@ impl State {
                 }
             }
             Command::PointerAxis { dx, dy } => {
+                self.touch(self.pointer_on);
                 if let Some(pointer) = self.seat.get_pointer() {
                     let mut frame = AxisFrame::new(self.now()).source(AxisSource::Wheel);
                     if dx != 0.0 {
@@ -656,6 +730,7 @@ impl State {
                 }
             }
             Command::Key { id, code, pressed } => {
+                self.touch(id.or(self.focused));
                 if let Some(id) = id
                     && self.focused != Some(id)
                     && self.toplevels.contains_key(&id)
@@ -850,12 +925,15 @@ impl CompositorHandler for State {
         let id = self.new_id(surface);
         tracing::debug!(id, parent, "a new subsurface");
         self.subsurfaces.insert(id, (surface.clone(), parent, None));
+        self.parents.insert(id, parent);
     }
 
     fn destroyed(&mut self, surface: &WlSurface) {
         if let Some(id) = Self::id_of(surface)
             && self.subsurfaces.remove(&id).is_some()
         {
+            self.parents.remove(&id);
+            self.pace.remove(id);
             self.emit(Event::PopupClosed { id });
         }
     }
@@ -962,8 +1040,10 @@ impl State {
                 std::mem::take(&mut attributes.frame_callbacks),
             )
         });
-        self.frame_callbacks.extend(callbacks);
-        let Some(id) = Self::id_of(surface) else {
+        let id = Self::id_of(surface);
+        self.frame_callbacks
+            .extend(callbacks.into_iter().map(|callback| (id, callback)));
+        let Some(id) = id else {
             // A surface with no role yet, or a subsurface. Its buffer goes back at once.
             if let Some(BufferAssignment::NewBuffer(buffer)) = buffer {
                 tracing::debug!(
@@ -1031,12 +1111,14 @@ impl XdgShellHandler for State {
             .and_then(|client| client.get_credentials(&self.display).ok())
             .and_then(|credentials| u32::try_from(credentials.pid).ok());
         self.toplevels.insert(id, surface);
+        self.touch(Some(id));
         self.emit(Event::ToplevelNew { id, pid });
     }
 
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
         if let Some(id) = Self::id_of(surface.wl_surface()) {
             self.toplevels.remove(&id);
+            self.pace.remove(id);
             self.emit(Event::ToplevelClosed { id });
         }
     }
@@ -1069,6 +1151,8 @@ impl XdgShellHandler for State {
         let Some(parent) = parent else {
             return;
         };
+        self.parents.insert(id, parent);
+        self.touch(Some(id));
         self.emit(Event::PopupNew {
             id,
             parent,
@@ -1119,6 +1203,9 @@ impl XdgShellHandler for State {
     fn popup_destroyed(&mut self, surface: PopupSurface) {
         if let Some(id) = Self::id_of(surface.wl_surface()) {
             self.popups.remove(&id);
+            self.touch(Some(id));
+            self.parents.remove(&id);
+            self.pace.remove(id);
             self.emit(Event::PopupClosed { id });
         }
     }

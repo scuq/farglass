@@ -117,8 +117,11 @@ impl SurfaceStream {
         let task_no_video = no_video.clone();
         // FARGLASS_VIDEO=0 turns the video off, for example to find a fault.
         let video = video && std::env::var_os("FARGLASS_VIDEO").is_none_or(|value| value != "0");
+        let video_flag = watch.video();
         let task = tokio::spawn(async move {
             let (acked, ack_notify) = (task_acked, task_ack_notify);
+            // The compositor keeps the full frame rate while this channel sends video (F048).
+            let mut in_video = false;
             let mut sent: u32 = 0;
             if let Ok(hello) = Frame::data(channel, tiles::hello(farglass_surface::cache::SLOTS)) {
                 let _ = frames.send(hello);
@@ -168,6 +171,10 @@ impl SurfaceStream {
                     return;
                 };
                 encoder = back;
+                if encoder.video_rect().is_some() != in_video {
+                    in_video = !in_video;
+                    video_flag.set(in_video);
+                }
                 let Some(encoded) = encoded else { continue };
                 sent = encoded.seq;
                 tracing::trace!(surface, seq = encoded.seq, stats = ?encoded.stats, "surface frame");
