@@ -82,6 +82,10 @@ struct Args {
     #[arg(long, conflicts_with = "clear_pin")]
     set_pin: bool,
 
+    /// Development and tests: let an agent connect as its own user, with no session worker
+    #[arg(long, env = "FARGLASSD_ALLOW_USER_AGENTS")]
+    allow_user_agents: bool,
+
     /// Remove the machine PIN of the web login and exit
     #[arg(long)]
     clear_pin: bool,
@@ -108,6 +112,9 @@ impl Args {
         }
         if self.dev_user.is_some() {
             config.dev_user = self.dev_user;
+        }
+        if self.allow_user_agents {
+            config.allow_user_agents = true;
         }
         if self.tls_cert.is_some() {
             config.tls.cert = self.tls_cert;

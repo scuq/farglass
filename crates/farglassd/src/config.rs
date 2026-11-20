@@ -90,6 +90,10 @@ pub struct Config {
     /// A username or a numeric uid. farglassd refuses this option if it does
     /// not listen on a loopback address.
     pub dev_user: Option<String>,
+    /// Lets an agent connect as its own user, with no session worker (F057). Only for
+    /// development and tests: in a web session, the worker of farglass-login gives the agent its link.
+    /// `dev_user` turns it on too.
+    pub allow_user_agents: bool,
     /// The TLS configuration.
     pub tls: TlsConfig,
 }
@@ -119,6 +123,7 @@ impl Default for Config {
             idle_lock_minutes: 15,
             http3: true,
             dev_user: None,
+            allow_user_agents: false,
             tls: TlsConfig::default(),
         }
     }

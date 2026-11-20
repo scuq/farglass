@@ -492,10 +492,45 @@ pub fn bind(path: &Path) -> Result<UnixListener, BindError> {
     Ok(listener)
 }
 
+/// Reads the claim of a session worker (F057): one frame with [`LinkMessage::Claim`].
+///
+/// The function reads exactly the bytes of the frame: the hello of the agent that
+/// follows stays in the stream. Returns the uid of the claim, never 0.
+///
+/// # Errors
+///
+/// A text with the cause if the frame is not a valid claim.
+pub async fn read_claim<S: AsyncRead + Unpin>(stream: &mut S) -> Result<u32, String> {
+    use tokio::io::AsyncReadExt as _;
+    let mut head = [0_u8; farglass_proto::HEADER_LEN];
+    stream
+        .read_exact(&mut head)
+        .await
+        .map_err(|error| error.to_string())?;
+    let header = farglass_proto::FrameHeader::decode(head).map_err(|error| error.to_string())?;
+    if header.payload_len() > 256 {
+        return Err("the claim is too long".to_owned());
+    }
+    let mut bytes = head.to_vec();
+    bytes.resize(farglass_proto::HEADER_LEN + header.payload_len(), 0);
+    stream
+        .read_exact(&mut bytes[farglass_proto::HEADER_LEN..])
+        .await
+        .map_err(|error| error.to_string())?;
+    let frame = Frame::from_message(bytes.into()).map_err(|error| error.to_string())?;
+    match parse_link(&frame) {
+        Some(LinkMessage::Claim { uid }) if uid != 0 => Ok(uid),
+        other => Err(format!("the first message was {other:?}, not a claim")),
+    }
+}
+
 /// Accepts agents on `listener` and serves each one in its own task.
 ///
-/// Each uid has at most [`MAX_LINKS_PER_UID`] links at the same time (F051).
-pub async fn accept_loop(listener: UnixListener, registry: Arc<Registry>) {
+/// A link from root must start with the claim of a session worker (F057). A link
+/// from a different uid is the agent of that uid only with `allow_user_agents`,
+/// for development and tests. Each uid has at most [`MAX_LINKS_PER_UID`] links
+/// at the same time (F051).
+pub async fn accept_loop(listener: UnixListener, registry: Arc<Registry>, allow_user_agents: bool) {
     let links: Arc<Mutex<HashMap<u32, usize>>> = Arc::default();
     loop {
         let stream = match listener.accept().await {
@@ -506,25 +541,50 @@ pub async fn accept_loop(listener: UnixListener, registry: Arc<Registry>) {
                 continue;
             }
         };
-        let uid = match stream.peer_cred() {
+        let peer = match stream.peer_cred() {
             Ok(cred) => cred.uid(),
             Err(error) => {
                 tracing::warn!(%error, "the agent socket gave no peer credentials");
                 continue;
             }
         };
-        let Some(place) = LinkPlace::take(&links, uid) else {
-            farglass_login::audit::Event {
-                event: "agent",
-                reason: "uid-cap",
-                uid: Some(uid),
-                ..Default::default()
-            }
-            .refused();
+        let event = |reason, uid| farglass_login::audit::Event {
+            event: "agent",
+            reason,
+            uid: Some(uid),
+            ..Default::default()
+        };
+        if peer != 0 && !allow_user_agents {
+            event("not-from-worker", peer).refused();
+            continue;
+        }
+        let Some(place) = LinkPlace::take(&links, peer) else {
+            event("uid-cap", peer).refused();
             continue;
         };
         let registry = registry.clone();
         tokio::spawn(async move {
+            let mut stream = stream;
+            let uid = if peer == 0 {
+                match tokio::time::timeout(HELLO_TIMEOUT, read_claim(&mut stream)).await {
+                    Ok(Ok(uid)) => uid,
+                    Ok(Err(error)) => {
+                        farglass_login::audit::Event {
+                            detail: Some(&error),
+                            ..event("claim", 0)
+                        }
+                        .refused();
+                        return;
+                    }
+                    Err(_) => {
+                        event("claim-timeout", 0).refused();
+                        return;
+                    }
+                }
+            } else {
+                peer
+            };
+            event("", uid).accepted();
             registry.serve(stream, uid).await;
             drop(place);
         });

@@ -4,10 +4,11 @@
 //! farglassd the uid of the agent, and farglassd gives the agent only the
 //! browser connections of that user (ADR-003, ADR-015).
 
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 #![warn(missing_docs)]
 
 pub mod audio;
+pub mod broker;
 pub mod dbus;
 pub mod desktop;
 pub mod launch;

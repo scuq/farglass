@@ -199,7 +199,7 @@ async fn real_agent_connects_and_farglassd_knows_its_uid_from_the_kernel() {
     let path = dir.path().join("run/agent.sock");
     let listener = agents::bind(&path).unwrap();
     let registry = Registry::new();
-    tokio::spawn(agents::accept_loop(listener, registry.clone()));
+    tokio::spawn(agents::accept_loop(listener, registry.clone(), true));
 
     // The uid of this process is the owner of a file that it creates.
     let uid = std::fs::metadata(dir.path()).unwrap().uid();
@@ -504,7 +504,7 @@ async fn one_uid_gets_a_limited_number_of_agent_links() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("agent.sock");
     let listener = agents::bind(&path).unwrap();
-    tokio::spawn(agents::accept_loop(listener, Registry::new()));
+    tokio::spawn(agents::accept_loop(listener, Registry::new(), true));
     // The links do not send their hello: they wait as a local attacker does.
     let mut links = Vec::new();
     for _ in 0..agents::MAX_LINKS_PER_UID {
@@ -519,4 +519,94 @@ async fn one_uid_gets_a_limited_number_of_agent_links() {
         next.is_none(),
         "the link over the limit closes with no hello"
     );
+}
+
+#[tokio::test]
+async fn an_agent_of_the_user_with_no_worker_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("agent.sock");
+    let listener = agents::bind(&path).unwrap();
+    tokio::spawn(agents::accept_loop(listener, Registry::new(), false));
+    let mut link = Framed::new(UnixStream::connect(&path).await.unwrap(), FrameCodec);
+    let next = tokio::time::timeout(WAIT, link.next()).await.unwrap();
+    assert!(
+        next.is_none(),
+        "an agent of the user got a link with no worker"
+    );
+}
+
+#[tokio::test]
+async fn the_worker_gives_the_agent_a_link_with_the_claim_of_its_uid() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("agent.sock");
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    let (worker_end, agent_end) = std::os::unix::net::UnixStream::pair().unwrap();
+    let socket = path.clone();
+    std::thread::spawn(move || farglass_login::broker::serve(&worker_end, 4242, &socket));
+    let broker = farglass_session::broker::Broker::from_stream(agent_end);
+    let agent = tokio::task::spawn_blocking(move || broker.link().map(|link| (link, broker)));
+    let (mut server, _) = tokio::time::timeout(WAIT, listener.accept())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(agents::read_claim(&mut server).await, Ok(4242));
+    let (mut link, broker) = agent.await.unwrap().unwrap();
+    // The agent writes on the link it got, and farglassd reads it after the claim.
+    std::io::Write::write_all(&mut link, b"hello").unwrap();
+    let mut read = [0_u8; 5];
+    tokio::io::AsyncReadExt::read_exact(&mut server, &mut read)
+        .await
+        .unwrap();
+    assert_eq!(&read, b"hello");
+    // With no farglassd, the worker answers with no link.
+    drop(listener);
+    std::fs::remove_file(&path).unwrap();
+    let failed = tokio::task::spawn_blocking(move || broker.link())
+        .await
+        .unwrap();
+    assert!(failed.is_err());
+}
+
+#[tokio::test]
+async fn a_claim_must_be_one_short_claim_frame_for_a_uid_that_is_not_root() {
+    async fn claim(bytes: Vec<u8>) -> Result<u32, String> {
+        let (mut client, mut server) = tokio::io::duplex(1024);
+        tokio::io::AsyncWriteExt::write_all(&mut client, &bytes)
+            .await
+            .unwrap();
+        drop(client);
+        agents::read_claim(&mut server).await
+    }
+    let frame = |message: &LinkMessage| {
+        Frame::json(ChannelId::CONNECTION, FrameType::Control, message)
+            .unwrap()
+            .to_bytes()
+            .to_vec()
+    };
+    assert_eq!(
+        claim(frame(&LinkMessage::Claim { uid: 1000 })).await,
+        Ok(1000)
+    );
+    assert!(claim(frame(&LinkMessage::Claim { uid: 0 })).await.is_err());
+    assert!(
+        claim(frame(&LinkMessage::Hello { version: 1 }))
+            .await
+            .is_err()
+    );
+    let mut long = frame(&LinkMessage::Claim { uid: 1000 });
+    long[5..8].copy_from_slice(&[0, 1, 0]);
+    assert!(claim(long).await.is_err());
+    // The bytes after the claim stay in the stream for the agent link.
+    let mut both = frame(&LinkMessage::Claim { uid: 7 });
+    both.extend_from_slice(b"rest");
+    let (mut client, mut server) = tokio::io::duplex(1024);
+    tokio::io::AsyncWriteExt::write_all(&mut client, &both)
+        .await
+        .unwrap();
+    assert_eq!(agents::read_claim(&mut server).await, Ok(7));
+    let mut rest = [0_u8; 4];
+    tokio::io::AsyncReadExt::read_exact(&mut server, &mut rest)
+        .await
+        .unwrap();
+    assert_eq!(&rest, b"rest");
 }

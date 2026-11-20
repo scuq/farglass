@@ -69,6 +69,7 @@ try {
       "--state-dir", state,
       "--agent-socket", agentSocket,
       "--login-socket", loginSocket,
+      "--allow-user-agents",
     ],
     {},
     /listening on (https:\/\/\S+)/,

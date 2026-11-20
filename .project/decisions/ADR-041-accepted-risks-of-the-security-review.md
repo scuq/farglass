@@ -1,10 +1,10 @@
 ---
 id: ADR-041
 title: Accepted risks of the security review
-status: accepted
+status: superseded
 date: 2026-11-20
 tags: [security]
-superseded_by:
+superseded_by: ADR-044
 files: []
 ---
 

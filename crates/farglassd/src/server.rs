@@ -67,6 +67,8 @@ pub struct Server {
     dev_mode: bool,
     /// The QUIC endpoint for HTTP/3 and WebTransport.
     quic: Option<quinn::Endpoint>,
+    /// Reports whether an agent can connect as its own user (F057): `allow_user_agents` or `dev_user`.
+    allow_user_agents: bool,
 }
 
 impl fmt::Debug for Server {
@@ -170,6 +172,7 @@ impl Server {
             agent_listener,
             registry,
             dev_mode,
+            allow_user_agents: config.allow_user_agents || dev_mode,
             quic: quic.map(|(endpoint, _)| endpoint),
         })
     }
@@ -216,6 +219,7 @@ impl Server {
         let agent_loop = tokio::spawn(agents::accept_loop(
             self.agent_listener,
             self.registry.clone(),
+            self.allow_user_agents,
         ));
         let idle_loop = tokio::spawn(idle_loop(self.context.clone()));
         let lock_loop = tokio::spawn(crate::lock::agent_loop(

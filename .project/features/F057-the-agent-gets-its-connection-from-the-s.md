@@ -1,11 +1,11 @@
 ---
 id: F057
 title: The agent gets its connection from the session worker
-status: planned
+status: done
 phase: P06
 tags: [security]
-decisions: [ADR-041, ADR-042, ADR-043]
-files: [crates/farglass-login/src/host.rs, crates/farglass-session/src/main.rs, crates/farglass-session/src/link.rs, crates/farglassd/src/agents.rs, docs/threats.md]
+decisions: [ADR-042, ADR-043, ADR-044]
+files: [crates/farglass-login/src/broker.rs, crates/farglass-login/src/worker.rs, crates/farglass-session/src/broker.rs, crates/farglass-session/src/main.rs, crates/farglass-session/src/link.rs, crates/farglassd/src/agents.rs, crates/farglassd/src/config.rs, crates/farglassd/src/server.rs, crates/farglassd/src/main.rs, crates/farglass-proto/src/message.rs, README.md, docs/threats.md]
 ---
 
 ## Goal
@@ -23,3 +23,4 @@ A program of the user cannot act as the agent: it cannot connect a replacement a
 - Supersede the part of ADR-041 on the replacement of the agent; the unlock through logind stays accepted
 
 ## Acceptance
+The session worker (root) makes a socket pair, gives one end to the agent in FARGLASS_BROKER_FD, and answers each request with a link: it connects to the agent socket, sends LinkMessage::Claim{uid}, and passes the link with SCM_RIGHTS. farglassd reads the claim only from a root peer (read_claim reads exactly one frame of at most 256 bytes, uid not 0) and refuses an agent of the user unless --allow-user-agents or dev_user, with a security log line. The agent takes the broker before other threads, sets close-on-exec, calls prctl(PR_SET_DUMPABLE, 0), and asks the worker again after a lost link. ADR-044 supersedes ADR-041 without the replacement risk. Tests: farglassd agents.rs broker round trip, claim parser, refusal of a user agent; farglass-session protect.rs (environ and mem of the agent are closed to the user); e2e login, pin, passkey, browsers, apps pass. Not tested: the worker as root in a real web session (sudo spikes/session/check.sh).

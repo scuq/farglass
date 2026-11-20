@@ -131,6 +131,15 @@ impl Default for Session {
 /// [`LinkError`] if the connection fails or farglassd breaks the protocol.
 pub async fn connect(path: &Path, session: &mut Session) -> Result<(), LinkError> {
     let stream = UnixStream::connect(path).await?;
+    connect_stream(stream, session).await
+}
+
+/// Serves the agent link on `stream`, a link that the session worker gave (F057), until farglassd closes it.
+///
+/// # Errors
+///
+/// [`LinkError`] if farglassd breaks the protocol.
+pub async fn connect_stream(stream: UnixStream, session: &mut Session) -> Result<(), LinkError> {
     // farglassd is the peer of the socket: the resource score shows its use (F046).
     session.stats.set_server(
         stream
@@ -254,7 +263,10 @@ where
                     tracing::info!(connection, "a browser connection detached");
                 }
                 LinkMessage::LockedHint { locked } => session.logind.set_locked_hint(locked),
-                LinkMessage::Hello { .. } | LinkMessage::Lock | LinkMessage::Unlock => {
+                LinkMessage::Hello { .. }
+                | LinkMessage::Lock
+                | LinkMessage::Unlock
+                | LinkMessage::Claim { .. } => {
                     return Err(LinkError::Protocol(format!(
                         "farglassd sent a message that only the agent sends: {:?}",
                         link_message(&frame)?

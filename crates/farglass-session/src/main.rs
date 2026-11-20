@@ -39,7 +39,29 @@ fn main() {
         };
         std::process::exit(code);
     }
+    // The link broker of the session worker, before any other thread (F057).
+    if let Some(broker) = farglass_session::broker::Broker::take_from_env() {
+        let _ = BROKER.set(broker);
+    }
+    // Other processes of the user cannot attach a debugger to the agent or read its memory (F057).
+    if let Err(error) = farglass_session::broker::protect() {
+        eprintln!("farglass-session: the agent stays open to a debugger of the user: {error}");
+    }
     agent();
+}
+
+/// The link broker of the session worker, in a web session (F057).
+static BROKER: std::sync::OnceLock<farglass_session::broker::Broker> = std::sync::OnceLock::new();
+
+/// Returns a new link from the session worker.
+async fn brokered_link(
+    broker: &'static farglass_session::broker::Broker,
+) -> std::io::Result<tokio::net::UnixStream> {
+    let stream = tokio::task::spawn_blocking(move || broker.link())
+        .await
+        .map_err(std::io::Error::other)??;
+    stream.set_nonblocking(true)?;
+    tokio::net::UnixStream::from_std(stream)
 }
 
 #[tokio::main]
@@ -149,7 +171,14 @@ async fn agent() {
     });
     let mut wait = RETRY_MIN;
     loop {
-        match link::connect(&path, &mut session).await {
+        let result = match BROKER.get() {
+            Some(broker) => match brokered_link(broker).await {
+                Ok(stream) => link::connect_stream(stream, &mut session).await,
+                Err(error) => Err(error.into()),
+            },
+            None => link::connect(&path, &mut session).await,
+        };
+        match result {
             Ok(()) => {
                 tracing::info!("farglassd closed the link");
                 wait = RETRY_MIN;

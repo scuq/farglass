@@ -222,7 +222,7 @@ try {
   const daemon = start(
     "farglassd",
     "target/debug/farglassd",
-    ["--listen", "127.0.0.1:0", "--web-root", "web/dist", "--state-dir", state, "--agent-socket", agentSocket, "--login-socket", loginSocket],
+    ["--listen", "127.0.0.1:0", "--web-root", "web/dist", "--state-dir", state, "--agent-socket", agentSocket, "--login-socket", loginSocket, "--allow-user-agents"],
     {},
     /listening on (https:\/\/\S+)/,
   );

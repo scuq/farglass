@@ -6,6 +6,8 @@
 //! The code comes from `rcd/crates/rcdd/src/worker.rs`.
 
 use std::ffi::CString;
+use std::os::fd::{AsRawFd as _, BorrowedFd};
+use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt as _;
 use std::path::Path;
 use std::process::Command;
@@ -77,12 +79,25 @@ pub fn run(
         )
         .env("FARGLASS_AGENT_SOCKET", agent_socket)
         .current_dir(&account.dir);
+    // The agent gets its links from this worker, not from the socket (F057). Its end of the
+    // socket pair is the only way to ask, and no other process of the user has it.
+    let (broker, agent_end) = UnixStream::pair().map_err(|error| error.to_string())?;
+    let agent_fd = agent_end.as_raw_fd();
+    command.env(crate::broker::BROKER_ENV, agent_fd.to_string());
     let name = CString::new(user).map_err(|error| error.to_string())?;
     let gid = account.gid;
     // SAFETY: The closure runs in the child after fork and before exec. It calls only
-    // functions that are safe after fork: initgroups, setgid, setuid, and signal.
+    // functions that are safe after fork: fcntl, initgroups, setgid, setuid, and signal.
+    // `agent_fd` is open in the child: `agent_end` lives until after the spawn.
     unsafe {
         command.pre_exec(move || {
+            // The end of the socket pair goes to the agent: no close at exec.
+            let fd = BorrowedFd::borrow_raw(agent_fd);
+            nix::fcntl::fcntl(
+                fd,
+                nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::empty()),
+            )
+            .map_err(std::io::Error::from)?;
             signal(Signal::SIGTERM, SigHandler::SigDfl).map_err(std::io::Error::from)?;
             signal(Signal::SIGHUP, SigHandler::SigDfl).map_err(std::io::Error::from)?;
             nix::unistd::initgroups(&name, gid).map_err(std::io::Error::from)?;
@@ -91,12 +106,16 @@ pub fn run(
             Ok(())
         });
     }
-    let status = command.status().map_err(|error| {
+    let mut child = command.spawn().map_err(|error| {
         format!(
             "the agent {} did not start: {error}",
             agent_program.display()
         )
     })?;
+    drop(agent_end);
+    let socket = agent_socket.to_owned();
+    std::thread::spawn(move || crate::broker::serve(&broker, uid, &socket));
+    let status = child.wait().map_err(|error| error.to_string())?;
     tracing::info!(user, session = id, %status, "the agent stopped, closing the web session");
     drop(session);
     Ok(())

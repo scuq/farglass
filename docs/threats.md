@@ -61,8 +61,13 @@ Controls:
 
 ### Agent socket `/run/farglass/agent.sock`
 
-Threat: a different local user gets the channels of a user.
-Controls: farglassd selects the agent by the uid of the peer from SO_PEERCRED (`agents.rs`). One uid has at most 4 links at the same time (F051).
+Threats: a different local user gets the channels of a user. A program of the user replaces the agent and gets the keys, the clipboard, and the windows that the browser sends.
+
+Controls:
+
+- farglassd accepts an agent link only from root: the session worker connects, sends the claim of the uid, and gives the link to the agent through a private socket pair (F057). A link from the uid of the user is refused, unless farglassd runs with `--dev-user` or `--allow-user-agents` for development.
+- The agent is not dumpable: a program of the user cannot attach a debugger to it or read its memory (F057).
+- One uid has at most 4 links at the same time (F051).
 
 ### Channels of the shell
 
@@ -77,7 +82,7 @@ Controls:
 - An OSC 52 clipboard write goes through only 3 s after a key or a click in that terminal. A later write asks the user (F055).
 - The launcher starts only entries of the desktop files, each in a systemd scope.
 - The state store accepts at most 8 MiB, with keys of at most 256 bytes. The clipboard has a size limit.
-- The D-Bus channel permits a list of bus names. It is not a security boundary while the terminal exists (ADR-041).
+- The D-Bus channel permits a list of bus names. It is not a security boundary while the terminal exists (ADR-044).
 
 ### Video redirection
 
@@ -113,5 +118,5 @@ Gap: finding 9.
 | 8 | Low | Output in a terminal (OSC 52) can write the clipboard of the client computer. | Fixed in F055 |
 | 9 | Low | farglass-login runs as root with all capabilities and accepts each peer of its socket. | Fixed in F056 |
 | 10 | Low | Each local user can open connections to the agent socket with no limit. | Fixed in F051 |
-| 11 | Info | A program of the user can unlock the web lock screen or replace the agent. The passkey step shows that the password was correct. `dev_user` gives each local user a session. The CSP permits inline style elements. | ADR-041 |
+| 11 | Info | A program of the user can unlock the web lock screen. The replacement of the agent is fixed in F057. The passkey step shows that the password was correct. `dev_user` gives each local user a session. The CSP permits inline style elements. | ADR-044 |
 | 12 | Info | `install-local.sh` puts the path of the repository in a shell string for `runuser`. | Fixed in F056 |

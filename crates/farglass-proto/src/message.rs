@@ -92,6 +92,14 @@ pub enum LinkMessage {
         /// Reports whether the session is locked.
         locked: bool,
     },
+    /// The session worker to farglassd, before the hello (F057): this link is for the agent of `uid`.
+    ///
+    /// The worker runs as root, connects, sends this message, and gives the
+    /// open link to the agent. farglassd accepts it only from a peer with uid 0.
+    Claim {
+        /// The uid of the user of the session.
+        uid: u32,
+    },
 }
 
 /// The payload of an open frame. It selects the kind of the channel.

@@ -86,6 +86,7 @@ The script builds first, as the owner of the source tree and with the PATH of it
 If the build fails, the script installs nothing.
 `--no-build` installs the last build, and the script refuses a build that is older than its sources.
 After an install, reload the tab of the shell. A change of the agent needs a new login of the user.
+An agent from a version before F057 cannot connect to the new farglassd: end its web session with `loginctl terminate-session ID` (the script names it), and log in again.
 `sudo packaging/install-local.sh uninstall` removes farglass.
 
 ## Development mode with no login
@@ -528,6 +529,13 @@ These limits keep one attacker from stopping the logins of other users:
 - One address has at most 16 connections with no user at the same time.
 - One uid has at most 4 links to the agent socket at the same time.
 
+The agent gets each link to farglassd from the session worker of its web session (F057).
+The worker runs as root: it connects, names the uid of the session, and gives the open link to the agent through a private socket pair.
+farglassd refuses an agent that connects as its user, unless it runs with `--dev-user` or `--allow-user-agents`.
+Thus a program of the user cannot replace the agent and see the keys, the clipboard, and the windows that the browser sends.
+The agent also turns off the debugger access of the user: other programs of the user cannot read its memory.
+If farglassd restarts, the agent asks the worker for a new link.
+
 After a login, farglass-login starts the web session of the user.
 It runs `farglass-login --session-worker USER` as a transient systemd unit `farglass-session-UID`.
 The worker opens a PAM session with the service `farglass-session` (`packaging/pam.d/farglass-session`).
@@ -644,7 +652,8 @@ cargo run -p farglass-login -- --socket target/farglass/login.sock --pam-dir DIR
 ```
 
 `DIR` must have a file `farglass` with a PAM stack that works for an unprivileged user.
-Then start farglassd with `--login-socket target/farglass/login.sock` and with no `--dev-user`.
+Then start farglassd with `--login-socket target/farglass/login.sock`, `--allow-user-agents`, and with no `--dev-user`.
+`--allow-user-agents` lets an agent that you start yourself connect as your user: only for development.
 The shell shows the login screen with each prompt of the PAM modules.
 
 ## End-to-end tests
