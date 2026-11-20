@@ -536,7 +536,19 @@ offset: number,
 /**
  * The length of the data.
  */
-size: number, } | { "type": "remove", 
+size: number, } | { "type": "change-type", 
+/**
+ * The media source.
+ */
+media: string, 
+/**
+ * The SourceBuffer.
+ */
+source: string, 
+/**
+ * The new MIME type with its codecs.
+ */
+mime: string, } | { "type": "remove", 
 /**
  * The media source.
  */

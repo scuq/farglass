@@ -64,3 +64,38 @@ describe("RedirectManager", () => {
     manager.close();
   });
 });
+
+describe("health", () => {
+  test("a video with no first frame while the host plays goes back to the host, and the diagnosis says why", async () => {
+    class FakeMediaSource extends EventTarget {
+      readyState = "open";
+      duration = Number.NaN;
+      static isTypeSupported = () => true;
+      addSourceBuffer() {
+        return Object.assign(new EventTarget(), { updating: false, timestampOffset: 0, appendBuffer() {}, remove() {}, abort() {}, changeType() {} });
+      }
+      endOfStream() {}
+    }
+    vi.stubGlobal("MediaSource", FakeMediaSource);
+    URL.createObjectURL = vi.fn(() => "blob:media");
+    URL.revokeObjectURL = vi.fn();
+    const { server, connection } = await fakeConnection("alice");
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "performance"] });
+    const manager = new RedirectManager(connection);
+    server.take();
+    server.push(readyFrame(1));
+    const event = (message: object) => server.push(encodeJsonFrame(1, FrameType.Control, message));
+    const rect = { x: 0, y: 0, width: 640, height: 360 };
+    event({ type: "source", media: "m", source: "s", mime: 'video/webm; codecs="vp9"' });
+    event({ type: "change-type", media: "m", source: "s", mime: 'video/mp4; codecs="av01.0.08M.08"' });
+    event({ type: "state", media: "m", time: 1, paused: false, rate: 1, rect, viewport: rect, zoom: 1, title: "A video", visible: true });
+    vi.advanceTimersByTime(5000);
+    const diagnosis = () => (globalThis as unknown as { farglassRedirect: () => { failed: string | null; sources: { mime: string }[] }[] }).farglassRedirect()[0]!;
+    expect(diagnosis().failed).toBeNull();
+    vi.advanceTimersByTime(4000);
+    expect(diagnosis().failed).toBe("no first frame");
+    expect(manager.playersFor("A video - Brave")).toEqual([]);
+    manager.close();
+    vi.useRealTimers();
+  });
+});

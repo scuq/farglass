@@ -502,6 +502,15 @@ pub enum RedirectEvent {
         /// The length of the data.
         size: u32,
     },
+    /// The page changed the codec of a SourceBuffer with changeType.
+    ChangeType {
+        /// The media source.
+        media: String,
+        /// The SourceBuffer.
+        source: String,
+        /// The new MIME type with its codecs.
+        mime: String,
+    },
     /// The page removed a time range of a SourceBuffer.
     Remove {
         /// The media source.

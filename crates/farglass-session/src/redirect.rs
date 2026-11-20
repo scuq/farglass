@@ -81,6 +81,17 @@ pub enum PlayerMessage {
         /// The data in base64.
         data: String,
     },
+    /// `SourceBuffer.changeType`.
+    ChangeType {
+        /// The tab.
+        tab: i64,
+        /// The media source in the tab.
+        media: String,
+        /// The SourceBuffer.
+        source: String,
+        /// The new MIME type.
+        mime: String,
+    },
     /// `SourceBuffer.remove`.
     Remove {
         /// The tab.
@@ -394,6 +405,27 @@ impl Redirect {
                     source,
                     offset,
                     size,
+                }
+            }
+            PlayerMessage::ChangeType {
+                tab,
+                media,
+                source,
+                mime,
+            } => {
+                let media = key(browser, tab, &media);
+                let log = inner.medias.entry(media.clone()).or_default();
+                // A later channel gets the new type and no segment of the old one.
+                if let Some(entry) = log.sources.iter_mut().find(|(id, _)| *id == source) {
+                    entry.1.clone_from(&mime);
+                }
+                log.init.remove(&source);
+                log.recent.retain(|(id, _, _)| *id != source);
+                log.recent_bytes = log.recent.iter().map(|(_, _, data)| data.len()).sum();
+                RedirectEvent::ChangeType {
+                    media,
+                    source,
+                    mime,
                 }
             }
             PlayerMessage::Remove {

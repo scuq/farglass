@@ -63,6 +63,11 @@
     const bytes = data instanceof ArrayBuffer ? data.slice(0) : data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
     post({ type: "append", ...ids, offset: buffer.timestampOffset, data: bytes }, [bytes]);
   });
+  // A player can change the codec of a SourceBuffer, for example from AV1 to VP9.
+  wrap(SourceBuffer.prototype, "changeType", (buffer, mime) => {
+    const ids = sources.get(buffer);
+    if (ids) post({ type: "change-type", ...ids, mime: String(mime) });
+  });
   wrap(SourceBuffer.prototype, "remove", (buffer, start, end) => {
     const ids = sources.get(buffer);
     if (ids) post({ type: "remove", ...ids, start, end: Number.isFinite(end) ? end : null });

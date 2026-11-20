@@ -16,6 +16,12 @@ import type { Channel, Connection, RedirectEvent, RedirectRect, RedirectRequest 
 /** The longest difference of the time from the host before the client seeks, in seconds. */
 const SEEK_AFTER = 0.4;
 
+/** The time with no first frame after which the client gives the video back to the host. */
+export const FIRST_FRAME_MS = 8000;
+
+/** The time with no progress while the host plays after which the client gives the video back to the host. */
+export const STALL_MS = 3000;
+
 /** The state of a video element of the host. */
 type HostState = Extract<RedirectEvent, { type: "state" }>;
 
@@ -43,7 +49,8 @@ export function mustSeek(clientTime: number, host: number): boolean {
 type Operation =
   | { readonly kind: "append"; readonly data: Uint8Array<ArrayBuffer>; readonly offset: number }
   | { readonly kind: "remove"; readonly start: number; readonly end: number }
-  | { readonly kind: "abort" };
+  | { readonly kind: "abort" }
+  | { readonly kind: "change-type"; readonly mime: string };
 
 /** One SourceBuffer of the host and its copy here. */
 class Source {
@@ -63,6 +70,11 @@ export class RedirectedMedia {
   failed = false;
   /** Reports whether the video had a frame. A seek then does not take it away. */
   started = false;
+  /** Why the client gave the video back to the host, for the diagnosis. */
+  reason: string | null = null;
+  readonly #created = performance.now();
+  #lastTime = -1;
+  #lastProgress = performance.now();
   #duration: number | null | undefined;
   #ended = false;
 
@@ -135,6 +147,13 @@ export class RedirectedMedia {
           buffer.appendBuffer(next.data);
         } else if (next.kind === "remove") {
           buffer.remove(next.start, Math.min(next.end, this.#mediaSource.duration || next.end));
+        } else if (next.kind === "change-type") {
+          if (!MediaSource.isTypeSupported(next.mime)) {
+            this.fail(`this browser cannot play ${next.mime}`);
+            return;
+          }
+          buffer.changeType(next.mime);
+          this.pump();
         } else {
           buffer.abort();
           this.pump();
@@ -166,18 +185,51 @@ export class RedirectedMedia {
     }
   }
 
+  /** Gives the video back to the host: the client no longer shows it, and the host draws it again. */
+  fail(reason: string): void {
+    if (this.failed) return;
+    this.failed = true;
+    this.reason = reason;
+    console.warn(`video redirection: the host draws ${this.id} again: ${reason}`);
+  }
+
+  /** Checks that the video plays: no error, a first frame in time, and progress while the host plays. */
+  #check(now: number, hostPlays: boolean): void {
+    const video = this.video;
+    if (video.error) {
+      this.fail(`the decoder of this browser failed: ${video.error.message || video.error.code}`);
+      return;
+    }
+    if (Math.abs(video.currentTime - this.#lastTime) > 0.05 || video.seeking || !hostPlays) {
+      this.#lastTime = video.currentTime;
+      this.#lastProgress = now;
+      return;
+    }
+    if (!this.started && now - this.#created > FIRST_FRAME_MS) {
+      this.fail("no first frame");
+    } else if (this.started && now - this.#lastProgress > STALL_MS) {
+      this.fail("the video stopped while the host plays");
+    }
+  }
+
   /** Follows the time, the pause, and the rate of the host. */
   sync(now: number): void {
     const state = this.state;
     if (!state || this.failed) return;
     const video = this.video;
+    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) this.started = true;
+    this.#check(now, !state.paused);
+    if (this.failed) return;
     if (video.playbackRate !== state.rate) video.playbackRate = state.rate;
     const host = hostTime(state, now - this.stateAt);
     if (video.readyState >= HTMLMediaElement.HAVE_METADATA && !video.seeking && mustSeek(video.currentTime, host)) {
       video.currentTime = host;
     }
     if (state.paused && !video.paused) video.pause();
-    if (!state.paused && video.paused) void video.play().catch((error: unknown) => console.debug("video redirection: no play", error));
+    if (!state.paused && video.paused) {
+      // A browser can refuse to play: the health check then gives the video back to the host.
+      video.play()?.catch((error: unknown) => console.debug("video redirection: no play", error));
+    }
     video.dataset.hostTime = host.toFixed(2);
     video.dataset.hostPaused = String(state.paused);
   }
@@ -210,6 +262,29 @@ export class RedirectManager {
       { oncontrol: (message) => this.#event(message as RedirectEvent), ondata: (data) => this.#data(data) },
     );
     this.#timer = setInterval(() => this.#sync(), 250);
+    // A diagnosis in the console of the client: farglassRedirect() lists each video and its state.
+    (globalThis as { farglassRedirect?: () => unknown }).farglassRedirect = () => this.diagnose();
+  }
+
+  /** Returns the state of each redirected video, for the diagnosis in the console. */
+  diagnose(): unknown[] {
+    return [...this.#medias.values()].map((media) => {
+      const video = media.video;
+      return {
+        id: media.id,
+        title: media.state?.title,
+        showing: this.#showing.get(media.id) ?? false,
+        failed: media.reason,
+        started: media.started,
+        paused: video.paused,
+        time: Number(video.currentTime.toFixed(2)),
+        host: media.state ? Number(hostTime(media.state, performance.now() - media.stateAt).toFixed(2)) : null,
+        ready: video.readyState,
+        size: `${video.videoWidth}x${video.videoHeight}`,
+        error: video.error?.message ?? null,
+        sources: [...media.sources.values()].map((source) => ({ mime: source.mime, queued: source.queue.length, buffered: source.buffer?.buffered?.length ?? null })),
+      };
+    });
   }
 
   close(): void {
@@ -226,7 +301,6 @@ export class RedirectManager {
     for (const media of this.#medias.values()) {
       const state = media.state;
       if (!state || !state.visible || media.failed || !state.title || !title.startsWith(state.title)) continue;
-      if (media.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) media.started = true;
       if (!media.started) continue;
       const rect = placement(state);
       if (rect) players.push({ media, rect });
@@ -269,6 +343,9 @@ export class RedirectManager {
         break;
       case "remove":
         this.#medias.get(event.media)?.push(event.source, { kind: "remove", start: event.start, end: event.end });
+        break;
+      case "change-type":
+        this.#medias.get(event.media)?.push(event.source, { kind: "change-type", mime: event.mime });
         break;
       case "abort":
         this.#medias.get(event.media)?.push(event.source, { kind: "abort" });
