@@ -11,14 +11,15 @@
     "echo": "node echo.mjs",
     "login": "node login.mjs",
     "wm": "node wm.mjs",
-    "test": "node echo.mjs && node login.mjs && node wm.mjs && node term.mjs && node notify.mjs && node settings.mjs && node transport.mjs && node surface.mjs && node apps.mjs && node clipboard.mjs",
+    "test": "node echo.mjs && node login.mjs && node wm.mjs && node term.mjs && node notify.mjs && node settings.mjs && node transport.mjs && node surface.mjs && node apps.mjs && node clipboard.mjs && node launcher.mjs",
     "term": "node term.mjs",
     "notify": "node notify.mjs",
     "settings": "node settings.mjs",
     "transport": "node transport.mjs",
     "surface": "node surface.mjs",
     "apps": "node apps.mjs",
-    "clipboard": "node clipboard.mjs"
+    "clipboard": "node clipboard.mjs",
+    "launcher": "node launcher.mjs"
   },
   "devDependencies": {
     "playwright": "^1.65.1"

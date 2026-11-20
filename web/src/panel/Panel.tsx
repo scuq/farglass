@@ -1,7 +1,7 @@
 import { createSignal, For, onCleanup, untrack } from "solid-js";
 import { setContextMenu } from "../menu/menu";
 import { windowMenu } from "../wm/menus";
-import { APPS } from "../apps/registry";
+import { windowIcon } from "../launcher/hostApps";
 import type { DesktopController } from "../wm/controller";
 import type { Win } from "../wm/model";
 import { Clock } from "./Clock";
@@ -42,6 +42,7 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
             c.setLauncherOpen(false);
             c.openApp(appId);
           }}
+          onclose={() => c.setLauncherOpen(false)}
         />
       </Popover>
 
@@ -77,7 +78,7 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
               data-minimized={String(win().minimized)}
               onClick={() => (c.focusedId() === win().id ? c.minimize(win().id) : c.activate(win().id))}
             >
-              {APPS[win().app] ? <img class="panel-task-icon" src={APPS[win().app]!.icon} alt="" /> : null}
+              {windowIcon(win()) ? <img class="panel-task-icon" src={windowIcon(win())} alt="" /> : null}
               {win().title}
             </button>
             );

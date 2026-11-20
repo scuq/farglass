@@ -351,7 +351,7 @@ fn spawn(
 }
 
 /// Returns 8 random bytes as hexadecimal, for the name of a scope.
-fn random_hex() -> String {
+pub(crate) fn random_hex() -> String {
     let mut bytes = [0_u8; 8];
     if let Ok(mut random) = std::fs::File::open("/dev/urandom") {
         let _ = random.read_exact(&mut bytes);

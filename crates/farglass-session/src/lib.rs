@@ -9,6 +9,7 @@
 
 pub mod dbus;
 pub mod desktop;
+pub mod launch;
 pub mod link;
 pub mod logind;
 pub mod notify;

@@ -43,7 +43,7 @@ bus: Bus, } | { "kind": "notify" } | { "kind": "surfaces" } | { "kind": "surface
 /**
  * The id of the surface from the surfaces channel.
  */
-id: number, } | { "kind": "surface-input" } | { "kind": "clipboard" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" };
+id: number, } | { "kind": "surface-input" } | { "kind": "clipboard" } | { "kind": "apps" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" };
 
 /**
  * The payload of a ready frame. The receiver of the open frame accepts the channel.
@@ -405,6 +405,77 @@ export type SurfaceAck = { "type": "ack",
  * The sequence of the end message.
  */
 seq: number, };
+
+/**
+ * An app of the host: a desktop entry that the launcher shows.
+ */
+export type HostApp = { 
+/**
+ * The desktop file id, for example `org.gnome.Calculator`.
+ */
+id: string, 
+/**
+ * The name in the language of the user.
+ */
+name: string, 
+/**
+ * What the app does.
+ */
+comment?: string, 
+/**
+ * More words for the search.
+ */
+keywords: Array<string>, 
+/**
+ * Reports whether the agent has an icon for [`AppsRequest::Icon`].
+ */
+icon: boolean, 
+/**
+ * The Wayland app ids that a window of this app can have, in lowercase: the id, the `StartupWMClass`, and the program name.
+ */
+names: Array<string>, };
+
+/**
+ * A request of the shell on an apps channel.
+ */
+export type AppsRequest = { "type": "list" } | { "type": "icon", 
+/**
+ * The app.
+ */
+id: string, } | { "type": "launch", 
+/**
+ * The app.
+ */
+id: string, };
+
+/**
+ * A message of the agent on an apps channel.
+ */
+export type AppsEvent = { "type": "list", 
+/**
+ * The apps.
+ */
+apps: Array<HostApp>, } | { "type": "icon", 
+/**
+ * The app.
+ */
+id: string, 
+/**
+ * `image/svg+xml` or `image/png`.
+ */
+mime?: string, } | { "type": "launched", 
+/**
+ * The app.
+ */
+id: string, } | { "type": "failed", 
+/**
+ * The app.
+ */
+id: string, 
+/**
+ * The cause, for the user.
+ */
+message: string, };
 
 /**
  * The kind of a clipboard content.

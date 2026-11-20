@@ -219,6 +219,15 @@ The size, the focus, the close, the keyboard, and the pointer of the window go t
 `npm --prefix spikes/e2e run apps` starts gnome-calculator and VS Code side by side.
 It moves each window by the own title bar of the app, types in the two windows, and switches the focus between them: each key must go to the window where it was typed.
 
+The launcher lists the apps of the host with the apps of the shell.
+The agent reads the desktop entries in `applications` of `XDG_DATA_HOME` and of each directory in `XDG_DATA_DIRS`, in the language of `LANG`.
+It does not list an entry with `NoDisplay`, `Hidden`, or `Terminal`, an entry for a different desktop in `OnlyShowIn` or `NotShowIn`, or an entry whose `TryExec` program is missing.
+The icon comes from the hicolor theme or from `pixmaps`, as SVG or PNG.
+A click starts the app with `WAYLAND_DISPLAY` of the session, each app in its own systemd --user scope `app-farglass-ID-RANDOM.scope`.
+Its windows show the icon of its desktop entry, also in the panel.
+If the app does not start, the launcher shows why.
+`npm --prefix spikes/e2e run launcher` starts gnome-calculator from a desktop entry in the launcher.
+
 The clipboard goes between the apps and your computer, as text or as a PNG image.
 A copy in an app goes to the clipboard of your browser.
 Before a paste key goes to an app (Ctrl+V, Ctrl+Shift+V, or Shift+Insert), the shell reads the clipboard of your browser and gives it to the apps.

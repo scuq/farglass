@@ -152,7 +152,16 @@
   display: flex;
   flex-direction: column;
 }
-.launcher-results li[aria-selected="true"] .launcher-icon {
+.launcher-results li[data-starting="true"] {
+  opacity: 0.6;
+}
+.launcher-failure {
+  margin: 0.5rem 0 0;
+  padding: 0.4rem 0.6rem;
+  border-left: 3px solid var(--bad);
+}
+/* The icon of a shell app is a line drawing: it turns white on the selection. The icon of a host app keeps its colors. */
+.launcher-results li[aria-selected="true"]:not([data-host]) .launcher-icon {
   filter: brightness(0) invert(1);
 }
 .panel-task-icon {

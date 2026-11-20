@@ -9,9 +9,9 @@ use std::time::Duration;
 use bytes::Bytes;
 use farglass_proto::codec::{CodecError, FrameCodec};
 use farglass_proto::message::{
-    Bus, ClipboardMessage, ClipboardMime, Close, CloseReason, DbusEvent, DbusRequest, LinkMessage,
-    MAX_CLIPBOARD_LEN, NotifyReply, Open, PolkitReply, PtyEvent, PtyRequest, Ready, StateEvent,
-    StateRequest, SurfaceAck, SurfaceInput, SurfaceRequest,
+    AppsEvent, AppsRequest, Bus, ClipboardMessage, ClipboardMime, Close, CloseReason, DbusEvent,
+    DbusRequest, LinkMessage, MAX_CLIPBOARD_LEN, NotifyReply, Open, PolkitReply, PtyEvent,
+    PtyRequest, Ready, StateEvent, StateRequest, SurfaceAck, SurfaceInput, SurfaceRequest,
 };
 use farglass_proto::{ChannelId, Frame, FrameError, FrameType, PROTOCOL_VERSION, Side};
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -21,6 +21,7 @@ use tokio::sync::mpsc;
 use tokio_util::codec::Framed;
 
 use crate::dbus::{self, Buses, DbusOptions, Filter, Subscriptions};
+use crate::launch::{LaunchOptions, Launcher};
 use crate::logind::Logind;
 use crate::notify::{self, Notifications};
 use crate::polkit::{HELPER, Polkit, ViewerGuard};
@@ -74,6 +75,8 @@ pub struct Session {
     pub logind: Arc<Logind>,
     /// The windows of the Wayland compositor.
     pub surfaces: Arc<Surfaces>,
+    /// The apps of the host for the launcher.
+    pub launcher: Arc<Launcher>,
 }
 
 impl Default for Session {
@@ -87,6 +90,7 @@ impl Default for Session {
             polkit: Polkit::new(HELPER),
             notifications: Notifications::new(),
             surfaces: Surfaces::new(),
+            launcher: Launcher::new(LaunchOptions::from_env()),
         }
     }
 }
@@ -349,6 +353,19 @@ where
                         }
                     }
                     Kind::Surfaces { .. } | Kind::Surface(_) | Kind::SurfaceInput => None,
+                    Kind::Apps if frame.frame_type() == FrameType::Control => {
+                        match frame.parse::<AppsRequest>() {
+                            Ok(request) => {
+                                apps_request(session.launcher.clone(), channel, request, &events);
+                                None
+                            }
+                            Err(error) => Some((
+                                CloseReason::ProtocolError,
+                                format!("The apps request is not valid: {error}"),
+                            )),
+                        }
+                    }
+                    Kind::Apps => None,
                     Kind::Clipboard { incoming, .. } => match clipboard_frame(incoming, &frame) {
                         Ok(Some(clip)) => {
                             session.surfaces.set_clipboard(clip);
@@ -396,6 +413,47 @@ type Link<S> = Framed<S, FrameCodec>;
 
 /// A refusal of a request: the reason and the message of the close frame.
 type Refusal = Option<(CloseReason, String)>;
+
+/// Serves a request of an apps channel on a blocking thread: it reads desktop files and icons.
+fn apps_request(
+    launcher: Arc<Launcher>,
+    channel: ChannelId,
+    request: AppsRequest,
+    events: &mpsc::UnboundedSender<Frame>,
+) {
+    let events = events.clone();
+    tokio::task::spawn_blocking(move || {
+        let json = |event: &AppsEvent| Frame::json(channel, FrameType::Control, event).ok();
+        let frames: Vec<Option<Frame>> = match request {
+            AppsRequest::List => vec![json(&AppsEvent::List {
+                apps: launcher.list(),
+            })],
+            AppsRequest::Icon { id } => match launcher.icon(&id) {
+                Some((mime, bytes)) => vec![
+                    json(&AppsEvent::Icon {
+                        id,
+                        mime: Some(mime.to_owned()),
+                    }),
+                    Frame::data(channel, bytes).ok(),
+                ],
+                None => vec![json(&AppsEvent::Icon { id, mime: None })],
+            },
+            AppsRequest::Launch { id } => match launcher.launch(&id) {
+                Ok(_) => vec![json(&AppsEvent::Launched { id })],
+                Err(error) => {
+                    tracing::warn!(%error, "an app did not start");
+                    vec![json(&AppsEvent::Failed {
+                        id,
+                        message: error.to_string(),
+                    })]
+                }
+            },
+        };
+        for frame in frames.into_iter().flatten() {
+            let _ = events.send(frame);
+        }
+    });
+}
 
 /// A clipboard content of the shell that is not complete yet.
 #[derive(Debug)]
@@ -697,6 +755,8 @@ enum Kind {
     },
     /// Gives keyboard and pointer input to the Wayland apps.
     SurfaceInput,
+    /// Lists and starts the apps of the host.
+    Apps,
     /// Carries the clipboard between the Wayland apps and the shell.
     Clipboard {
         /// Dropping the guard removes the channel from the agent.
@@ -793,6 +853,10 @@ fn open(
             accept(Kind::Surfaces { _viewer: guard })
         }
         Ok(Open::SurfaceInput) => accept(Kind::SurfaceInput),
+        Ok(Open::Apps) => {
+            apps_request(session.launcher.clone(), channel, AppsRequest::List, events);
+            accept(Kind::Apps)
+        }
         Ok(Open::Clipboard) => {
             let events = events.clone();
             let guard = session.surfaces.add_clipboard(move |clip| {

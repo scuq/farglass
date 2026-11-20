@@ -2,6 +2,7 @@ import { For, onCleanup, Show, untrack } from "solid-js";
 import { setContextMenu } from "../menu/menu";
 import { AppHost } from "../apps/AppHost";
 import { APPS } from "../apps/registry";
+import { windowIcon } from "../launcher/hostApps";
 import type { DesktopController } from "./controller";
 import { snapRect } from "./geometry";
 import { desktopMenu, windowMenu } from "./menus";
@@ -41,7 +42,7 @@ export function Surface(props: { controller: DesktopController }) {
           const content = untrack(() => <AppHost controller={c} app={APPS[appId]} windowId={windowId} appId={appId} />);
           return (
             <WindowFrame
-              icon={APPS[appId]?.icon}
+              icon={windowIcon(win())}
               menu={() => windowMenu(c, windowId)}
               win={win}
               area={c.area}

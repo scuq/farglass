@@ -1,6 +1,7 @@
 import { onCleanup } from "solid-js";
 import { APPEARANCE_KEY, applyAppearance, parseAppearance } from "../appearance";
 import { Notifications } from "../notify/Notifications";
+import { startHostApps } from "../launcher/hostApps";
 import { startSurfaceManager, stopSurfaceManager } from "../surface/manager";
 import { Panel } from "../panel/Panel";
 import { PolkitDialog } from "../polkit/PolkitDialog";
@@ -23,6 +24,8 @@ export function Desktop(props: { connection: Connection; user: string; onlogout:
   // The windows of the Wayland apps of the session.
   startSurfaceManager(props.connection, controller);
   onCleanup(() => stopSurfaceManager(props.connection));
+  // The desktop entries of the host for the launcher, and the icons of their windows (F031).
+  onCleanup(startHostApps(props.connection));
   // The appearance from the settings app, also when a different tab changes it.
   onCleanup(controller.state.watch(APPEARANCE_KEY, (value) => applyAppearance(parseAppearance(value))));
   return (

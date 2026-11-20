@@ -1,6 +1,6 @@
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { encodeJsonFrame, FrameType, parseJson, readyFrame } from "../proto";
+import { dataFrame, encodeJsonFrame, FrameType, parseJson, readyFrame } from "../proto";
 import { fakeConnection } from "../proto/testing";
 import { Desktop } from "../wm/Desktop";
 import { emptyDesktop } from "../wm/model";
@@ -22,12 +22,14 @@ async function mountDesktop(onlogout = () => {}) {
   const host = document.createElement("div");
   document.body.append(host);
   dispose = render(() => <Desktop connection={connection} user="alice" onlogout={onlogout} />, host);
-  const channel = server.take().find((f) => f.type === FrameType.Open && parseJson<{ kind: string }>(f).kind === "state")!.channel;
+  const opened = server.take().filter((f) => f.type === FrameType.Open);
+  const channel = opened.find((f) => parseJson<{ kind: string }>(f).kind === "state")!.channel;
   server.push(readyFrame(channel));
   // An empty desktop that is not new: the desktop opens no window.
   server.push(encodeJsonFrame(channel, FrameType.Control, { type: "value", key: "desktop", value: emptyDesktop() }));
   await settle();
-  return { host, server };
+  const channelOf = (kind: string) => opened.find((f) => parseJson<{ kind: string }>(f).kind === kind)!.channel;
+  return { host, server, channelOf };
 }
 
 const byText = (host: HTMLElement, selector: string, text: string) =>
@@ -41,6 +43,53 @@ function type(input: HTMLInputElement, value: string) {
 function key(type: "keydown" | "keyup", init: KeyboardEventInit, target: EventTarget = window) {
   target.dispatchEvent(new KeyboardEvent(type, { bubbles: true, cancelable: true, ...init }));
 }
+
+describe("apps of the host", () => {
+  test("the launcher lists the desktop entries with their icons, and a click starts the app", async () => {
+    URL.createObjectURL = vi.fn(() => "blob:calculator-icon");
+    URL.revokeObjectURL = vi.fn();
+    const { host, server, channelOf } = await mountDesktop();
+    const apps = channelOf("apps");
+    const requests = () =>
+      server
+        .take()
+        .filter((f) => f.channel === apps)
+        .map((f) => parseJson(f));
+    const event = (message: object) => server.push(encodeJsonFrame(apps, FrameType.Control, message));
+    server.push(readyFrame(apps));
+    event({
+      type: "list",
+      apps: [{ id: "org.gnome.Calculator", name: "Calculator", comment: "Perform calculations", keywords: ["math"], icon: true, names: ["org.gnome.calculator"] }],
+    });
+    await settle();
+    byText(host, "button", "Apps").click();
+    await settle();
+    expect(requests()).toEqual([{ type: "list" }, { type: "icon", id: "org.gnome.Calculator" }]);
+    const option = () => byText(host, "#launcher [role=option]", "Calculator");
+    expect(option().querySelector(".launcher-description")?.textContent).toBe("Perform calculations");
+    expect(option().dataset.host).toBe("true");
+    event({ type: "icon", id: "org.gnome.Calculator", mime: "image/svg+xml" });
+    server.push(dataFrame(apps, new TextEncoder().encode("<svg/>")));
+    await settle();
+    expect(option().querySelector("img")?.getAttribute("src")).toBe("blob:calculator-icon");
+
+    // A start that fails: the launcher stays open and tells why.
+    option().click();
+    await settle();
+    expect(requests()).toEqual([{ type: "launch", id: "org.gnome.Calculator" }]);
+    event({ type: "failed", id: "org.gnome.Calculator", message: "Calculator did not start: no such file." });
+    await settle();
+    expect(host.querySelector("#launcher [role=alert]")?.textContent).toBe("Calculator did not start: no such file.");
+
+    // A start that works: the launcher closes. The window comes from the compositor.
+    option().click();
+    await settle();
+    expect(requests()).toEqual([{ type: "launch", id: "org.gnome.Calculator" }]);
+    event({ type: "launched", id: "org.gnome.Calculator" });
+    await settle();
+    expect(host.querySelector("#launcher [role=option]")).toBeNull();
+  });
+});
 
 describe("launcher", () => {
   test("the Apps button opens the launcher with all apps, and a click opens an app", async () => {

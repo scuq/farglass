@@ -128,6 +128,11 @@ pub enum Open {
     /// and then the bytes in data frames. The agent answers an offer of the shell with
     /// [`ClipboardMessage::Stored`]. The agent sends a content only after an app set the clipboard.
     Clipboard,
+    /// The apps of the host for the launcher: the desktop entries (F031).
+    ///
+    /// The agent sends [`AppsEvent::List`] at once. The shell sends [`AppsRequest`].
+    /// An [`AppsEvent::Icon`] with a mime type is followed by one data frame with the bytes of the icon.
+    Apps,
     /// The polkit prompts of the session. The shell keeps one open while the desktop shows.
     ///
     /// The agent sends [`PolkitEvent`] and gets [`PolkitReply`], as control messages.
@@ -435,6 +440,75 @@ pub enum SurfaceInput {
         code: u32,
         /// Pressed or released.
         pressed: bool,
+    },
+}
+
+/// An app of the host: a desktop entry that the launcher shows.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct HostApp {
+    /// The desktop file id, for example `org.gnome.Calculator`.
+    pub id: String,
+    /// The name in the language of the user.
+    pub name: String,
+    /// What the app does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub comment: Option<String>,
+    /// More words for the search.
+    pub keywords: Vec<String>,
+    /// Reports whether the agent has an icon for [`AppsRequest::Icon`].
+    pub icon: bool,
+    /// The Wayland app ids that a window of this app can have, in lowercase: the id, the `StartupWMClass`, and the program name.
+    pub names: Vec<String>,
+}
+
+/// A request of the shell on an apps channel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum AppsRequest {
+    /// Reads the desktop entries again, for example when the launcher opens.
+    List,
+    /// Asks for the icon of an app.
+    Icon {
+        /// The app.
+        id: String,
+    },
+    /// Starts an app.
+    Launch {
+        /// The app.
+        id: String,
+    },
+}
+
+/// A message of the agent on an apps channel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum AppsEvent {
+    /// The apps, sorted by name.
+    List {
+        /// The apps.
+        apps: Vec<HostApp>,
+    },
+    /// The icon of an app. With a mime type, one data frame with the bytes follows. With none, the app has no icon.
+    Icon {
+        /// The app.
+        id: String,
+        /// `image/svg+xml` or `image/png`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        mime: Option<String>,
+    },
+    /// The app started.
+    Launched {
+        /// The app.
+        id: String,
+    },
+    /// The app did not start.
+    Failed {
+        /// The app.
+        id: String,
+        /// The cause, for the user.
+        message: String,
     },
 }
 

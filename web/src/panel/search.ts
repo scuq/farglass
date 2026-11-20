@@ -4,7 +4,7 @@
 export interface Searchable {
   readonly id: string;
   readonly title: string;
-  readonly keywords?: readonly string[];
+  readonly keywords?: readonly string[] | undefined;
 }
 
 /**
