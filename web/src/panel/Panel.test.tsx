@@ -188,6 +188,48 @@ describe("launcher", () => {
     expect(host.querySelector(".wm-window")?.getAttribute("aria-label")).toBe("Echo");
   });
 
+  test("a search finds a settings page by a keyword, and Enter opens the settings at that page", async () => {
+    const { host, server } = await mountDesktop();
+    byText(host, "button", "Apps").click();
+    await settle();
+    const input = host.querySelector<HTMLInputElement>(".launcher-search")!;
+    type(input, "timezone");
+    await settle();
+    const option = host.querySelector("#launcher [aria-selected=true]")!;
+    expect([option.querySelector(".launcher-title")?.textContent, option.querySelector(".launcher-description")?.textContent]).toEqual(["Date and time", "Settings"]);
+    server.take();
+    key("keydown", { key: "Enter" }, input);
+    await settle();
+    const win = host.querySelector(".wm-window")!;
+    expect(win.getAttribute("aria-label")).toBe("Settings");
+    const sets = server
+      .take()
+      .filter((frame) => frame.type === FrameType.Control)
+      .map((frame) => parseJson<{ type: string; key?: string; value?: unknown }>(frame))
+      .filter((message) => message.type === "set" && message.key?.startsWith("settings.page."));
+    expect(sets.map((message) => message.value)).toEqual(["datetime"]);
+    expect(host.querySelector("#launcher [role=option]")).toBeNull();
+  });
+
+  test("a calculation and a unit conversion are the first result, and Enter copies the value", async () => {
+    const writes: string[] = [];
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: async (text: string) => void writes.push(text) }, configurable: true });
+    const { host } = await mountDesktop();
+    byText(host, "button", "Apps").click();
+    await settle();
+    const input = host.querySelector<HTMLInputElement>(".launcher-search")!;
+    type(input, "2 * (3 + 4)^2");
+    await settle();
+    expect(host.querySelector("#launcher [aria-selected=true] .launcher-title")?.textContent).toBe("2 * (3 + 4)^2 = 98");
+    type(input, "10 km in mi");
+    await settle();
+    expect(host.querySelector("#launcher [aria-selected=true] .launcher-title")?.textContent).toBe("10 km = 6.21371192237 mi");
+    key("keydown", { key: "Enter" }, input);
+    await settle();
+    expect(writes).toEqual(["6.21371192237"]);
+    expect(host.querySelector("#launcher [role=option]")).toBeNull();
+  });
+
   test("Alt+F1 and a tap of Super open and close the launcher", async () => {
     const { host } = await mountDesktop();
     const open = () => host.querySelector("#launcher .launcher-search") !== null;

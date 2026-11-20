@@ -72,7 +72,12 @@ export interface DesktopController {
   toggleMaximize(id: string): void;
   place(id: string, rect: Rect, zone: SnapZone | null): void;
   setPreview(zone: SnapZone | null): void;
-  openApp(appId: string): void;
+  /**
+   * Opens a window of the app `appId`. With `state`, each name gets its value in the state of the
+   * window before the app starts, for example the page of the settings (F042). With `state`, an
+   * open window of the app gets the values and the focus instead of a new window.
+   */
+  openApp(appId: string, state?: Readonly<Record<string, unknown>>): void;
   /**
    * Opens a window with the id `id` for the app `linux`, if no window has the id. With focus
    * protection, it gets the focus only if the user asked for it (F041): `hint` names its app and the window that it belongs to.
@@ -143,7 +148,7 @@ export function createDesktopController(connection: Connection): DesktopControll
     }
   };
 
-  const withApp = (state: Desktop, appId: string): Desktop => {
+  const withApp = (state: Desktop, appId: string, id: string = crypto.randomUUID()): Desktop => {
     const app = APPS[appId];
     if (!app) {
       return state;
@@ -154,7 +159,7 @@ export function createDesktopController(connection: Connection): DesktopControll
     for (let n = 2; titles.has(title); n++) {
       title = `${app.title} ${n}`;
     }
-    return openWindow(state, { id: crypto.randomUUID(), app: app.id, title, ...app.size }, area());
+    return openWindow(state, { id, app: app.id, title, ...app.size }, area());
   };
 
   const onLoaded: (() => void)[] = [];
@@ -248,8 +253,22 @@ export function createDesktopController(connection: Connection): DesktopControll
         zone ? snapWindow(placeWindow(state, id, rect), id, zone) : placeWindow(state, id, clampRect(rect, area())),
       ),
     setPreview,
-    openApp(appId) {
-      apply((state) => withApp(state, appId));
+    openApp(appId, state) {
+      if (state) {
+        // The key of a name in the state of a window, as AppHost makes it.
+        const existing = desktop().recent.find((id) => windowById(desktop(), id)?.app === appId);
+        const id = existing ?? crypto.randomUUID();
+        for (const [name, value] of Object.entries(state)) {
+          store.set(`${appId}.${name}.${id}`, value, { local: true });
+        }
+        if (existing) {
+          controller.activate(existing);
+          return;
+        }
+        apply((current) => withApp(current, appId, id));
+      } else {
+        apply((current) => withApp(current, appId));
+      }
       queueMicrotask(() => focusElement(focusedId()));
     },
     openSurface(id, title, w, h, hint = {}) {

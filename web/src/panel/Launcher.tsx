@@ -1,5 +1,8 @@
 import { createSignal, createUniqueId, For, Show } from "solid-js";
 import { APPS } from "../apps/registry";
+import { PAGES } from "../apps/settings/pages";
+import { calculate } from "../launcher/calc";
+import calcIcon from "../launcher/calc.svg";
 import { hostApps } from "../launcher/hostApps";
 import { search } from "./search";
 
@@ -12,6 +15,10 @@ interface Entry {
   readonly icon: () => string | undefined;
   /** The id of the desktop entry of an app of the host. */
   readonly host?: string;
+  /** A page of the settings (F042). */
+  readonly setting?: string;
+  /** The value of a calculation or a conversion, to copy (F042). */
+  readonly calc?: string;
   readonly preload?: () => void;
 }
 
@@ -19,14 +26,20 @@ interface Entry {
 const HOST_ICON = APPS.linux?.icon;
 
 /**
- * The launcher: a search field and the apps that match: the apps of the shell
- * and the desktop entries of the host.
+ * The launcher: one search field for the apps of the shell, the desktop entries
+ * of the host, the pages of the settings, and calculations (F042).
  *
- * The arrow keys select an app, and Enter opens it. A click opens it too.
+ * The arrow keys select a result, and Enter opens it. A click opens it too.
  * An app of the host starts on the compositor of the session. The launcher
- * closes when it started, or shows why it did not.
+ * closes when it started, or shows why it did not. A calculation or a unit
+ * conversion is the first result while you type, and Enter copies its value.
  */
-export function Launcher(props: { onopen: (appId: string) => void; onclose: () => void; onlaunch?: (names: readonly string[]) => void }) {
+export function Launcher(props: {
+  onopen: (appId: string) => void;
+  onclose: () => void;
+  onlaunch?: (names: readonly string[]) => void;
+  onsetting?: (page: string) => void;
+}) {
   const [query, setQuery] = createSignal("");
   const [active, setActive] = createSignal(0);
   const [failure, setFailure] = createSignal<string | null>(null);
@@ -55,12 +68,38 @@ export function Launcher(props: { onopen: (appId: string) => void; onclose: () =
       icon: () => apps?.icon(app.id) ?? HOST_ICON,
       host: app.id,
     }));
-    return [...own, ...host];
+    const settings: Entry[] = PAGES.map((page) => ({
+      id: `setting:${page.id}`,
+      title: page.label,
+      keywords: ["settings", ...page.keywords],
+      description: "Settings",
+      icon: () => APPS.settings?.icon,
+      setting: page.id,
+    }));
+    // With no query, the launcher lists the apps only: the settings come as results of a search.
+    return query().trim() ? [...own, ...host, ...settings] : [...own, ...host];
   };
-  const results = () => search(entries(), query());
+  const results = (): Entry[] => {
+    const found = search(entries(), query());
+    const result = calculate(query());
+    if (!result) return found;
+    return [{ id: "calc", title: result.text, description: "Enter copies the result", icon: () => calcIcon, calc: result.value }, ...found];
+  };
 
   const open = (entry: Entry | undefined) => {
     if (!entry) return;
+    if (entry.calc !== undefined) {
+      const copied = navigator.clipboard?.writeText(entry.calc) ?? Promise.reject(new Error("no clipboard"));
+      copied.then(
+        () => props.onclose(),
+        () => setFailure(`The browser did not let the launcher copy ${entry.calc}.`),
+      );
+      return;
+    }
+    if (entry.setting) {
+      props.onsetting?.(entry.setting);
+      return;
+    }
     if (!entry.host) {
       props.onopen(entry.id);
       return;
@@ -104,8 +143,8 @@ export function Launcher(props: { onopen: (appId: string) => void; onclose: () =
       <input
         class="launcher-search"
         type="search"
-        placeholder="Search apps"
-        aria-label="Search apps"
+        placeholder="Search apps and settings, or calculate"
+        aria-label="Search apps and settings, or calculate"
         role="combobox"
         aria-expanded="true"
         aria-controls={listId}

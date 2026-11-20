@@ -45,6 +45,10 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
           }}
           onclose={() => c.setLauncherOpen(false)}
           onlaunch={(names) => c.expectLaunch(names)}
+          onsetting={(page) => {
+            c.setLauncherOpen(false);
+            c.openApp("settings", { page });
+          }}
         />
       </Popover>
 

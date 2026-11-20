@@ -10,18 +10,9 @@ import { SystemPage } from "./pages/System";
 import { UsersPage } from "./pages/Users";
 import "./settings.css";
 
-/** The pages of the settings app, in the order of the list. */
-export const PAGES = [
-  { id: "appearance", label: "Appearance" },
-  { id: "focus", label: "Focus" },
-  { id: "datetime", label: "Date and time" },
-  { id: "system", label: "System" },
-  { id: "network", label: "Network" },
-  { id: "users", label: "Users and sessions" },
-  { id: "power", label: "Power" },
-] as const;
+import { PAGES, type PageId } from "./pages";
 
-type PageId = (typeof PAGES)[number]["id"];
+export { PAGES };
 
 /**
  * The settings app. Each page uses one dbus channel to the system bus. A change

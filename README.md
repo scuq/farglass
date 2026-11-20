@@ -128,7 +128,10 @@ A reload, a different tab, or a different browser of the same user shows the sam
 
 The panel at the top has these parts, from left to right:
 
-- **Apps** opens the launcher. Type to search the apps, select one with the arrow keys, and press Enter.
+- **Apps** opens the launcher. Type to search the apps and the pages of the settings, select one with the arrow keys, and press Enter.
+  A word finds a settings page by its name or a keyword, for example `dark`, `timezone`, or `reboot`.
+  A calculation, for example `2 * (3 + 4)^2`, or a unit conversion, for example `10 km in mi`, `100 f to c`, or `2 GiB in MB`, is the first result. Enter copies its value.
+  The calculator runs in your browser: `+ - * / % ^`, parentheses, `pi`, `e`, and `sqrt`, `abs`, `sin`, `cos`, `tan`, `ln`, `log`, `exp`, `round`, `floor`, and `ceil`.
 - The workspace buttons and a button for each window of the workspace. A click on the window with the focus minimizes it.
 - **Tile** places the windows of the workspace in columns.
 - The clock, with the date in its tooltip. It shows the time of the client.
