@@ -52,12 +52,13 @@ build_as_owner() {
     owner=$(stat -c %U "$REPO")
     [ "$owner" != root ] || die "The source tree belongs to root. Build as its owner, or use --no-build."
     echo "install-local.sh: building as $owner"
-    # A login shell reads ~/.profile, which puts cargo in the PATH.
-    runuser -l "$owner" -c "set -e
-        cd '$REPO'
+    # A login shell reads ~/.profile, which puts cargo in the PATH. The path of the
+    # repository goes in a variable, never in the text of the command (F056).
+    FARGLASS_REPO=$REPO runuser -l "$owner" -w FARGLASS_REPO -c 'set -e
+        cd "$FARGLASS_REPO"
         cargo build --release -p farglassd -p farglass-login -p farglass-session
         [ -d web/node_modules ] || npm --prefix web ci
-        npm --prefix web run build" ||
+        npm --prefix web run build' ||
         die "The build failed. Nothing is installed."
 }
 

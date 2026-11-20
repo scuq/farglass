@@ -15,7 +15,15 @@ User=root
 PrivateNetwork=yes
 RestrictAddressFamilies=AF_UNIX AF_NETLINK
 
-# Protection.
+# Protection (F056). farglass-login keeps only the capabilities that PAM needs:
+# the audit records, the faillock and google-authenticator state files, and the
+# change to the user that some PAM modules do to read a file of the user.
+# systemd starts the web session in its own unit, with no limit from this one.
+CapabilityBoundingSet=CAP_AUDIT_WRITE CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER CAP_SETGID CAP_SETUID
+AmbientCapabilities=
+ProtectProc=invisible
+UMask=0077
+PrivateIPC=yes
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=read-only

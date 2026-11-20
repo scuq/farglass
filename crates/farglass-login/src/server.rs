@@ -176,6 +176,17 @@ impl Service {
         stream: UnixStream,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let peer = stream.peer_cred().map(|cred| cred.uid()).ok();
+        // Only farglassd connects: root, the user farglass, or the user of farglass-login (F056).
+        if !peer.is_some_and(peer_allowed) {
+            Event {
+                event: "login-socket",
+                reason: "peer",
+                uid: peer,
+                ..Event::default()
+            }
+            .refused();
+            return Ok(());
+        }
         let mut link = Framed::new(stream, FrameCodec);
 
         let start = tokio::time::timeout(START_TIMEOUT, link.next())
@@ -719,6 +730,16 @@ impl Conversation for Bridge {
     }
 }
 
+/// Reports whether the peer `uid` can use the login socket: root, the user `farglass` of
+/// farglassd, or the user that runs farglass-login, for tests with no root (F056).
+/// A read error of the user database leaves only root and the own user.
+#[must_use]
+pub fn peer_allowed(uid: u32) -> bool {
+    uid == 0
+        || uid == nix::unistd::geteuid().as_raw()
+        || matches!(nix::unistd::User::from_name("farglass"), Ok(Some(user)) if user.uid.as_raw() == uid)
+}
+
 /// Reports whether the user `name` with the primary group `gid` is a member of `group`,
 /// by the primary group or a supplementary group.
 ///
@@ -771,4 +792,22 @@ async fn send(
     )?)
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn root_and_the_own_user_can_use_the_socket_and_a_different_user_cannot() {
+        assert!(peer_allowed(0));
+        assert!(peer_allowed(nix::unistd::geteuid().as_raw()));
+        let other = (1..65_000)
+            .find(|uid| {
+                *uid != nix::unistd::geteuid().as_raw()
+                    && !matches!(nix::unistd::User::from_name("farglass"), Ok(Some(user)) if user.uid.as_raw() == *uid)
+            })
+            .unwrap();
+        assert!(!peer_allowed(other));
+    }
 }

@@ -44,7 +44,8 @@ Controls:
 - Only members of the group `farglass-users` log in (F058). A user outside the group gets the answer of a wrong password and no passkey step. A reconnect with a session cookie checks the membership again. A missing group or a read error refuses (ADR-042).
 - After PAM, farglass-login waits until farglassd checks the passkey, before the session starts (ADR-040).
 - An optional machine PIN comes before each login channel (F059). It is a filter, not a factor. Five wrong PINs block the address for 15 minutes. A PIN file that cannot be read refuses each PIN (ADR-042).
-- The login socket has mode 0660 and the group farglass.
+- The login socket has mode 0660 and the group farglass. farglass-login accepts only root, the user farglass, and its own user as the peer (F056).
+- farglass-login keeps 7 capabilities (`CapabilityBoundingSet` in `farglass-login.service`), with `ProtectProc=invisible`, `UMask=0077`, and `PrivateIPC=yes` (F056).
 
 ### Passkeys
 
@@ -110,7 +111,7 @@ Gap: finding 9.
 | 6 | Low | A connection that misses a lock or logout event, after 64 events in its queue, keeps its channels. | Fixed in F054 |
 | 7 | Low | A connection from a cookie continues after the cookie ends. | Fixed in F054 |
 | 8 | Low | Output in a terminal (OSC 52) can write the clipboard of the client computer. | Fixed in F055 |
-| 9 | Low | farglass-login runs as root with all capabilities and accepts each peer of its socket. | F056 |
+| 9 | Low | farglass-login runs as root with all capabilities and accepts each peer of its socket. | Fixed in F056 |
 | 10 | Low | Each local user can open connections to the agent socket with no limit. | Fixed in F051 |
 | 11 | Info | A program of the user can unlock the web lock screen or replace the agent. The passkey step shows that the password was correct. `dev_user` gives each local user a session. The CSP permits inline style elements. | ADR-041 |
-| 12 | Info | `install-local.sh` puts the path of the repository in a shell string for `runuser`. | F056 |
+| 12 | Info | `install-local.sh` puts the path of the repository in a shell string for `runuser`. | Fixed in F056 |

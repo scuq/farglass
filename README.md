@@ -506,6 +506,9 @@ farglassd also asks farglass-login at each connection with a session cookie: a u
 An empty `--allowed-group ""` lets each user of the host log in, for development only.
 
 farglass-login refuses a login as root unless it starts with `--allow-root`.
+It accepts a connection to its socket only from root, the user `farglass`, and its own user.
+Its unit keeps only the capabilities that PAM needs (`CapabilityBoundingSet` in `packaging/systemd/farglass-login.service`).
+A PAM module that needs more, for example one that reads a hardware token, needs a drop-in file with the capability.
 After five failures from one address or for one user, it blocks that address or user for 30 seconds.
 Each more failure doubles the block, up to 15 minutes.
 After a failure, the answer comes 2 seconds later.
