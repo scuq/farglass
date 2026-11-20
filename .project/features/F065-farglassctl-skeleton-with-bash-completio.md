@@ -4,7 +4,7 @@ title: farglassctl skeleton with bash completion
 status: done
 phase: P06
 tags: [packaging]
-decisions: [ADR-047]
+decisions: [ADR-048]
 files: [crates/farglassctl/, Cargo.toml, Cargo.lock, README.md]
 ---
 

@@ -115,6 +115,33 @@ rustup target add x86_64-unknown-linux-musl   # or aarch64-unknown-linux-musl
 cargo build -p farglassctl --release --target x86_64-unknown-linux-musl
 ```
 
+## Release
+
+A tag `vX.Y.Z` starts `.github/workflows/release.yml` (F066):
+
+1. The shell is built once.
+2. The host programs are built for amd64 and arm64 in a Rocky Linux 9 container, the oldest glibc of the supported distributions.
+3. `packaging/release.sh host` fails if a program links a library that ADR-048 does not permit.
+4. farglassctl is built static with musl.
+5. Each program starts on Debian 12, Ubuntu 22.04, and Rocky Linux 9.
+6. `SHA256SUMS` lists each file and gets a cosign keyless signature (`SHA256SUMS.sigstore.json`).
+
+To start a release, push a tag, or run the workflow at an existing tag:
+
+```sh
+git tag v0.2.0 && git push origin v0.2.0
+gh workflow run release.yml --ref v0.2.0
+```
+
+To build the files of one architecture on this machine, with `web/dist` built first:
+
+```sh
+packaging/release.sh host v0.2.0 dist
+packaging/release.sh ctl v0.2.0 dist
+```
+
+`.github/workflows/ci.yml` runs the tests, clippy, the audits, and the static farglassctl build on each push.
+
 ## Install on this host
 
 `packaging/install-local.sh` installs farglass from this source tree, with the systemd units and PAM files:

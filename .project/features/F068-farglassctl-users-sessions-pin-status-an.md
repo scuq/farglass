@@ -4,7 +4,7 @@ title: farglassctl users, sessions, PIN, status, and logs
 status: planned
 phase: P06
 tags: [packaging]
-decisions: [ADR-043, ADR-047]
+decisions: [ADR-043, ADR-048]
 files: []
 ---
 

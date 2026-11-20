@@ -45,7 +45,7 @@ fn run(cli: Cli) -> Result<(), String> {
     }
     match cli.command {
         Command::Version => {
-            println!("farglassctl {}", env!("CARGO_PKG_VERSION"));
+            println!("farglassctl {}", version());
             Ok(())
         }
         Command::Completion { shell } => {
@@ -57,4 +57,10 @@ fn run(cli: Cli) -> Result<(), String> {
             other.name()
         )),
     }
+}
+
+/// Returns the version of the release: the tag that the release workflow gives, or the crate version.
+#[must_use]
+pub fn version() -> &'static str {
+    option_env!("FARGLASS_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
 }

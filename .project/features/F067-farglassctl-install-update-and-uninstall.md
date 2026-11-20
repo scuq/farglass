@@ -4,7 +4,7 @@ title: farglassctl install, update, and uninstall
 status: planned
 phase: P06
 tags: [packaging]
-decisions: [ADR-042, ADR-047]
+decisions: [ADR-042, ADR-048]
 files: []
 ---
 

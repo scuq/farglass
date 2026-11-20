@@ -1,0 +1,69 @@
+# ci.yml - the tests of each push and pull request (F066)
+#
+# Rust: format, clippy, the tests, and cargo audit (ADR-045).
+# Shell: the type check, the unit tests, npm audit, and the build.
+# farglassctl: the static musl build.
+
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the build libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libpam0g-dev libpipewire-0.3-dev libxkbcommon-dev pkg-config clang
+      - name: Install Rust
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked
+      - name: Tests
+        run: cargo test --workspace --locked
+      - name: cargo audit
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
+
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm --prefix web ci
+      - run: npm --prefix web test
+      - run: npm --prefix web audit --omit=dev
+      - run: npm --prefix web run build
+
+  farglassctl:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install musl
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
+      - name: Build the static farglassctl
+        run: |
+          rustup toolchain install
+          rustup target add x86_64-unknown-linux-musl
+          packaging/release.sh ctl "ci-${GITHUB_SHA::8}" dist
+          dist/farglassctl-linux-amd64 version

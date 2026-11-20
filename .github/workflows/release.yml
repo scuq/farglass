@@ -1,0 +1,184 @@
+# release.yml - build, sign, and publish a farglass release (F066, ADR-047, ADR-048)
+#
+# Trigger: a tag vX.Y.Z, or workflow_dispatch AT such a tag:
+#
+#   gh workflow run release.yml --ref vX.Y.Z
+#
+# Run it at the tag, never at a branch. cosign keyless records the ref of the
+# run in its certificate, and farglassctl accepts only
+# .github/workflows/release.yml@refs/tags/v*. The guard in `meta` stops a run
+# from a branch before it builds anything.
+#
+# One release has, for amd64 and arm64:
+#   farglass-VERSION-linux-ARCH.tar.gz   the host programs, the web files, units, PAM files
+#   farglassctl-linux-ARCH               the static manager
+# and SHA256SUMS with its cosign bundle SHA256SUMS.sigstore.json.
+#
+# The host programs are built in a Rocky Linux 9 container: glibc 2.34 is the
+# oldest glibc of the supported distributions, thus the programs run on all.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  meta:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - id: version
+        run: |
+          set -eu
+          case "${GITHUB_REF}" in
+            refs/tags/v[0-9]*) ;;
+            *) echo "::error::A release must run at a v tag, not ${GITHUB_REF}. Use: gh workflow run release.yml --ref vX.Y.Z"; exit 1 ;;
+          esac
+          echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+  web:
+    needs: meta
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm --prefix web ci
+      - run: npm --prefix web test
+      - run: npm --prefix web run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+          retention-days: 1
+
+  host:
+    needs: [meta, web]
+    strategy:
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    container: rockylinux:9
+    timeout-minutes: 60
+    steps:
+      - name: Install the build tools and libraries
+        run: |
+          dnf install -y dnf-plugins-core epel-release
+          dnf config-manager --set-enabled crb
+          dnf install -y gcc gcc-c++ libstdc++-static clang cmake nasm make perl git tar gzip file \
+            findutils pam-devel pipewire-devel libxkbcommon-devel pkgconf-pkg-config
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Install the toolchain of rust-toolchain.toml
+        run: rustup toolchain install
+      - name: Build the host programs and the tarball
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          packaging/release.sh host "${{ needs.meta.outputs.version }}" dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: host-${{ matrix.runner }}
+          path: dist/*
+          retention-days: 1
+
+  farglassctl:
+    needs: meta
+    strategy:
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install musl
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools file
+      - name: Build the static farglassctl
+        run: |
+          rustup toolchain install
+          rustup target add "$(uname -m)-unknown-linux-musl"
+          packaging/release.sh ctl "${{ needs.meta.outputs.version }}" dist
+          dist/farglassctl-linux-* version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ctl-${{ matrix.runner }}
+          path: dist/*
+          retention-days: 1
+
+  # The programs must find their libraries and start on the oldest releases of each family.
+  smoke:
+    needs: [host]
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        image: ["debian:12", "ubuntu:22.04", "rockylinux:9"]
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.image }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: host-${{ matrix.runner }}
+          path: dist
+      - name: Install the runtime libraries
+        run: |
+          if command -v apt-get >/dev/null; then
+            apt-get update && apt-get install -y --no-install-recommends libpam0g libpipewire-0.3-0 libxkbcommon0
+          else
+            dnf install -y pam pipewire-libs libxkbcommon tar gzip
+          fi
+      - name: Start the programs
+        run: |
+          set -eu
+          tar -xzf dist/farglass-*.tar.gz -C dist
+          cd dist/farglass-*/bin
+          if ldd farglassd farglass-login farglass-session | grep "not found"; then exit 1; fi
+          ./farglassd --version
+          ./farglass-login --version
+
+  release:
+    needs: [meta, host, farglassctl, smoke]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          set -eu
+          mkdir dist
+          mv artifacts/farglass-*.tar.gz artifacts/farglassctl-linux-* dist/
+          cd dist && sha256sum farglass-*.tar.gz farglassctl-linux-* > SHA256SUMS
+          cat SHA256SUMS
+      - uses: sigstore/cosign-installer@v3
+      - name: Sign SHA256SUMS (keyless)
+        run: cosign sign-blob --yes --bundle dist/SHA256SUMS.sigstore.json dist/SHA256SUMS
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          gh release create "$VERSION" --repo "$GITHUB_REPOSITORY" --title "farglass $VERSION" \
+            --notes "Install: download farglassctl-linux-ARCH, then run: sudo ./farglassctl-linux-ARCH install --user YOURNAME" \
+            dist/*
