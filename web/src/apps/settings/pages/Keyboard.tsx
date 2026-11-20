@@ -1,4 +1,4 @@
-import { createSignal, For } from "solid-js";
+import { createSignal, createUniqueId, For } from "solid-js";
 import { ACTION_LABELS, type ActionId, type Binding, chordLabel, DEFAULT_KEYBOARD, detectScheme, KEYBOARD_KEY, type KeyboardSettings, parseKeyboardSettings, SCHEMES, schemeOf } from "../../../keys/scheme";
 import { TOUR_EVENT } from "../../../tour/Tour";
 import type { AppContext } from "../../types";
@@ -7,6 +7,8 @@ const SCHEME_LABELS = { auto: "Same as this computer", pc: "Windows and Linux", 
 
 /** The keybinding scheme, the hints, the list of shortcuts, and the tour (F044). */
 export function KeyboardPage(props: { context: AppContext }) {
+  // Each window of Settings has its own radio groups: two windows must not share a group.
+  const group = createUniqueId();
   const [value, setValue] = createSignal<KeyboardSettings>(DEFAULT_KEYBOARD);
   props.context.state.watchShared(KEYBOARD_KEY, (stored) => setValue(parseKeyboardSettings(stored)));
   const change = (patch: Partial<KeyboardSettings>) => {
@@ -29,7 +31,7 @@ export function KeyboardPage(props: { context: AppContext }) {
         <For each={["auto", "pc", "mac"] as const}>
           {(id) => (
             <label class="settings-choice">
-              <input type="radio" name="scheme" value={id} checked={value().scheme === id} onChange={() => change({ scheme: id })} />
+              <input type="radio" name={`${group}-scheme`} value={id} checked={value().scheme === id} onChange={() => change({ scheme: id })} />
               {id === "auto" ? `${SCHEME_LABELS.auto} (${SCHEME_LABELS[detectScheme()]})` : SCHEME_LABELS[id]}
             </label>
           )}

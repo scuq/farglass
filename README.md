@@ -111,6 +111,36 @@ npm --prefix web run dev
 The Vite server sends `/ws` to `https://localhost:8443`.
 To use a different farglassd, set `FARGLASSD_URL`.
 
+## Browsers
+
+Chromium, and browsers built on it such as Brave, Edge, and Chrome, are the primary target.
+Firefox and Safari work, with these limits:
+
+| Function | Chromium | Firefox | Safari |
+|---|---|---|---|
+| Connection | WebTransport, else WebSocket | WebTransport, else WebSocket | WebSocket |
+| Video region of a Linux app (H.264) and sound (Opus) | WebCodecs | WebCodecs | WebCodecs |
+| Passkeys | Yes | Yes | Yes |
+| Keyboard Lock | Not used yet | Not available | Not available |
+| Window Management (more screens) | Not used yet | Not available | Not available |
+
+With no WebTransport, the shell uses the WebSocket at once, with no wait.
+A browser that cannot decode H.264 tells the agent, and the agent sends tiles only.
+A browser with no `AudioDecoder` plays no sound of the apps.
+
+With no Keyboard Lock, the browser keeps its own shortcuts, for example Ctrl+T, Ctrl+W, Ctrl+N, Ctrl+Tab, and Cmd+Q on a Mac.
+The shortcuts of the shell never use these keys: see Settings > Keyboard.
+To give such a key to a Linux app, use the menu of the app.
+With no Window Management, the desktop uses the window of the browser only.
+Firefox and Safari can show a Paste button before the shell reads the clipboard for a paste into a Linux app.
+The video redirection was tested only with Chromium as the client browser.
+The passkey test runs in Chromium only, because only Chromium has a virtual authenticator for tests.
+
+`npm --prefix spikes/e2e run browsers` runs the shell in Firefox and in WebKit, the engine of Safari, through Playwright.
+In each browser, it logs in, uses the echo channel, a terminal, a window drag, a setting, gnome-calculator, and an animation as H.264 video, and logs out.
+Install the browsers first with `npx --prefix spikes/e2e playwright install firefox webkit`.
+`BROWSERS=webkit` runs one browser only.
+
 ## Browser security
 
 After a login, the shell gets the session cookie `__Host-farglass`.

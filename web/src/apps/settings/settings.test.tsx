@@ -125,7 +125,7 @@ const button = (element: HTMLElement, text: string) =>
 describe("settings", () => {
   test("a theme goes to the state store of the session, with the watchers of this tab", async () => {
     const { element, host } = await mount(() => undefined);
-    const dark = element.querySelector<HTMLInputElement>('input[name="theme"][value="dark"]')!;
+    const dark = element.querySelector<HTMLInputElement>('input[name$="-theme"][value="dark"]')!;
     dark.click();
     await host.pump();
     expect(document.documentElement.dataset.theme).toBeUndefined();

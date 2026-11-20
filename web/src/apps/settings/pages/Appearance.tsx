@@ -1,4 +1,4 @@
-import { createSignal, For } from "solid-js";
+import { createSignal, createUniqueId, For } from "solid-js";
 import { ACCENTS, APPEARANCE_KEY, type Appearance, DEFAULT_APPEARANCE, MOTIONS, parseAppearance, TEXT_SIZES, THEMES } from "../../../appearance";
 import { parseVideoMode, VIDEO_KEY, type VideoMode } from "../../../surface/redirect";
 import type { AppContext } from "../../types";
@@ -9,6 +9,8 @@ const ACCENT_LABELS: Record<Appearance["accent"], string> = { blue: "Blue", gree
 
 /** The appearance of the shell. The value is in the state store, thus each tab and each login gets it. */
 export function AppearancePage(props: { context: AppContext }) {
+  // Each window of Settings has its own radio groups: two windows must not share a group.
+  const group = createUniqueId();
   const [value, setValue] = createSignal<Appearance>(DEFAULT_APPEARANCE);
   const [video, setVideo] = createSignal<VideoMode>("client");
   props.context.state.watchShared(VIDEO_KEY, (stored) => setVideo(parseVideoMode(stored)));
@@ -31,7 +33,7 @@ export function AppearancePage(props: { context: AppContext }) {
         <For each={THEMES}>
           {(theme) => (
             <label class="settings-choice">
-              <input type="radio" name="theme" value={theme} checked={value().theme === theme} onChange={() => change({ theme })} />
+              <input type="radio" name={`${group}-theme`} value={theme} checked={value().theme === theme} onChange={() => change({ theme })} />
               {THEME_LABELS[theme]}
             </label>
           )}
@@ -42,7 +44,7 @@ export function AppearancePage(props: { context: AppContext }) {
         <For each={ACCENTS}>
           {(accent) => (
             <label class="settings-choice">
-              <input type="radio" name="accent" value={accent} checked={value().accent === accent} onChange={() => change({ accent })} />
+              <input type="radio" name={`${group}-accent`} value={accent} checked={value().accent === accent} onChange={() => change({ accent })} />
               <span class="settings-swatch" data-accent={accent} aria-hidden="true" />
               {ACCENT_LABELS[accent]}
             </label>
@@ -54,7 +56,7 @@ export function AppearancePage(props: { context: AppContext }) {
         <For each={TEXT_SIZES}>
           {(size) => (
             <label class="settings-choice">
-              <input type="radio" name="text-size" value={size} checked={value().textSize === size} onChange={() => change({ textSize: size })} />
+              <input type="radio" name={`${group}-text-size`} value={size} checked={value().textSize === size} onChange={() => change({ textSize: size })} />
               {size} %
             </label>
           )}
@@ -65,7 +67,7 @@ export function AppearancePage(props: { context: AppContext }) {
         <For each={MOTIONS}>
           {(motion) => (
             <label class="settings-choice">
-              <input type="radio" name="motion" value={motion} checked={value().motion === motion} onChange={() => change({ motion })} />
+              <input type="radio" name={`${group}-motion`} value={motion} checked={value().motion === motion} onChange={() => change({ motion })} />
               {MOTION_LABELS[motion]}
             </label>
           )}
@@ -74,11 +76,11 @@ export function AppearancePage(props: { context: AppContext }) {
       <fieldset>
         <legend>Videos in the host browser</legend>
         <label class="settings-choice">
-          <input type="radio" name="video" value="client" checked={video() === "client"} onChange={() => changeVideo("client")} />
+          <input type="radio" name={`${group}-video`} value="client" checked={video() === "client"} onChange={() => changeVideo("client")} />
           Play in this browser: sharp, and with little load on the host. The controls of the page can show small marks over the video.
         </label>
         <label class="settings-choice">
-          <input type="radio" name="video" value="host" checked={video() === "host"} onChange={() => changeVideo("host")} />
+          <input type="radio" name={`${group}-video`} value="host" checked={video() === "host"} onChange={() => changeVideo("host")} />
           Play on the host: the window shows the video as the host draws it, with more load on the host and the connection.
         </label>
       </fieldset>
