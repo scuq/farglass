@@ -2,6 +2,7 @@
 
 This list is the result of the security review of F035 (2026-11-20).
 A second, short review after F051 to F059 added findings 13 to 17 (2026-11-20).
+A dependency audit with `cargo audit` and `npm audit` added finding 18 (2026-11-21).
 It covers the login, the session start, the channels of the shell, the web headers, the sockets, the passkey store, the video redirection, and the packages.
 Each finding has a feature or a decision.
 A path with a line number points to the code at the time of the review.
@@ -129,3 +130,4 @@ Controls:
 | 15 | Low | The first passkey needs no proof. A person at an unlocked tab, or with a stolen cookie, can add a passkey to an account with no passkey, and the user is then locked out until the administrator removes the file. | Fixed in F061 |
 | 16 | Info | A failed login logs the typed username. A password typed in the username field goes into the journal. | Fixed in F062 |
 | 17 | Info | The root test starts farglass-login directly, not in its systemd unit: no test proves that PAM works with the capability set of F056. | Fixed in F063: check.sh runs it with the unit properties |
+| 18 | Info | `cargo audit`: rsa 0.10.0-rc.19 (through webauthn-rs) has the Marvin attack, RUSTSEC-2023-0071. No update is possible yet, and farglassd does no RSA decryption. cgmath (through smithay) is unmaintained. `npm audit` finds nothing. | ADR-045 |

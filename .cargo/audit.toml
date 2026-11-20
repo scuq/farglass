@@ -1,0 +1,6 @@
+# cargo audit configuration (ADR-045).
+[advisories]
+# rsa 0.10.0-rc.19 through webauthn-rs and crypto-glue: the Marvin attack needs RSA
+# decryption with a private key; farglassd only verifies signatures. Remove with the
+# next webauthn-rs that uses rsa 0.10.
+ignore = ["RUSTSEC-2023-0071"]

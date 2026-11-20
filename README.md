@@ -45,6 +45,16 @@ npm test
 npm run build
 ```
 
+Check the dependencies for known vulnerabilities before a release (ADR-045):
+
+```sh
+cargo install cargo-audit --locked
+cargo audit
+npm --prefix web audit --omit=dev
+```
+
+`.cargo/audit.toml` lists the advisories that do not apply to farglass, with the reason.
+
 Start the shell development server:
 
 ```sh
