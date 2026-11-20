@@ -2,12 +2,16 @@
 # install-local.sh - install farglass from this source tree on the local host
 #
 # Usage:
-#   sudo packaging/install-local.sh install [ADDRESS...]
+#   sudo packaging/install-local.sh install [--no-build] [ADDRESS...]
 #   sudo packaging/install-local.sh uninstall [--purge]
 #
-# Build first as your own user:
+# install builds first, as the owner of the source tree and with the PATH of
+# its login shell:
 #   cargo build --release -p farglassd -p farglass-login -p farglass-session
 #   npm --prefix web run build
+# It runs "npm ci" in web first if web/node_modules is missing. If the build
+# fails, install stops and changes nothing. --no-build installs the last build;
+# install refuses a build that is older than its sources.
 #
 # install copies the programs, the shell files, the PAM files, and the systemd
 # units, creates the system user farglass, and starts farglass-login.socket and
@@ -39,7 +43,26 @@ die() {
 
 [ "$(id -u)" -eq 0 ] || die "Run this script with sudo."
 
+# build_as_owner - builds the programs and the shell as the owner of the source tree, never as root
+build_as_owner() {
+    owner=$(stat -c %U "$REPO")
+    [ "$owner" != root ] || die "The source tree belongs to root. Build as its owner, or use --no-build."
+    echo "install-local.sh: building as $owner"
+    # A login shell reads ~/.profile, which puts cargo in the PATH.
+    runuser -l "$owner" -c "set -e
+        cd '$REPO'
+        cargo build --release -p farglassd -p farglass-login -p farglass-session
+        [ -d web/node_modules ] || npm --prefix web ci
+        npm --prefix web run build" ||
+        die "The build failed. Nothing is installed."
+}
+
 install_all() {
+    if [ "${1:-}" = --no-build ]; then
+        shift
+    else
+        build_as_owner
+    fi
     for program in farglassd farglass-login farglass-session; do
         [ -x "$REPO/target/release/$program" ] ||
             die "$REPO/target/release/$program is missing. Build it first: cargo build --release -p $program"
@@ -170,6 +193,6 @@ case "${1:-}" in
         uninstall_all "$@"
         ;;
     *)
-        die "Usage: sudo $0 install [ADDRESS...] | uninstall [--purge]"
+        die "Usage: sudo $0 install [--no-build] [ADDRESS...] | uninstall [--purge]"
         ;;
 esac

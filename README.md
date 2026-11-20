@@ -70,6 +70,20 @@ FARGLASS_AGENT_SOCKET=target/farglass/agent.sock cargo run -p farglass-session
 The agent connects to farglassd, and farglassd writes the uid of the agent to the log.
 If farglassd stops, the agent connects again when farglassd starts.
 
+## Install on this host
+
+`packaging/install-local.sh` installs farglass from this source tree, with the systemd units and PAM files:
+
+```sh
+sudo packaging/install-local.sh install
+```
+
+The script builds first, as the owner of the source tree and with the PATH of its login shell: `cargo build --release` and `npm --prefix web run build`.
+If the build fails, the script installs nothing.
+`--no-build` installs the last build, and the script refuses a build that is older than its sources.
+After an install, reload the tab of the shell. A change of the agent needs a new login of the user.
+`sudo packaging/install-local.sh uninstall` removes farglass.
+
 ## Development mode with no login
 
 Until the login is ready, `--dev-user` gives each browser connection a user with no login:
