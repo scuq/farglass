@@ -14,6 +14,7 @@ shell. Programs on the host supply the data.
 | shell | `web/` | The shell in the browser: TypeScript, SolidJS, and Vite. |
 
 `docs/protocol.md` is the reference for the channel protocol.
+`docs/threats.md` lists the threats, the controls, and the findings of the security review.
 The TypeScript protocol files in `web/src/proto/generated/` come from `farglass-proto`.
 After a change to the protocol, generate them again:
 

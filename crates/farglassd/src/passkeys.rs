@@ -108,17 +108,23 @@ impl PasskeyStore {
         self.dir.join(format!("{uid}.json"))
     }
 
-    fn load(&self, uid: u32) -> UserFile {
+    /// Reads the file of the user. Only a missing file means no passkeys.
+    ///
+    /// Each other failure, for example a damaged file, no free file descriptor, or a wrong owner,
+    /// is an error: the second factor stays required, and no change overwrites the file.
+    fn load(&self, uid: u32) -> Result<UserFile, PasskeyError> {
+        let unreadable =
+            || PasskeyError::new("The server cannot read your passkeys. Tell the administrator.");
         match std::fs::read(self.path(uid)) {
-            Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|error| {
-                // A damaged file must not remove the second factor: the user then needs the administrator.
+            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|error| {
                 tracing::error!(uid, %error, "the passkey file of the user is damaged");
-                UserFile {
-                    codes: vec!["damaged".to_owned()],
-                    ..UserFile::default()
-                }
+                unreadable()
             }),
-            Err(_) => UserFile::default(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(UserFile::default()),
+            Err(error) => {
+                tracing::error!(uid, %error, "the passkey file of the user cannot be read");
+                Err(unreadable())
+            }
         }
     }
 
@@ -147,17 +153,16 @@ impl PasskeyStore {
         self.lock.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Reports whether the user must use a second factor: the user has a passkey, or a damaged file.
+    /// Reports whether the user must use a second factor: the user has a passkey, or a file that cannot be read.
     #[must_use]
     pub fn required(&self, uid: u32) -> bool {
-        let file = self.load(uid);
-        !file.passkeys.is_empty() || file.codes.iter().any(|code| code == "damaged")
+        self.load(uid).map_or(true, |file| !file.passkeys.is_empty())
     }
 
     /// Returns the list of the passkeys of the user and the count of recovery codes.
     #[must_use]
     pub fn list(&self, uid: u32) -> (Vec<PasskeyInfo>, u32) {
-        let file = self.load(uid);
+        let file = self.load(uid).unwrap_or_default();
         let list = file
             .passkeys
             .iter()
@@ -185,7 +190,7 @@ impl PasskeyStore {
     ) -> Result<(serde_json::Value, PasskeyRegistration, String), PasskeyError> {
         let (webauthn, host) = webauthn(origin)?;
         let _guard = self.guard();
-        let mut file = self.load(uid);
+        let mut file = self.load(uid)?;
         let handle = match file.handle {
             Some(handle) => handle,
             None => {
@@ -235,7 +240,7 @@ impl PasskeyStore {
                 PasskeyError::new("The passkey was not accepted.")
             })?;
         let _guard = self.guard();
-        let mut file = self.load(uid);
+        let mut file = self.load(uid)?;
         file.passkeys.push(Entry {
             name: label.to_owned(),
             host,
@@ -260,7 +265,7 @@ impl PasskeyStore {
     /// [`PasskeyError`] if the file was not written.
     pub fn remove(&self, uid: u32, id: &str) -> Result<(), PasskeyError> {
         let _guard = self.guard();
-        let mut file = self.load(uid);
+        let mut file = self.load(uid)?;
         file.passkeys.retain(|entry| entry.id() != id);
         if file.passkeys.is_empty() {
             file.codes.clear();
@@ -281,7 +286,7 @@ impl PasskeyStore {
     /// [`PasskeyError`] if the user has no passkey or the file was not written.
     pub fn new_codes(&self, uid: u32) -> Result<Vec<String>, PasskeyError> {
         let _guard = self.guard();
-        let mut file = self.load(uid);
+        let mut file = self.load(uid)?;
         if file.passkeys.is_empty() {
             return Err(PasskeyError::new(
                 "Add a passkey first. Recovery codes replace a lost passkey.",
@@ -296,7 +301,8 @@ impl PasskeyStore {
     /// Starts the second factor of a login of the user on the page `origin`.
     #[must_use]
     pub fn challenge(&self, uid: u32, origin: Option<&str>) -> Challenge {
-        let file = self.load(uid);
+        // An unreadable file gives no passkey and no code: the login fails until the administrator repairs it.
+        let file = self.load(uid).unwrap_or_default();
         let current = origin.and_then(|origin| webauthn(origin).ok());
         let here: Vec<Passkey> = file
             .passkeys
@@ -372,7 +378,9 @@ impl PasskeyStore {
             }
         };
         let _guard = self.guard();
-        let mut file = self.load(uid);
+        let Ok(mut file) = self.load(uid) else {
+            return false;
+        };
         for entry in &mut file.passkeys {
             if entry.passkey.update_credential(&result).is_some() {
                 entry.used = Some(now());
@@ -388,7 +396,9 @@ impl PasskeyStore {
     pub fn use_code(&self, uid: u32, code: &str) -> bool {
         let hash = code_hash(code);
         let _guard = self.guard();
-        let mut file = self.load(uid);
+        let Ok(mut file) = self.load(uid) else {
+            return false;
+        };
         let Some(index) = file.codes.iter().position(|known| *known == hash) else {
             return false;
         };
@@ -594,6 +604,26 @@ mod tests {
         assert!(challenge.options.is_none() && challenge.elsewhere.is_empty());
         std::fs::write(dir.path().join("1000.json"), b"{ not json").unwrap();
         assert!(store.required(1000));
+        assert!(
+            store
+                .start_registration(1000, "alice", "https://localhost")
+                .is_err(),
+            "a change must not overwrite a file that cannot be read"
+        );
+        assert_eq!(
+            std::fs::read(dir.path().join("1000.json")).unwrap(),
+            b"{ not json"
+        );
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_read_keeps_the_second_factor() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PasskeyStore::new(dir.path().to_owned());
+        // A directory in place of the file: the read fails with an error that is not NotFound.
+        std::fs::create_dir(dir.path().join("1000.json")).unwrap();
+        assert!(store.required(1000));
+        assert!(!store.use_code(1000, "0000-0000-0000-0000"));
     }
 
     #[test]
