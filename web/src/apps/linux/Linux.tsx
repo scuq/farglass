@@ -344,28 +344,31 @@ export default function Linux(props: { context: AppContext }) {
       data-cursor={manager.cursor()}
       data-size={size() ? `${size()!.w}x${size()!.h}` : undefined}
     >
-      <div
-        class="linux-redirects"
-        ref={(el) => {
-          redirects = el;
-        }}
-      />
-      <Show when={info()} fallback={<p class="linux-waiting">The app is not connected.</p>}>
-        {(surface) => (
-          <SurfaceCanvas
-            connection={props.context.connection}
-            manager={manager}
-            onpress={pressAt}
-            moving={() => moving}
-            onpressed={onpressed}
-            keyRect={keyRect}
-            id={id}
-            left={-origin(surface().geometry).x}
-            top={-origin(surface().geometry).y}
-            scale={surface().scale}
-          />
-        )}
-      </Show>
+      {/* The window itself, cut at the frame. Its popups are outside: a menu can reach past the window, as on a desktop. */}
+      <div class="linux-main">
+        <div
+          class="linux-redirects"
+          ref={(el) => {
+            redirects = el;
+          }}
+        />
+        <Show when={info()} fallback={<p class="linux-waiting">The app is not connected.</p>}>
+          {(surface) => (
+            <SurfaceCanvas
+              connection={props.context.connection}
+              manager={manager}
+              onpress={pressAt}
+              moving={() => moving}
+              onpressed={onpressed}
+              keyRect={keyRect}
+              id={id}
+              left={-origin(surface().geometry).x}
+              top={-origin(surface().geometry).y}
+              scale={surface().scale}
+            />
+          )}
+        </Show>
+      </div>
       <For each={popups()} keyed={(popup: SurfaceInfo) => popup.id}>
         {(popup) => (
           <SurfaceCanvas

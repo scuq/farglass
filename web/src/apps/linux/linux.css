@@ -1,14 +1,26 @@
-/* A window of a Wayland app: the canvas of the surface, with the shadow of the client cut off. */
+/*
+ * A window of a Wayland app. The window itself is cut at the frame, with the shadow of the client
+ * cut off. Its popups, for example a submenu, can reach past the frame, as on a local desktop:
+ * the frame and the content of the window do not cut them.
+ */
+.wm-window:has(.linux-app) {
+  contain: layout;
+}
 .wm-content:has(> .linux-app) {
   position: relative;
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 .linux-app {
   position: absolute;
   inset: 0;
-  overflow: hidden;
+  overflow: visible;
   background: transparent;
+}
+.linux-main {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
 }
 .linux-app canvas {
   position: absolute;
