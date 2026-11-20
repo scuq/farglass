@@ -881,3 +881,33 @@ fn membership_counts_a_supplementary_group() {
         farglass_login::server::membership("farglass-no-such-group", &user.name, user.gid).is_err()
     );
 }
+
+#[tokio::test]
+async fn a_password_check_starts_no_session_and_counts_failures() {
+    let host = Arc::new(FakeHost::default());
+    let fake = host.clone();
+    let harness = Harness::start(move |settings| settings.host = fake).await;
+    let user = current_user();
+    let check = |password: &str| {
+        let password = Zeroizing::new(password.to_owned());
+        let socket = harness.socket.clone();
+        let user = user.clone();
+        async move {
+            farglass_login::client::check_password(&socket, &user, "192.0.2.20", &password)
+                .await
+                .unwrap()
+        }
+    };
+    assert!(check("secret").await);
+    assert!(
+        host.actions.lock().unwrap().is_empty(),
+        "a check started a session"
+    );
+    for _ in 0..limiter::FREE_FAILURES {
+        assert!(!check("wrong").await);
+    }
+    assert!(
+        !check("secret").await,
+        "the block of the user holds for a check too"
+    );
+}

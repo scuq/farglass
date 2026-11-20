@@ -20,6 +20,9 @@ export function PasskeysPage(props: { context: AppContext }) {
   const [closed, setClosed] = createSignal<string | null>(null);
   /** A change waits for a fresh passkey or a recovery code (F053). */
   const [confirm, setConfirm] = createSignal<{ options: unknown; elsewhere: readonly string[] } | null>(null);
+  /** The first passkey waits for the password (F061). */
+  const [askPassword, setAskPassword] = createSignal(false);
+  let passwordInput: HTMLInputElement | undefined;
   let codeInput: HTMLInputElement | undefined;
 
   const channel = props.context.connection.openChannel(
@@ -50,6 +53,10 @@ export function PasskeysPage(props: { context: AppContext }) {
         break;
       case "confirm":
         setConfirm({ options: event.options ?? null, elsewhere: event.elsewhere });
+        break;
+      case "password":
+        setAskPassword(true);
+        queueMicrotask(() => passwordInput?.focus());
         break;
       case "create":
         try {
@@ -91,7 +98,18 @@ export function PasskeysPage(props: { context: AppContext }) {
   /** Stops a change that waits for the confirm step. */
   const cancelConfirm = () => {
     setConfirm(null);
+    setAskPassword(false);
     setBusy(false);
+  };
+
+  /** Answers the password step of the first passkey. */
+  const provePassword = (event: SubmitEvent) => {
+    event.preventDefault();
+    const password = passwordInput?.value ?? "";
+    if (!password) return;
+    if (passwordInput) passwordInput.value = "";
+    setAskPassword(false);
+    send({ type: "proof-password", password });
   };
 
   const add = (event: SubmitEvent) => {
@@ -196,6 +214,27 @@ export function PasskeysPage(props: { context: AppContext }) {
         </Show>
       </Show>
       <Show when={error()}>{(text) => <p class="settings-error" role="alert">{text()}</p>}</Show>
+      <Show when={askPassword()}>
+        <section class="settings-confirm" role="dialog" aria-labelledby="password-title">
+          <h3 id="password-title">Confirm that it is you</h3>
+          <p>Your first passkey needs your password first.</p>
+          <form class="settings-form" onSubmit={provePassword}>
+            <label for="confirm-password">Your password</label>
+            <input
+              id="confirm-password"
+              type="password"
+              autocomplete="current-password"
+              ref={(element) => {
+                passwordInput = element;
+              }}
+            />
+            <button type="submit">Confirm</button>
+          </form>
+          <button type="button" onClick={cancelConfirm}>
+            Cancel
+          </button>
+        </section>
+      </Show>
       <Show when={confirm()}>
         {(step) => (
           <section class="settings-confirm" role="dialog" aria-labelledby="confirm-title">

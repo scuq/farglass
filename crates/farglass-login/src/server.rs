@@ -196,12 +196,21 @@ impl Service {
             .await
             .map_err(|_| "no start message")?
             .ok_or("the connection closed before the start message")??;
-        let (user, rhost, device) = match request(&start)? {
+        let (user, rhost, device, check) = match request(&start)? {
+            // A password check needs the user: farglassd gives the user of the connection.
+            LoginRequest::Start {
+                check: true,
+                user: None,
+                ..
+            } => {
+                return Err("a password check with no user".into());
+            }
             LoginRequest::Start {
                 user,
                 rhost,
                 device,
-            } => (user, rhost, device),
+                check,
+            } => (user, rhost, device, check),
             LoginRequest::Logout { uid } => return self.logout(&mut link, uid, peer).await,
             LoginRequest::Member { uid } => {
                 let allowed = self.uid_allowed(uid);
@@ -343,7 +352,7 @@ impl Service {
         };
         match result {
             Ok(name) => {
-                self.succeeded(&mut link, &address, name, &rhost, deadline)
+                self.succeeded(&mut link, &address, name, &rhost, deadline, check)
                     .await
             }
             Err(failure) => {
@@ -458,6 +467,7 @@ impl Service {
         name: String,
         rhost: &str,
         deadline: Instant,
+        check: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // A correct password does not end a block of the user (F051).
         if let Some(left) = self.limiter.blocked(&Key::User(name.clone())) {
@@ -497,6 +507,26 @@ impl Service {
             tokio::time::sleep(self.settings.fail_delay).await;
             let message = FAILURE_MESSAGE.to_owned();
             return send(link, &LoginEvent::Failure { message }).await;
+        }
+        // A password check ends here: no second factor and no session (F061).
+        if check {
+            self.limiter.succeeded(address);
+            self.limiter.succeeded(&Key::User(name.clone()));
+            Event {
+                event: "password-check",
+                uid: Some(uid),
+                ..log_event("", rhost, Some(&name))
+            }
+            .accepted();
+            return send(
+                link,
+                &LoginEvent::Success {
+                    user: name,
+                    uid,
+                    ticket: None,
+                },
+            )
+            .await;
         }
         // farglassd checks the passkey of the user, if the user has one (F034).
         // A wrong passkey counts as a failed login.

@@ -22,6 +22,10 @@ pub enum LoginRequest {
         /// browser can use the reserved login places (F051).
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         device: bool,
+        /// Only checks the password of `user`, with the limits of a login (F061). After PAM,
+        /// farglass-login sends [`LoginEvent::Success`] with no second factor and starts no session.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        check: bool,
     },
     /// Answers a prompt.
     Answer {
@@ -208,6 +212,7 @@ mod tests {
             user: None,
             rhost: "192.0.2.10".to_owned(),
             device: false,
+            check: false,
         };
         assert_eq!(
             serde_json::to_value(&start).unwrap(),

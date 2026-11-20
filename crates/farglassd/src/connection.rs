@@ -915,6 +915,8 @@ where
             channel,
             requests: receiver,
             to_shell: self.to_shell.clone(),
+            login_socket: self.context.login_socket.clone(),
+            rhost: self.rhost.clone(),
         };
         tokio::spawn(task.run());
         self.channels.insert(

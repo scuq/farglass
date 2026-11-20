@@ -435,6 +435,10 @@ pub struct PasskeysTask {
     pub requests: tokio::sync::mpsc::Receiver<PasskeyRequest>,
     /// The queue to the shell.
     pub to_shell: tokio::sync::mpsc::Sender<farglass_proto::Frame>,
+    /// The login socket of farglass-login, for the password check of the first passkey (F061).
+    pub login_socket: PathBuf,
+    /// The address of the browser, for the limits of the password check.
+    pub rhost: String,
 }
 
 /// The time for which a proof lets the channel change the passkeys (F053).
@@ -458,7 +462,8 @@ impl PasskeysTask {
         // The registration that waits for the credential of the browser, with the name of the passkey.
         let mut pending: Option<(PasskeyRegistration, String)> = None;
         // The change that waits for a proof, and its challenge.
-        let mut waiting: Option<(PasskeyRequest, Challenge)> = None;
+        // The change that waits for a proof, and the passkey challenge, or `None` for the password.
+        let mut waiting: Option<(PasskeyRequest, Option<Challenge>)> = None;
         let mut fresh_until: Option<std::time::Instant> = None;
         let mut wrong = 0_u32;
         while let Some(request) = self.requests.recv().await {
@@ -470,16 +475,31 @@ impl PasskeysTask {
                     }],
                     Some((state, name)) => self.finish(&state, &name, credential),
                 },
-                PasskeyRequest::Proof { .. } | PasskeyRequest::ProofCode { .. } => {
+                PasskeyRequest::Proof { .. }
+                | PasskeyRequest::ProofCode { .. }
+                | PasskeyRequest::ProofPassword { .. } => {
                     let Some((change, challenge)) = waiting.take() else {
                         continue;
                     };
-                    let valid = match request {
-                        PasskeyRequest::Proof { credential } => {
-                            self.store
-                                .verify(uid, self.origin.as_deref(), &challenge, credential)
+                    let valid = match (request, &challenge) {
+                        (PasskeyRequest::Proof { credential }, Some(challenge)) => self
+                            .store
+                            .verify(uid, self.origin.as_deref(), challenge, credential),
+                        (PasskeyRequest::ProofCode { code }, Some(_)) => {
+                            self.store.use_code(uid, &code)
                         }
-                        PasskeyRequest::ProofCode { code } => self.store.use_code(uid, &code),
+                        (PasskeyRequest::ProofPassword { password }, None) => {
+                            let password = zeroize::Zeroizing::new(password);
+                            // farglass-login checks it with the limits of a login. No answer is a refusal (ADR-042).
+                            farglass_login::client::check_password(
+                                &self.login_socket,
+                                &self.user.name,
+                                &self.rhost,
+                                &password,
+                            )
+                            .await
+                            .unwrap_or(false)
+                        }
                         _ => false,
                     };
                     let event = farglass_login::audit::Event {
@@ -490,7 +510,10 @@ impl PasskeysTask {
                     };
                     if valid {
                         event.accepted();
-                        fresh_until = Some(std::time::Instant::now() + PROOF_LIFETIME);
+                        // Only a passkey or a code makes the channel fresh: the password allows only the first passkey.
+                        if challenge.is_some() {
+                            fresh_until = Some(std::time::Instant::now() + PROOF_LIFETIME);
+                        }
                         self.change(change, &mut pending)
                     } else {
                         wrong += 1;
@@ -513,8 +536,12 @@ impl PasskeysTask {
                             return;
                         }
                         vec![PasskeyEvent::Error {
-                            message: "The passkey or the recovery code was not accepted. Nothing changed."
-                                .to_owned(),
+                            message: if challenge.is_none() {
+                                "The password was not accepted. Nothing changed."
+                            } else {
+                                "The passkey or the recovery code was not accepted. Nothing changed."
+                            }
+                            .to_owned(),
                         }]
                     }
                 }
@@ -523,15 +550,19 @@ impl PasskeysTask {
                 | PasskeyRequest::NewCodes) => {
                     let fresh = fresh_until.is_some_and(|until| std::time::Instant::now() < until);
                     // `required` is also true for a file that cannot be read (ADR-042).
-                    if fresh || !self.store.required(uid) {
+                    if fresh {
                         self.change(change, &mut pending)
+                    } else if !self.store.required(uid) {
+                        // No passkey yet: the password proves the user (F061).
+                        waiting = Some((change, None));
+                        vec![PasskeyEvent::Password]
                     } else {
                         let challenge = self.store.challenge(uid, self.origin.as_deref());
                         let event = PasskeyEvent::Confirm {
                             options: challenge.options.clone(),
                             elsewhere: challenge.elsewhere.clone(),
                         };
-                        waiting = Some((change, challenge));
+                        waiting = Some((change, Some(challenge)));
                         vec![event]
                     }
                 }
@@ -816,6 +847,8 @@ mod tests {
             channel: farglass_proto::ChannelId::new(1),
             requests: receiver,
             to_shell,
+            login_socket: PathBuf::from("/nonexistent/login.sock"),
+            rhost: "192.0.2.10".to_owned(),
         };
         tokio::spawn(task.run());
         (requests, from_task)
@@ -831,7 +864,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_user_with_no_passkey_adds_one_with_no_proof() {
+    async fn the_first_passkey_needs_the_password_and_no_login_service_refuses_it() {
         let dir = tempfile::tempdir().unwrap();
         let store = std::sync::Arc::new(PasskeyStore::new(dir.path().to_owned()));
         let (requests, mut from) = task(store);
@@ -846,7 +879,19 @@ mod tests {
             .await
             .unwrap();
         let event: PasskeyEvent = next(&mut from).await.parse().unwrap();
-        assert!(matches!(event, PasskeyEvent::Create { .. }), "{event:?}");
+        assert_eq!(event, PasskeyEvent::Password);
+        requests
+            .send(PasskeyRequest::ProofPassword {
+                password: "secret".to_owned(),
+            })
+            .await
+            .unwrap();
+        let event: PasskeyEvent = next(&mut from).await.parse().unwrap();
+        assert!(
+            matches!(&event, PasskeyEvent::Error { message } if message.contains("password")),
+            "{event:?}"
+        );
+        assert!(!dir.path().join("1000.json").exists(), "nothing changed");
     }
 
     #[tokio::test]

@@ -625,6 +625,7 @@ Each code works one time.
 Settings > Passkeys makes new codes, and the old codes then stop working.
 The removal of the last passkey also removes the codes, and the login then asks only for the password.
 
+The first passkey needs the password of the user first, with the limits of a login (F061).
 A user with a passkey must confirm each change first: a new passkey, a removal, or new recovery codes.
 The Settings page asks for the passkey or a recovery code, and the confirmation is valid for 5 minutes in that Settings window.
 Three wrong answers close the page. Thus a person at an unlocked tab, or with a stolen cookie, cannot remove the second factor.

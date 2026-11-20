@@ -530,7 +530,11 @@ credential: unknown, } | { "type": "proof-code",
 /**
  * The recovery code.
  */
-code: string, };
+code: string, } | { "type": "proof-password", 
+/**
+ * The password. farglassd gives it only to farglass-login.
+ */
+password: string, };
 
 /**
  * A message of farglassd on a passkeys channel (F034).
@@ -560,7 +564,7 @@ options?: unknown,
 /**
  * The host names of the other passkeys of the user.
  */
-elsewhere: Array<string>, } | { "type": "codes", 
+elsewhere: Array<string>, } | { "type": "password" } | { "type": "codes", 
 /**
  * The codes.
  */

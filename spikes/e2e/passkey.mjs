@@ -113,6 +113,15 @@ try {
   await win.getByText("You have no passkey.").waitFor({ timeout: TIMEOUT_MS });
   await win.getByLabel("Name of the new passkey").fill("Test key");
   await win.getByRole("button", { name: "Add a passkey" }).click();
+  // The first passkey needs the password (F061). A wrong one changes nothing.
+  await win.getByLabel("Your password").fill("wrong");
+  await win.getByRole("button", { name: "Confirm", exact: true }).click();
+  await win.getByText("The password was not accepted. Nothing changed.").waitFor({ timeout: TIMEOUT_MS });
+  await win.getByLabel("Name of the new passkey").fill("Test key");
+  await win.getByRole("button", { name: "Add a passkey" }).click();
+  await win.getByLabel("Your password").fill("secret");
+  await win.getByRole("button", { name: "Confirm", exact: true }).click();
+  check(true, "the first passkey needs the password, and a wrong one changes nothing");
   await win.getByRole("heading", { name: "Your recovery codes" }).waitFor({ timeout: TIMEOUT_MS });
   let codes = await win.locator(".settings-codes code").allTextContents();
   check(codes.length === 8 && codes.every((code) => /^[0-9a-f]{4}(-[0-9a-f]{4}){3}$/.test(code)), `the first passkey gives 8 recovery codes (${codes[0]})`);

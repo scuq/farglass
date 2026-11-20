@@ -60,7 +60,7 @@ Controls:
 - The file of each user has mode 0600 in a directory with mode 0700, and farglassd writes it atomically.
 - A recovery code has 64 random bits and works one time. The file keeps only its SHA-256 hash.
 - Only a missing file means "no passkey". A file that cannot be read keeps the second factor required, and no change overwrites it (fixed in F035, finding 1).
-- A registration, a removal, or new recovery codes need a fresh passkey or a recovery code first, if the user has a passkey or a file that cannot be read (F053). The proof is valid for 5 minutes on one Settings window. Three wrong answers close the channel.
+- A registration, a removal, or new recovery codes need a fresh passkey or a recovery code first, if the user has a passkey or a file that cannot be read (F053). The first passkey needs the password, checked by farglass-login with the limits of a login (F061). The proof is valid for 5 minutes on one Settings window. Three wrong answers close the channel.
 
 ### Agent socket `/run/farglass/agent.sock`
 
@@ -126,6 +126,6 @@ Gap: finding 17.
 | 12 | Info | `install-local.sh` puts the path of the repository in a shell string for `runuser`. | Fixed in F056 |
 | 13 | Medium | farglassd counted each agent link from the session worker under the uid root, thus the cap of 4 links of F051 let at most 4 web sessions on the host. | Fixed after F057 |
 | 14 | Low | farglassd has no cap on TCP connections and TLS handshakes for each address, and no rate limit on `POST /session` and `POST /transport`. Only the WebSocket connections with no user have a cap. | Fixed in F060 |
-| 15 | Low | The first passkey needs no proof. A person at an unlocked tab, or with a stolen cookie, can add a passkey to an account with no passkey, and the user is then locked out until the administrator removes the file. | F061 |
+| 15 | Low | The first passkey needs no proof. A person at an unlocked tab, or with a stolen cookie, can add a passkey to an account with no passkey, and the user is then locked out until the administrator removes the file. | Fixed in F061 |
 | 16 | Info | A failed login logs the typed username. A password typed in the username field goes into the journal. | F062 |
 | 17 | Info | The root test starts farglass-login directly, not in its systemd unit: no test proves that PAM works with the capability set of F056. | F063 |

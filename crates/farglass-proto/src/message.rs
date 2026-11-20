@@ -1168,6 +1168,11 @@ pub enum PasskeyRequest {
         /// The recovery code.
         code: String,
     },
+    /// Answers [`PasskeyEvent::Password`] with the password of the user (F061).
+    ProofPassword {
+        /// The password. farglassd gives it only to farglass-login.
+        password: String,
+    },
 }
 
 /// A message of farglassd on a passkeys channel (F034).
@@ -1201,6 +1206,9 @@ pub enum PasskeyEvent {
         /// The host names of the other passkeys of the user.
         elsewhere: Vec<String>,
     },
+    /// The first passkey needs the password of the user first (F061).
+    /// The shell answers with [`PasskeyRequest::ProofPassword`].
+    Password,
     /// New recovery codes. farglassd keeps only their hashes: the shell shows them one time.
     Codes {
         /// The codes.

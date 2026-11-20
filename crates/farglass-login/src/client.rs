@@ -71,6 +71,50 @@ pub async fn member(path: &Path, uid: u32) -> Result<bool, ClientError> {
     }
 }
 
+/// Checks the password of `user` through the login socket at `path`, with the limits of a login (F061).
+/// Answers each password prompt of PAM with `password`. Reports whether PAM accepted it.
+///
+/// # Errors
+///
+/// [`ClientError`] if the connection fails. The caller must treat an error as a refusal (ADR-042).
+pub async fn check_password(
+    path: &Path,
+    user: &str,
+    rhost: &str,
+    password: &Zeroizing<String>,
+) -> Result<bool, ClientError> {
+    let stream = UnixStream::connect(path).await?;
+    let mut attempt = Attempt {
+        link: Framed::new(stream, FrameCodec),
+    };
+    attempt
+        .send(&LoginRequest::Start {
+            user: Some(user.to_owned()),
+            rhost: rhost.to_owned(),
+            device: false,
+            check: true,
+        })
+        .await?;
+    let mut answered = false;
+    loop {
+        match attempt.next().await? {
+            // One password prompt. A second prompt, for example a one-time code, fails the check.
+            LoginEvent::Prompt {
+                prompt,
+                echo: false,
+                ..
+            } if !answered => {
+                answered = true;
+                attempt.answer(prompt, password.clone()).await?;
+            }
+            LoginEvent::Prompt { .. } => return Ok(false),
+            LoginEvent::Success { user: name, .. } => return Ok(name == user),
+            LoginEvent::Failure { .. } | LoginEvent::Blocked { .. } => return Ok(false),
+            _ => {}
+        }
+    }
+}
+
 /// One login attempt. Drop it to stop the attempt.
 #[derive(Debug)]
 pub struct Attempt {
@@ -99,6 +143,7 @@ impl Attempt {
                 user,
                 rhost,
                 device,
+                check: false,
             })
             .await?;
         Ok(attempt)
