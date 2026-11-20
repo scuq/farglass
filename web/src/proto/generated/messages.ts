@@ -43,7 +43,7 @@ bus: Bus, } | { "kind": "notify" } | { "kind": "surfaces" } | { "kind": "surface
 /**
  * The id of the surface from the surfaces channel.
  */
-id: number, } | { "kind": "surface-input" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" };
+id: number, } | { "kind": "surface-input" } | { "kind": "clipboard" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" };
 
 /**
  * The payload of a ready frame. The receiver of the open frame accepts the channel.
@@ -405,6 +405,24 @@ export type SurfaceAck = { "type": "ack",
  * The sequence of the end message.
  */
 seq: number, };
+
+/**
+ * The kind of a clipboard content.
+ */
+export type ClipboardMime = "text/plain" | "image/png";
+
+/**
+ * A message on a clipboard channel.
+ */
+export type ClipboardMessage = { "type": "offer", 
+/**
+ * The kind.
+ */
+mime: ClipboardMime, 
+/**
+ * The length in bytes.
+ */
+size: number, } | { "type": "stored" };
 
 /**
  * A message of the shell on a surface input channel.

@@ -238,3 +238,77 @@ async fn a_client_that_does_not_acknowledge_gets_two_frames_and_then_the_newest_
     );
     assert_eq!(after[0].1, 6, "the frame has the newest pixels");
 }
+
+/// The clipboard channel: a content of the shell in two data frames goes to the compositor,
+/// and a copy in an app goes to the shell as an offer with its data (F030).
+#[tokio::test]
+async fn the_clipboard_goes_both_ways_on_its_channel() {
+    use farglass_proto::message::{ClipboardMessage, ClipboardMime};
+    use farglass_surface::{Clip, Command, Event};
+
+    let surfaces = Surfaces::new();
+    let commands = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sink = commands.clone();
+    surfaces.set_commands(move |command| sink.lock().unwrap().push(command));
+    let mut link = link(surfaces.clone()).await;
+    let clip = ChannelId::new(3);
+    link.send(Frame::open(clip, &Open::Clipboard).unwrap())
+        .await
+        .unwrap();
+    let offer = ClipboardMessage::Offer {
+        mime: ClipboardMime::Text,
+        size: 11,
+    };
+    link.send(Frame::json(clip, FrameType::Control, &offer).unwrap())
+        .await
+        .unwrap();
+    link.send(Frame::data(clip, &b"hello "[..]).unwrap())
+        .await
+        .unwrap();
+    link.send(Frame::data(clip, &b"world"[..]).unwrap())
+        .await
+        .unwrap();
+    let stored = tokio::time::timeout(WAIT, async {
+        loop {
+            let frame = link.next().await.unwrap().unwrap();
+            if frame.channel() == clip && frame.frame_type() == FrameType::Control {
+                return frame.parse::<ClipboardMessage>().unwrap();
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(stored, ClipboardMessage::Stored);
+    assert_eq!(
+        *commands.lock().unwrap(),
+        [Command::SetClipboard(Clip::Text("hello world".into()))]
+    );
+
+    let png = vec![0x89; 300 * 1024];
+    surfaces.handle(Event::Clipboard(Clip::Png(png.clone())));
+    let got = tokio::time::timeout(WAIT, async {
+        let mut size = None;
+        let mut bytes = Vec::new();
+        loop {
+            let frame = link.next().await.unwrap().unwrap();
+            if frame.channel() != clip {
+                continue;
+            }
+            if frame.frame_type() == FrameType::Control {
+                let ClipboardMessage::Offer { mime, size: s } = frame.parse().unwrap() else {
+                    panic!("not an offer");
+                };
+                assert_eq!(mime, ClipboardMime::Png);
+                size = Some(s as usize);
+            } else {
+                bytes.extend_from_slice(frame.payload());
+            }
+            if size == Some(bytes.len()) {
+                return bytes;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(got, png, "a large image comes in more than one data frame");
+}

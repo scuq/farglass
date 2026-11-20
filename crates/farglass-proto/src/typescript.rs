@@ -9,10 +9,10 @@ use ts_rs::{Config, TS};
 
 use crate::login::{LocalSession, LoginEvent, LoginReply};
 use crate::message::{
-    Bus, Close, CloseReason, ConnectionMessage, DbusEvent, DbusRequest, Notification, NotifyAction,
-    NotifyEvent, NotifyReply, Open, PolkitEvent, PolkitReply, PtyEvent, PtyRequest, Ready,
-    StateEvent, StateRequest, SurfaceAck, SurfaceEvent, SurfaceInput, SurfaceRect, SurfaceRequest,
-    Urgency,
+    Bus, ClipboardMessage, ClipboardMime, Close, CloseReason, ConnectionMessage, DbusEvent,
+    DbusRequest, MAX_CLIPBOARD_LEN, Notification, NotifyAction, NotifyEvent, NotifyReply, Open,
+    PolkitEvent, PolkitReply, PtyEvent, PtyRequest, Ready, StateEvent, StateRequest, SurfaceAck,
+    SurfaceEvent, SurfaceInput, SurfaceRect, SurfaceRequest, Urgency,
 };
 use crate::{
     ChannelId, FrameError, FrameType, HEADER_LEN, MAX_PAYLOAD_LEN, PROTOCOL_VERSION,
@@ -58,6 +58,9 @@ export const PTY_WINDOW = {PTY_WINDOW};
 /** The size of the scrollback of a terminal in bytes. */
 export const PTY_SCROLLBACK = {PTY_SCROLLBACK};
 
+/** The largest clipboard content in bytes. */
+export const MAX_CLIPBOARD_LEN = {MAX_CLIPBOARD_LEN};
+
 /** The type of a frame, as the number in the header. */
 export const FrameType = {{
 ",
@@ -101,6 +104,8 @@ fn messages() -> String {
     declare::<SurfaceEvent>(&cfg, &mut out);
     declare::<SurfaceRequest>(&cfg, &mut out);
     declare::<SurfaceAck>(&cfg, &mut out);
+    declare::<ClipboardMime>(&cfg, &mut out);
+    declare::<ClipboardMessage>(&cfg, &mut out);
     declare::<SurfaceInput>(&cfg, &mut out);
     declare::<PolkitEvent>(&cfg, &mut out);
     declare::<PolkitReply>(&cfg, &mut out);

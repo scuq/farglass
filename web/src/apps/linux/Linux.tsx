@@ -1,6 +1,7 @@
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import type { Connection, SurfaceRect } from "../../proto";
-import { LINUX_KEYS } from "../../surface/keys";
+import { isPasteKey } from "../../surface/clipboard";
+import { IS_MAC, linuxKey, MODIFIER_KEYS } from "../../surface/keys";
 import { type SurfaceInfo, type SurfaceManager, surfaceManagerFor, surfaceOf } from "../../surface/manager";
 import type { AppContext } from "../types";
 import "./linux.css";
@@ -129,19 +130,45 @@ export default function Linux(props: { context: AppContext }) {
   });
 
   // The keyboard: each key goes as its Linux key code to the window with the focus.
+  // While the clipboard of the browser goes to the apps for a paste, the keys wait in order (F030).
   const held = new Set<number>();
+  let waiting = 0;
+  let queue = Promise.resolve();
+  const sendKey = (code: number, pressed: boolean) => {
+    if (waiting === 0) {
+      manager.input({ type: "key", id, code, pressed });
+    } else {
+      queue = queue.then(() => manager.input({ type: "key", id, code, pressed }));
+    }
+  };
   const onKey = (event: KeyboardEvent, pressed: boolean) => {
-    const code = LINUX_KEYS[event.code];
+    const code = linuxKey(event.code);
     if (code === undefined) return;
     event.preventDefault();
     event.stopPropagation();
+    if (pressed && isPasteKey(event, IS_MAC)) {
+      waiting += 1;
+      const sync = manager.clipboard.sync();
+      queue = queue.then(() => sync).then(() => {
+        waiting -= 1;
+      });
+    }
+    // A Mac browser gives no key up for a key that goes up while Cmd is down. Thus such a key is a tap,
+    // and the app does not repeat it.
+    if (IS_MAC && event.metaKey && !MODIFIER_KEYS.has(code)) {
+      if (pressed) {
+        sendKey(code, true);
+        sendKey(code, false);
+      }
+      return;
+    }
     if (pressed) held.add(code);
     else held.delete(code);
-    manager.input({ type: "key", id, code, pressed });
+    sendKey(code, pressed);
   };
   // A key that is down when the window loses the focus goes up, as on a local seat.
   const releaseAll = () => {
-    for (const code of held) manager.input({ type: "key", id, code, pressed: false });
+    for (const code of held) sendKey(code, false);
     held.clear();
   };
   onCleanup(releaseAll);

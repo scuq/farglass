@@ -9,9 +9,9 @@ use std::time::Duration;
 use bytes::Bytes;
 use farglass_proto::codec::{CodecError, FrameCodec};
 use farglass_proto::message::{
-    Bus, Close, CloseReason, DbusEvent, DbusRequest, LinkMessage, NotifyReply, Open, PolkitReply,
-    PtyEvent, PtyRequest, Ready, StateEvent, StateRequest, SurfaceAck, SurfaceInput,
-    SurfaceRequest,
+    Bus, ClipboardMessage, ClipboardMime, Close, CloseReason, DbusEvent, DbusRequest, LinkMessage,
+    MAX_CLIPBOARD_LEN, NotifyReply, Open, PolkitReply, PtyEvent, PtyRequest, Ready, StateEvent,
+    StateRequest, SurfaceAck, SurfaceInput, SurfaceRequest,
 };
 use farglass_proto::{ChannelId, Frame, FrameError, FrameType, PROTOCOL_VERSION, Side};
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -349,6 +349,20 @@ where
                         }
                     }
                     Kind::Surfaces { .. } | Kind::Surface(_) | Kind::SurfaceInput => None,
+                    Kind::Clipboard { incoming, .. } => match clipboard_frame(incoming, &frame) {
+                        Ok(Some(clip)) => {
+                            session.surfaces.set_clipboard(clip);
+                            link.send(Frame::json(
+                                channel,
+                                FrameType::Control,
+                                &ClipboardMessage::Stored,
+                            )?)
+                            .await?;
+                            None
+                        }
+                        Ok(None) => None,
+                        Err(message) => Some((CloseReason::ProtocolError, message)),
+                    },
                     Kind::State if frame.frame_type() == FrameType::Control => {
                         state_request(
                             &mut link,
@@ -382,6 +396,91 @@ type Link<S> = Framed<S, FrameCodec>;
 
 /// A refusal of a request: the reason and the message of the close frame.
 type Refusal = Option<(CloseReason, String)>;
+
+/// A clipboard content of the shell that is not complete yet.
+#[derive(Debug)]
+struct IncomingClip {
+    mime: ClipboardMime,
+    size: usize,
+    bytes: Vec<u8>,
+}
+
+/// Takes a frame of a clipboard channel. Returns the content when its last byte came.
+fn clipboard_frame(
+    incoming: &mut Option<IncomingClip>,
+    frame: &Frame,
+) -> Result<Option<farglass_surface::Clip>, String> {
+    if frame.frame_type() == FrameType::Control {
+        match frame.parse::<ClipboardMessage>() {
+            Ok(ClipboardMessage::Offer { mime, size }) if size <= MAX_CLIPBOARD_LEN => {
+                *incoming = Some(IncomingClip {
+                    mime,
+                    size: size as usize,
+                    bytes: Vec::with_capacity((size as usize).min(1 << 20)),
+                });
+            }
+            Ok(ClipboardMessage::Offer { size, .. }) => {
+                return Err(format!(
+                    "The clipboard content has {size} bytes, more than {MAX_CLIPBOARD_LEN}."
+                ));
+            }
+            Ok(ClipboardMessage::Stored) => {
+                return Err("Only the agent sends the stored message.".to_owned());
+            }
+            Err(error) => return Err(format!("The clipboard message is not valid: {error}")),
+        }
+    } else {
+        let Some(clip) = incoming else {
+            return Err("Clipboard data came with no offer.".to_owned());
+        };
+        if clip.bytes.len() + frame.payload().len() > clip.size {
+            return Err("The clipboard data is longer than its offer.".to_owned());
+        }
+        clip.bytes.extend_from_slice(frame.payload());
+    }
+    if incoming
+        .as_ref()
+        .is_none_or(|clip| clip.bytes.len() < clip.size)
+    {
+        return Ok(None);
+    }
+    let Some(IncomingClip { mime, bytes, .. }) = incoming.take() else {
+        return Ok(None);
+    };
+    match mime {
+        ClipboardMime::Text => String::from_utf8(bytes)
+            .map(|text| Some(farglass_surface::Clip::Text(text)))
+            .map_err(|_| "The clipboard text is not valid UTF-8.".to_owned()),
+        ClipboardMime::Png => Ok(Some(farglass_surface::Clip::Png(bytes))),
+    }
+}
+
+/// The length of the data frames of a clipboard content.
+const CLIP_CHUNK: usize = 256 * 1024;
+
+/// Returns the frames that give a content of an app to the shell: an offer and the data.
+fn clip_frames(channel: ChannelId, clip: &farglass_surface::Clip) -> Vec<Frame> {
+    let (mime, bytes) = match clip {
+        farglass_surface::Clip::Text(text) => (ClipboardMime::Text, text.as_bytes()),
+        farglass_surface::Clip::Png(png) => (ClipboardMime::Png, png.as_slice()),
+    };
+    let Ok(size) = u32::try_from(bytes.len()) else {
+        return Vec::new();
+    };
+    let offer = Frame::json(
+        channel,
+        FrameType::Control,
+        &ClipboardMessage::Offer { mime, size },
+    );
+    offer
+        .into_iter()
+        .chain(
+            bytes
+                .chunks(CLIP_CHUNK)
+                .filter_map(|chunk| Frame::data(channel, chunk.to_vec()).ok()),
+        )
+        .collect()
+}
 
 /// Handles a frame of the shell on a pty channel.
 fn pty_frame(terminal: &TerminalLink, frame: Frame) -> Refusal {
@@ -598,6 +697,12 @@ enum Kind {
     },
     /// Gives keyboard and pointer input to the Wayland apps.
     SurfaceInput,
+    /// Carries the clipboard between the Wayland apps and the shell.
+    Clipboard {
+        /// Dropping the guard removes the channel from the agent.
+        _viewer: surfaces::ClipboardGuard,
+        incoming: Option<IncomingClip>,
+    },
     /// Gets the tile stream of one surface. Dropping the channel stops the stream.
     Surface(
         #[allow(dead_code, reason = "dropping it stops the stream")]
@@ -688,6 +793,18 @@ fn open(
             accept(Kind::Surfaces { _viewer: guard })
         }
         Ok(Open::SurfaceInput) => accept(Kind::SurfaceInput),
+        Ok(Open::Clipboard) => {
+            let events = events.clone();
+            let guard = session.surfaces.add_clipboard(move |clip| {
+                for frame in clip_frames(channel, clip) {
+                    let _ = events.send(frame);
+                }
+            });
+            accept(Kind::Clipboard {
+                _viewer: guard,
+                incoming: None,
+            })
+        }
         Ok(Open::Surface { id }) => {
             accept(Kind::Surface(crate::surface_stream::SurfaceStream::open(
                 &session.surfaces,

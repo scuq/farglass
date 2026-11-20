@@ -1,6 +1,8 @@
 //! The state of the compositor and its Wayland handlers.
 
 use std::collections::HashMap;
+use std::io::{Read as _, Write as _};
+use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixListener;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -30,7 +32,7 @@ use smithay::reexports::wayland_server::protocol::wl_callback::WlCallback;
 use smithay::reexports::wayland_server::protocol::wl_seat::WlSeat;
 use smithay::reexports::wayland_server::protocol::wl_shm;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
-use smithay::reexports::wayland_server::{Client, Display, DisplayHandle};
+use smithay::reexports::wayland_server::{Client, Display, DisplayHandle, Resource as _};
 use smithay::utils::{SERIAL_COUNTER, Serial, Transform};
 use smithay::wayland::buffer::BufferHandler;
 use smithay::wayland::compositor::{
@@ -39,10 +41,11 @@ use smithay::wayland::compositor::{
 };
 use smithay::wayland::cursor_shape::CursorShapeManagerState;
 use smithay::wayland::output::{OutputHandler, OutputManagerState};
-use smithay::wayland::selection::SelectionHandler;
 use smithay::wayland::selection::data_device::{
     ClientDndGrabHandler, DataDeviceHandler, DataDeviceState, ServerDndGrabHandler,
+    request_data_device_client_selection, set_data_device_focus, set_data_device_selection,
 };
+use smithay::wayland::selection::{SelectionHandler, SelectionSource, SelectionTarget};
 use smithay::wayland::shell::xdg::decoration::{XdgDecorationHandler, XdgDecorationState};
 use smithay::wayland::shell::xdg::{
     PopupSurface, PositionerState, SurfaceCachedState, ToplevelSurface, XdgShellHandler,
@@ -50,6 +53,8 @@ use smithay::wayland::shell::xdg::{
 };
 use smithay::wayland::shm::{ShmHandler, ShmState, with_buffer_contents};
 use smithay::wayland::tablet_manager::TabletSeatHandler;
+
+use crate::clipboard::{self, Clip, ClipKind};
 
 /// The interval of the frame callbacks: a client draws at most this often.
 const FRAME_INTERVAL: Duration = Duration::from_millis(16);
@@ -153,6 +158,8 @@ pub enum Event {
     },
     /// The client selected the shape of the pointer: a CSS cursor name, for example `text` or `pointer`.
     Cursor(String),
+    /// An app set the clipboard: its text, or its PNG image if it has no text (F030).
+    Clipboard(Clip),
 }
 
 /// A command of the shell for the compositor.
@@ -217,7 +224,13 @@ pub enum Command {
         /// Pressed or released.
         pressed: bool,
     },
+    /// Sets the clipboard of the apps, for example to the clipboard of the client computer.
+    /// The compositor owns the selection until an app sets a new one.
+    SetClipboard(Clip),
 }
+
+/// The bytes of a selection that a reader thread got: the generation of the selection, the kind, and the content.
+type ClipRead = (u64, ClipKind, Vec<u8>);
 
 /// The data of each Wayland client.
 #[derive(Debug, Default)]
@@ -255,6 +268,12 @@ pub(crate) struct State {
     frame_callbacks: Vec<WlCallback>,
     /// The window with the keyboard focus.
     focused: Option<u32>,
+    /// The mime types of a new selection of an app. The compositor reads it after the dispatch,
+    /// because Smithay stores the selection after it calls the handler.
+    selection: Option<Vec<String>>,
+    /// The count of selections. A read of an older selection does not go to the shell.
+    clip_generation: u64,
+    clip_reads: channel::Sender<ClipRead>,
     started: Instant,
     events: Box<dyn FnMut(Event) + Send>,
 }
@@ -287,6 +306,7 @@ pub(crate) fn run(
                     tracing::error!(%error, "the Wayland compositor stopped");
                     break;
                 }
+                state.read_selection();
                 let _ = state.display.flush_clients();
             }
         }
@@ -334,6 +354,7 @@ fn setup(
     output.set_preferred(mode);
     let _global = output.create_global::<State>(&dh);
 
+    let (clip_reads, clip_results) = channel::channel::<ClipRead>();
     let state = State {
         compositor: CompositorState::new::<State>(&dh),
         shm: ShmState::new::<State>(&dh, [wl_shm::Format::Argb8888, wl_shm::Format::Xrgb8888]),
@@ -341,7 +362,7 @@ fn setup(
         _decoration: XdgDecorationState::new::<State>(&dh),
         // GTK 4 selects its cursors by name through cursor-shape-v1.
         _cursor_shape: CursorShapeManagerState::new::<State>(&dh),
-        // GTK needs a data device. The clipboard to the shell comes with F030.
+        // The clipboard (F030). GTK also needs a data device to start.
         data_device: DataDeviceState::new::<State>(&dh),
         _outputs: OutputManagerState::new_with_xdg_output::<State>(&dh),
         seat_state,
@@ -351,6 +372,9 @@ fn setup(
         next_id: 0,
         frame_callbacks: Vec::new(),
         focused: None,
+        selection: None,
+        clip_generation: 0,
+        clip_reads,
         started: Instant::now(),
         events,
         display: dh,
@@ -389,6 +413,15 @@ fn setup(
         .insert_source(commands, |event, (), state| {
             if let channel::Event::Msg(command) = event {
                 state.command(command);
+            }
+        })
+        .map_err(|e| e.to_string())?;
+    handle
+        .insert_source(clip_results, |event, (), state| {
+            if let channel::Event::Msg((generation, kind, bytes)) = event
+                && generation == state.clip_generation
+            {
+                state.emit(Event::Clipboard(clipboard::clip(kind, bytes)));
             }
         })
         .map_err(|e| e.to_string())?;
@@ -460,6 +493,54 @@ impl State {
         }
     }
 
+    /// Reads the new selection of an app on a thread of its own: a slow app does not stop the compositor.
+    fn read_selection(&mut self) {
+        let Some(offered) = self.selection.take() else {
+            return;
+        };
+        let Some((mime, kind)) = clipboard::pick(&offered) else {
+            tracing::debug!(
+                ?offered,
+                "the clipboard of an app has no text and no PNG image"
+            );
+            return;
+        };
+        let (reader, writer) = match std::io::pipe() {
+            Ok(pipe) => pipe,
+            Err(error) => {
+                tracing::warn!(%error, "no pipe for the clipboard of an app");
+                return;
+            }
+        };
+        if let Err(error) =
+            request_data_device_client_selection(&self.seat, mime, OwnedFd::from(writer))
+        {
+            tracing::debug!(%error, "the clipboard of an app is not available");
+            return;
+        }
+        let generation = self.clip_generation;
+        let results = self.clip_reads.clone();
+        let spawned = std::thread::Builder::new()
+            .name("farglass-clipboard".to_owned())
+            .spawn(move || {
+                // One byte more than the limit shows a content that is too large.
+                let limit = u64::try_from(clipboard::MAX_CLIP).unwrap_or(u64::MAX) + 1;
+                let mut bytes = Vec::new();
+                match reader.take(limit).read_to_end(&mut bytes) {
+                    Ok(_) if bytes.len() <= clipboard::MAX_CLIP => {
+                        let _ = results.send((generation, kind, bytes));
+                    }
+                    Ok(_) => tracing::info!(
+                        "the clipboard of an app is larger than 16 MiB, thus the shell does not get it"
+                    ),
+                    Err(error) => tracing::debug!(%error, "the clipboard of an app did not arrive"),
+                }
+            });
+        if let Err(error) = spawned {
+            tracing::warn!(%error, "no thread for the clipboard of an app");
+        }
+    }
+
     /// The time in milliseconds for input events.
     fn now(&self) -> u32 {
         u32::try_from(self.started.elapsed().as_millis() % u128::from(u32::MAX)).unwrap_or(0)
@@ -489,6 +570,13 @@ impl State {
                 }
             }
             Command::Activate { id } => self.activate(id),
+            Command::SetClipboard(clip) => {
+                // A read of the selection before this one must not replace it in the shell.
+                self.clip_generation += 1;
+                self.selection = None;
+                let types = clip.mime_types();
+                set_data_device_selection(&self.display, &self.seat, types, Arc::new(clip));
+            }
             Command::Close { id } => {
                 if let Some(toplevel) = self.toplevels.get(&id) {
                     toplevel.send_close();
@@ -932,6 +1020,12 @@ impl SeatHandler for State {
         tracing::debug!(cursor = name, "the client selected a cursor");
         self.emit(Event::Cursor(name));
     }
+
+    fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) {
+        // The app with the keyboard focus gets the selection, and only it can set a new one.
+        let client = focused.and_then(WlSurface::client);
+        set_data_device_focus(&self.display, seat, client);
+    }
 }
 
 impl OutputHandler for State {}
@@ -939,7 +1033,42 @@ impl OutputHandler for State {}
 impl TabletSeatHandler for State {}
 
 impl SelectionHandler for State {
-    type SelectionUserData = ();
+    type SelectionUserData = Arc<Clip>;
+
+    fn new_selection(
+        &mut self,
+        ty: SelectionTarget,
+        source: Option<SelectionSource>,
+        _seat: Seat<Self>,
+    ) {
+        if ty == SelectionTarget::Clipboard {
+            self.clip_generation += 1;
+            self.selection = source.map(|source| source.mime_types());
+        }
+    }
+
+    fn send_selection(
+        &mut self,
+        _ty: SelectionTarget,
+        mime_type: String,
+        fd: OwnedFd,
+        _seat: Seat<Self>,
+        user_data: &Self::SelectionUserData,
+    ) {
+        // A large content fills the pipe, thus a thread writes it while the app reads.
+        tracing::debug!(mime_type, "an app pastes the clipboard of the shell");
+        let clip = user_data.clone();
+        let spawned = std::thread::Builder::new()
+            .name("farglass-clipboard".to_owned())
+            .spawn(move || {
+                if let Err(error) = std::fs::File::from(fd).write_all(clip.bytes()) {
+                    tracing::debug!(%error, "an app stopped the paste");
+                }
+            });
+        if let Err(error) = spawned {
+            tracing::warn!(%error, "no thread for a paste");
+        }
+    }
 }
 
 impl DataDeviceHandler for State {

@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use farglass_proto::message::{SurfaceEvent, SurfaceInput, SurfaceRect, SurfaceRequest};
-use farglass_surface::{Command, Compositor, Event, Rect, SurfaceError};
+use farglass_surface::{Clip, Command, Compositor, Event, Rect, SurfaceError};
 
 /// The name of the socket in `XDG_RUNTIME_DIR`.
 pub const SOCKET_NAME: &str = "farglass-wayland";
@@ -45,6 +45,7 @@ pub struct FrameUpdate {
     pub damage: Vec<Rect>,
 }
 type CommandSink = Box<dyn Fn(Command) + Send + Sync>;
+type ClipSink = Arc<dyn Fn(&Clip) + Send + Sync>;
 
 #[derive(Clone, Debug, Default)]
 struct Toplevel {
@@ -64,6 +65,8 @@ struct Inner {
     viewers: HashMap<u64, EventSink>,
     /// The surface channels of each surface.
     watchers: HashMap<u32, HashMap<u64, FrameSink>>,
+    /// The clipboard channels.
+    clipboards: HashMap<u64, ClipSink>,
 }
 
 /// The windows of the compositor and the surfaces channels of the shell.
@@ -112,6 +115,26 @@ impl Drop for WatchGuard {
         if let Some(watchers) = inner.watchers.get_mut(&self.surface) {
             watchers.remove(&self.id);
         }
+    }
+}
+
+/// One clipboard channel. Dropping it removes the channel.
+pub struct ClipboardGuard {
+    surfaces: Arc<Surfaces>,
+    id: u64,
+}
+
+impl std::fmt::Debug for ClipboardGuard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClipboardGuard")
+            .field("id", &self.id)
+            .finish()
+    }
+}
+
+impl Drop for ClipboardGuard {
+    fn drop(&mut self) {
+        self.surfaces.lock().clipboards.remove(&self.id);
     }
 }
 
@@ -256,6 +279,31 @@ impl Surfaces {
         }
     }
 
+    /// Adds a clipboard channel. `send` gets each content that an app copies.
+    /// It does not get the current content: a new channel must not replace the clipboard of the client computer.
+    pub fn add_clipboard(
+        self: &Arc<Self>,
+        send: impl Fn(&Clip) + Send + Sync + 'static,
+    ) -> ClipboardGuard {
+        let id = self.next_viewer.fetch_add(1, Ordering::Relaxed);
+        self.lock().clipboards.insert(id, Arc::new(send));
+        ClipboardGuard {
+            surfaces: self.clone(),
+            id,
+        }
+    }
+
+    /// Sets the clipboard of the apps to a content of the shell.
+    pub fn set_clipboard(&self, clip: Clip) {
+        self.command(Command::SetClipboard(clip));
+    }
+
+    fn command(&self, command: Command) {
+        if let Some(commands) = &*self.commands.lock().unwrap_or_else(PoisonError::into_inner) {
+            commands(command);
+        }
+    }
+
     /// Gives a request of the shell to the compositor.
     pub fn request(&self, request: SurfaceRequest) {
         let command = match request {
@@ -266,9 +314,7 @@ impl Surfaces {
             SurfaceRequest::Close { id } => Command::Close { id },
             SurfaceRequest::PopupDismiss { id } => Command::PopupDismiss { id },
         };
-        if let Some(commands) = &*self.commands.lock().unwrap_or_else(PoisonError::into_inner) {
-            commands(command);
-        }
+        self.command(command);
     }
 
     /// Gives input of the shell to the compositor.
@@ -290,13 +336,19 @@ impl Surfaces {
             SurfaceInput::Axis { dx, dy } => Command::PointerAxis { dx, dy },
             SurfaceInput::Key { id, code, pressed } => Command::Key { id, code, pressed },
         };
-        if let Some(commands) = &*self.commands.lock().unwrap_or_else(PoisonError::into_inner) {
-            commands(command);
-        }
+        self.command(command);
     }
 
     /// Takes an event of the compositor: keeps the state for new channels, and tells each channel.
     pub fn handle(&self, event: Event) {
+        if let Event::Clipboard(clip) = event {
+            let sinks: Vec<ClipSink> = self.lock().clipboards.values().cloned().collect();
+            tracing::debug!(channels = sinks.len(), "an app set the clipboard");
+            for send in sinks {
+                send(&clip);
+            }
+            return;
+        }
         let message = {
             let mut inner = self.lock();
             match event {
@@ -409,6 +461,7 @@ impl Surfaces {
                     SurfaceEvent::MoveRequest { id }
                 }
                 Event::Cursor(name) => SurfaceEvent::Cursor { name },
+                Event::Clipboard(_) => return,
             }
         };
         let viewers: Vec<EventSink> = self.lock().viewers.values().cloned().collect();

@@ -18,6 +18,7 @@
 
 pub mod cache;
 pub mod classify;
+pub mod clipboard;
 pub mod scroll;
 mod state;
 pub mod tiles;
@@ -31,6 +32,7 @@ use std::thread::JoinHandle;
 use smithay::reexports::calloop::channel::Sender;
 use smithay::reexports::calloop::{LoopSignal, channel};
 
+pub use clipboard::Clip;
 pub use state::{Command, Commit, Event, Format, Rect};
 
 /// An error of the start of the compositor.

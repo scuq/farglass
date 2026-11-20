@@ -19,6 +19,9 @@ export const PTY_WINDOW = 262144;
 /** The size of the scrollback of a terminal in bytes. */
 export const PTY_SCROLLBACK = 1048576;
 
+/** The largest clipboard content in bytes. */
+export const MAX_CLIPBOARD_LEN = 16777216;
+
 /** The type of a frame, as the number in the header. */
 export const FrameType = {
   Open: 1,

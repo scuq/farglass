@@ -122,6 +122,12 @@ pub enum Open {
     ///
     /// The shell sends [`SurfaceInput`] as control messages.
     SurfaceInput,
+    /// The clipboard of the Wayland apps (F030).
+    ///
+    /// Each side sends a new content as a [`ClipboardMessage::Offer`] control message
+    /// and then the bytes in data frames. The agent answers an offer of the shell with
+    /// [`ClipboardMessage::Stored`]. The agent sends a content only after an app set the clipboard.
+    Clipboard,
     /// The polkit prompts of the session. The shell keeps one open while the desktop shows.
     ///
     /// The agent sends [`PolkitEvent`] and gets [`PolkitReply`], as control messages.
@@ -430,6 +436,35 @@ pub enum SurfaceInput {
         /// Pressed or released.
         pressed: bool,
     },
+}
+
+/// The largest clipboard content in bytes.
+pub const MAX_CLIPBOARD_LEN: u32 = 16 << 20;
+
+/// The kind of a clipboard content.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum ClipboardMime {
+    /// UTF-8 text.
+    #[serde(rename = "text/plain")]
+    Text,
+    /// A PNG image.
+    #[serde(rename = "image/png")]
+    Png,
+}
+
+/// A message on a clipboard channel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum ClipboardMessage {
+    /// A new content: `size` bytes follow in data frames. `size` is at most [`MAX_CLIPBOARD_LEN`].
+    Offer {
+        /// The kind.
+        mime: ClipboardMime,
+        /// The length in bytes.
+        size: u32,
+    },
+    /// From the agent: the last content of the shell is the clipboard of the apps now. A paste in an app gets it.
+    Stored,
 }
 
 /// A message of the shell on a surfaces channel.

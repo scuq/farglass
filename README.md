@@ -219,6 +219,15 @@ The size, the focus, the close, the keyboard, and the pointer of the window go t
 `npm --prefix spikes/e2e run apps` starts gnome-calculator and VS Code side by side.
 It moves each window by the own title bar of the app, types in the two windows, and switches the focus between them: each key must go to the window where it was typed.
 
+The clipboard goes between the apps and your computer, as text or as a PNG image.
+A copy in an app goes to the clipboard of your browser.
+Before a paste key goes to an app (Ctrl+V, Ctrl+Shift+V, or Shift+Insert), the shell reads the clipboard of your browser and gives it to the apps.
+Thus the browser asks one time for the permission to read the clipboard.
+The terminal uses the clipboard of the browser too.
+On a Mac, Cmd acts as Ctrl in the apps: Cmd+C copies and Cmd+V pastes.
+A content of more than 16 MiB stays on its side.
+`npm --prefix spikes/e2e run clipboard` pastes text from Chromium in VS Code, copies it back, and copies a result of gnome-calculator to Chromium and to VS Code.
+
 To look at the events of a real app:
 
 ```sh

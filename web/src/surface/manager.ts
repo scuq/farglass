@@ -9,6 +9,7 @@
 
 import { createSignal } from "solid-js";
 import type { Channel, Connection, SurfaceEvent, SurfaceInput, SurfaceRect, SurfaceRequest } from "../proto";
+import { ClipboardBridge } from "./clipboard";
 
 /** The facts of one surface: a top-level window or a popup. */
 export interface SurfaceInfo {
@@ -57,9 +58,12 @@ export class SurfaceManager {
   readonly #input: Channel;
   readonly #cursor = createSignal("default");
   readonly #moveHandlers = new Map<number, () => void>();
+  /** The clipboard between the apps and the client computer (F030). */
+  readonly clipboard: ClipboardBridge;
 
   constructor(connection: Connection, windows: SurfaceWindows) {
     this.#windows = windows;
+    this.clipboard = new ClipboardBridge(connection);
     this.#channel = connection.openChannel({ kind: "surfaces" }, { oncontrol: (message) => this.#event(message as SurfaceEvent) });
     this.#input = connection.openChannel({ kind: "surface-input" });
     windows.whenLoaded(() => {
@@ -124,6 +128,7 @@ export class SurfaceManager {
   }
 
   close(): void {
+    this.clipboard.close();
     this.#channel.close();
     this.#input.close();
   }

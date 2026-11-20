@@ -3,6 +3,19 @@
  * keyboard event, by `KeyboardEvent.code`. The code names the physical key,
  * thus the keymap of the compositor gives the character, as on a local seat.
  */
+/** Reports whether the client computer is a Mac. There Cmd acts as Ctrl in the Linux apps: Cmd+C copies, as in a Mac app. */
+export const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+
+/** The codes of the modifier keys and Caps Lock. */
+export const MODIFIER_KEYS: ReadonlySet<number> = new Set([29, 97, 42, 54, 56, 100, 125, 126, 58]);
+
+/** Returns the Linux key code of a `KeyboardEvent.code`. On a Mac, the Cmd keys give the Ctrl codes. */
+export function linuxKey(code: string, mac = IS_MAC): number | undefined {
+  if (mac && code === "MetaLeft") return LINUX_KEYS.ControlLeft;
+  if (mac && code === "MetaRight") return LINUX_KEYS.ControlRight;
+  return LINUX_KEYS[code];
+}
+
 export const LINUX_KEYS: Readonly<Record<string, number>> = {
   Escape: 1,
   Digit1: 2, Digit2: 3, Digit3: 4, Digit4: 5, Digit5: 6, Digit6: 7, Digit7: 8, Digit8: 9, Digit9: 10, Digit0: 11,
