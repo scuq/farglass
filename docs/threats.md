@@ -106,7 +106,7 @@ Controls:
 - The TLS key has mode 0600.
 - farglass-login keeps 7 capabilities and runs with `ProtectProc=invisible`, `UMask=0077`, and `PrivateIPC=yes` (F056).
 
-Gap: finding 17.
+`spikes/session/check.sh` runs farglass-login with the properties of its unit (F063).
 
 ## Findings
 
@@ -128,4 +128,4 @@ Gap: finding 17.
 | 14 | Low | farglassd has no cap on TCP connections and TLS handshakes for each address, and no rate limit on `POST /session` and `POST /transport`. Only the WebSocket connections with no user have a cap. | Fixed in F060 |
 | 15 | Low | The first passkey needs no proof. A person at an unlocked tab, or with a stolen cookie, can add a passkey to an account with no passkey, and the user is then locked out until the administrator removes the file. | Fixed in F061 |
 | 16 | Info | A failed login logs the typed username. A password typed in the username field goes into the journal. | Fixed in F062 |
-| 17 | Info | The root test starts farglass-login directly, not in its systemd unit: no test proves that PAM works with the capability set of F056. | F063 |
+| 17 | Info | The root test starts farglass-login directly, not in its systemd unit: no test proves that PAM works with the capability set of F056. | Fixed in F063: check.sh runs it with the unit properties |

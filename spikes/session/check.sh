@@ -18,6 +18,8 @@
 #   2. If the user who runs sudo has a local graphical session, a login as that
 #      user must show the confirm step. The script clicks Cancel only, and the
 #      local session must continue.
+# farglass-login runs in a transient systemd unit with the sandbox and the
+# capabilities of packaging/systemd/farglass-login.service (F063).
 # PAM uses a test stack: pam_exec accepts the password "secret" for each user.
 # The script removes farglass-test and all its files at the end.
 #
@@ -53,8 +55,10 @@ DIR=$(mktemp -d /var/lib/farglass-check.XXXXXX)
 chmod 0755 "$DIR"
 PIDS=""
 
+LOGIN_UNIT=farglass-check-login
 cleanup() {
     for pid in $PIDS; do kill "$pid" 2>/dev/null || true; done
+    systemctl stop "$LOGIN_UNIT" 2>/dev/null || true
     loginctl terminate-user "$TEST_USER" 2>/dev/null || true
     sleep 1
     systemctl stop "farglass-session-$(id -u "$TEST_USER" 2>/dev/null || echo 0).service" 2>/dev/null || true
@@ -86,22 +90,45 @@ groupadd "$TEST_GROUP"
 usermod -aG "$TEST_GROUP" "$TEST_USER"
 usermod -aG "$TEST_GROUP" "$SUDO_USER"
 
-"$DIR/bin/farglass-login" --socket "$DIR/run/login.sock" --socket-mode 666 \
-    --pam-dir "$DIR/pam.d" --fail-delay-ms 0 \
-    --agent-program "$DIR/bin/farglass-session" --agent-socket "$DIR/run/agent.sock" \
-    --allowed-group "$TEST_GROUP" --peer-user "$SUDO_USER" \
-    2> "$DIR/login.log" &
-PIDS="$PIDS $!"
+# start_login - starts farglass-login in a transient unit with each property of the [Service]
+# section of farglass-login.service, except the command, the type, and the user (F063)
+start_login() {
+    set --
+    while IFS= read -r property; do
+        set -- "$@" -p "$property"
+    done <<PROPS
+$(sed -n '/^\[Service\]/,/^\[/p' "$REPO/packaging/systemd/farglass-login.service" |
+    grep -E '^[A-Z][A-Za-z]+=' | grep -vE '^(Type|ExecStart|User)=')
+PROPS
+    systemctl reset-failed "$LOGIN_UNIT" 2>/dev/null || true
+    systemd-run --unit="$LOGIN_UNIT" --collect --quiet "$@" \
+        -p "ReadWritePaths=$DIR/run" -p "Environment=NO_COLOR=1" -- \
+        "$DIR/bin/farglass-login" --socket "$DIR/run/login.sock" --socket-mode 666 \
+        --pam-dir "$DIR/pam.d" --fail-delay-ms 0 \
+        --agent-program "$DIR/bin/farglass-session" --agent-socket "$DIR/run/agent.sock" \
+        --allowed-group "$TEST_GROUP" --peer-user "$SUDO_USER"
+}
+start_login
+# login_log - prints the log of farglass-login
+login_log() {
+    journalctl -u "$LOGIN_UNIT" --no-pager -o cat --since "-10min" 2>/dev/null
+}
 runuser -u "$SUDO_USER" -- env NO_COLOR=1 "$DIR/bin/farglassd" --listen 127.0.0.1:18447 \
     --web-root "$REPO/web/dist" --state-dir "$DIR/state" \
     --agent-socket "$DIR/run/agent.sock" --login-socket "$DIR/run/login.sock" \
     2> "$DIR/farglassd.log" &
 PIDS="$PIDS $!"
 sleep 2
+if ! systemctl is-active --quiet "$LOGIN_UNIT"; then
+    echo "check.sh: farglass-login stopped at the start. Its log:" >&2
+    login_log >&2
+    exit 1
+fi
 for pid in $PIDS; do
     if ! kill -0 "$pid" 2>/dev/null; then
         echo "check.sh: A program stopped at the start. The logs:" >&2
-        cat "$DIR/login.log" "$DIR/farglassd.log" >&2
+        login_log >&2
+        cat "$DIR/farglassd.log" >&2
         exit 1
     fi
 done
@@ -219,7 +246,7 @@ fi
 
 if [ "$FAILED" -ne 0 ]; then
     echo "== The logs:"
-    sed 's/\x1b\[[0-9;]*m//g' "$DIR/login.log" | tail -30
+    login_log | sed 's/\x1b\[[0-9;]*m//g' | tail -30
     sed 's/\x1b\[[0-9;]*m//g' "$DIR/farglassd.log" | tail -15
     journalctl -u "farglass-session-$TEST_UID" --no-pager -n 20 2>/dev/null || true
 fi

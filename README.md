@@ -698,7 +698,9 @@ npm --prefix web run build
 sudo spikes/session/check.sh
 ```
 
-The script creates the temporary user `farglass-test` and removes it at the end.
+The script creates the temporary user `farglass-test` and the group `farglass-check`, and removes them at the end.
+It runs farglass-login in the transient unit `farglass-check-login` with the sandbox and the capabilities of `farglass-login.service` (F063).
+Thus the test shows if PAM works in that sandbox. The log of farglass-login is in `journalctl -u farglass-check-login`.
 It logs in as that user through Chromium. Then it examines the logind session of type `web` and the agent.
 Then it selects **Log out** and examines that the web session and the agent stopped.
 If your user has a local graphical session, the script also logs in as your user and selects Cancel at the confirm step.
