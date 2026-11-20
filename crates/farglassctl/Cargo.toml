@@ -1,0 +1,16 @@
+[package]
+name = "farglassctl"
+description = "Installs and manages farglass on a host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+clap.workspace = true
+clap_complete.workspace = true
+nix.workspace = true
+
+[lints]
+workspace = true

@@ -81,6 +81,40 @@ FARGLASS_AGENT_SOCKET=target/farglass/agent.sock cargo run -p farglass-session
 The agent connects to farglassd, and farglassd writes the uid of the agent to the log.
 If farglassd stops, the agent connects again when farglassd starts.
 
+## farglassctl
+
+`farglassctl` installs and manages farglass on a host (ADR-047).
+It is one static binary with no dynamic library, for amd64 and arm64.
+`install`, `update`, and the user and session commands come with F067 and F068.
+
+```text
+farglassctl install [--release TAG] [--from DIR] [--user USER]... [--open-firewall]
+farglassctl update [--release TAG] [--from DIR]
+farglassctl uninstall [--purge]
+farglassctl status | doctor
+farglassctl user list | add USER | remove USER | disable USER | enable USER
+farglassctl session list | logout USER
+farglassctl pin set | clear
+farglassctl logs [--security] [--follow]
+farglassctl completion bash
+```
+
+A command that changes the host needs root.
+`user disable` removes the user from `farglass-users` and ends the web sessions of the user; `user enable` adds the user back.
+
+To use the bash completion in the current shell:
+
+```sh
+source <(farglassctl completion bash)
+```
+
+To build the static binary:
+
+```sh
+rustup target add x86_64-unknown-linux-musl   # or aarch64-unknown-linux-musl
+cargo build -p farglassctl --release --target x86_64-unknown-linux-musl
+```
+
 ## Install on this host
 
 `packaging/install-local.sh` installs farglass from this source tree, with the systemd units and PAM files:
