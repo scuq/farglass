@@ -148,6 +148,24 @@ export function WindowFrame(props: {
     );
   };
 
+  /**
+   * A Wayland app asks to move its window, for example after a press on its own title bar:
+   * the move starts from the press, which holds the pointer capture on the canvas of the app.
+   */
+  const onAppMove = (event: Event) => {
+    const press = (event as CustomEvent<{ pointerId: number; clientX: number; clientY: number }>).detail;
+    const target = event.target as HTMLElement;
+    startMove({
+      button: 0,
+      pointerId: press.pointerId,
+      clientX: press.clientX,
+      clientY: press.clientY,
+      target,
+      currentTarget: target,
+      preventDefault: () => {},
+    } as unknown as PointerEvent);
+  };
+
   const startResize = (edge: Edge) => (event: PointerEvent) => {
     props.actions.focus(props.win().id);
     const start = rect();
@@ -163,6 +181,7 @@ export function WindowFrame(props: {
       ref={(el) => {
         element = el;
         removers.push(setContextMenu(el, props.menu));
+        el.addEventListener("farglass-move", onAppMove);
       }}
       class={props.focused() ? "wm-window wm-focused" : "wm-window"}
       data-mode={props.win().snap ?? "normal"}

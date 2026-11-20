@@ -404,7 +404,10 @@ impl Surfaces {
                     inner.pixels.remove(&id);
                     SurfaceEvent::Unmapped { id }
                 }
-                Event::MoveRequest { id } => SurfaceEvent::MoveRequest { id },
+                Event::MoveRequest { id } => {
+                    tracing::debug!(id, "the app asks to move its window");
+                    SurfaceEvent::MoveRequest { id }
+                }
                 Event::Cursor(name) => SurfaceEvent::Cursor { name },
             }
         };

@@ -56,6 +56,7 @@ export class SurfaceManager {
   /** The input to the apps goes on its own channel, thus on its own stream with WebTransport (F029). */
   readonly #input: Channel;
   readonly #cursor = createSignal("default");
+  readonly #moveHandlers = new Map<number, () => void>();
 
   constructor(connection: Connection, windows: SurfaceWindows) {
     this.#windows = windows;
@@ -109,6 +110,12 @@ export class SurfaceManager {
   /** Sends keyboard or pointer input to the apps. */
   input(input: SurfaceInput): void {
     this.#input.control(input);
+  }
+
+  /** Calls `handler` when the app of the window `id` asks to move it, for example after a press on its own title bar. */
+  onMoveRequest(id: number, handler: () => void): () => void {
+    this.#moveHandlers.set(id, handler);
+    return () => this.#moveHandlers.delete(id);
   }
 
   /** The CSS cursor that the app under the pointer selected. */
@@ -185,6 +192,7 @@ export class SurfaceManager {
         this.#cursor[1](event.name);
         break;
       case "move-request":
+        this.#moveHandlers.get(event.id)?.();
         break;
     }
     this.#signal[1](this.#map);

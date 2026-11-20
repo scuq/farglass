@@ -17,6 +17,9 @@ function SurfaceCanvas(props: {
   top: number;
   scale: number;
   onpress: (id: number) => boolean;
+  /** Reports whether the shell moves the window now: then the app gets no pointer input. */
+  moving: () => boolean;
+  onpressed: (press: { pointerId: number; clientX: number; clientY: number; canvas: HTMLCanvasElement } | null) => void;
 }) {
   const canvas = document.createElement("canvas");
   canvas.dataset.surface = String(props.id);
@@ -26,6 +29,7 @@ function SurfaceCanvas(props: {
     return { x: event.clientX - rect.left, y: event.clientY - rect.top };
   };
   canvas.addEventListener("pointermove", (event) => {
+    if (props.moving()) return;
     props.manager.input({ type: "pointer", id: props.id, ...at(event) });
   });
   canvas.addEventListener("pointerdown", (event) => {
@@ -35,10 +39,12 @@ function SurfaceCanvas(props: {
       return;
     }
     canvas.setPointerCapture(event.pointerId);
+    props.onpressed({ pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, canvas });
     props.manager.input({ type: "pointer", id: props.id, ...at(event) });
     props.manager.input({ type: "button", button: event.button, pressed: true });
   });
   canvas.addEventListener("pointerup", (event) => {
+    props.onpressed(null);
     props.manager.input({ type: "button", button: event.button, pressed: false });
   });
   canvas.addEventListener("pointerleave", () => props.manager.input({ type: "leave" }));
@@ -140,8 +146,25 @@ export default function Linux(props: { context: AppContext }) {
   };
   onCleanup(releaseAll);
 
+  // A press that can become a move of the window: the app asks for the move after the press (F029).
+  let press: { pointerId: number; clientX: number; clientY: number; canvas: HTMLCanvasElement } | null = null;
+  let moving = false;
+  const onpressed = (next: typeof press) => {
+    press = next;
+    if (!next) moving = false;
+  };
+  onCleanup(
+    manager.onMoveRequest(id, () => {
+      if (!press || moving) return;
+      moving = true;
+      press.canvas.dispatchEvent(
+        new CustomEvent("farglass-move", { bubbles: true, detail: { pointerId: press.pointerId, clientX: press.clientX, clientY: press.clientY } }),
+      );
+    }),
+  );
+
   /** A press on the surface `target`: closes each popup that is not `target` or under it. Returns `true` if the press goes to the app. */
-  const press = (target: number): boolean => {
+  const pressAt = (target: number): boolean => {
     const open = popups();
     if (open.length === 0) return true;
     const keep = new Set<number>();
@@ -232,7 +255,9 @@ export default function Linux(props: { context: AppContext }) {
           <SurfaceCanvas
             connection={props.context.connection}
             manager={manager}
-            onpress={press}
+            onpress={pressAt}
+            moving={() => moving}
+            onpressed={onpressed}
             id={id}
             left={-origin(surface().geometry).x}
             top={-origin(surface().geometry).y}
@@ -245,7 +270,9 @@ export default function Linux(props: { context: AppContext }) {
           <SurfaceCanvas
             connection={props.context.connection}
             manager={manager}
-            onpress={press}
+            onpress={pressAt}
+            moving={() => moving}
+            onpressed={onpressed}
             id={popup().id}
             left={placeOf(popup()).left}
             top={placeOf(popup()).top}

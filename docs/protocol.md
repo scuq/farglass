@@ -321,7 +321,7 @@ A channel `{"kind":"surfaces"}` gets each top-level window, each popup, and the 
 | `{"type":"popup-closed","id":2}` | The popup closed. |
 | `{"type":"commit","id":1,"width":482,"height":738,"scale":1,"damage":[{"x":74,"y":353,"width":2,"height":25}],"geometry":{"x":61,"y":55,"width":360,"height":616}}` | A new buffer. `damage` is in buffer pixels. `geometry` is the window with no shadow. |
 | `{"type":"unmapped","id":1}` | The surface has no buffer: the window is not visible. |
-| `{"type":"move-request","id":1}` | The client asks to move the window, for example after a press on its own title bar. |
+| `{"type":"move-request","id":1}` | The client asks to move the window, for example after a press on its own title bar. The shell starts the move of the window from that press. |
 | `{"type":"synced"}` | The channel has each window and popup that was open at its start. The shell can close the windows of surfaces that are gone. |
 | `{"type":"cursor","name":"text"}` | The app selected the shape of the pointer, as a CSS cursor name. The browser draws the cursor, thus it has no delay. |
 
