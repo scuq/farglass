@@ -1,10 +1,10 @@
 ---
 id: ADR-038
 title: Video redirection through an extension of the host browser and a color key
-status: accepted
+status: superseded
 date: 2026-11-20
 tags: []
-superseded_by:
+superseded_by: ADR-039
 files: [extension/redirect/, crates/farglass-session/src/redirect.rs, web/src/surface/redirect.ts]
 ---
 
