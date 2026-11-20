@@ -45,6 +45,15 @@ install_all() {
             die "$REPO/target/release/$program is missing. Build it first: cargo build --release -p $program"
     done
     [ -f "$REPO/web/dist/index.html" ] || die "The shell is not built. Build it first: npm --prefix web run build"
+    # An old build is a frequent fault: a source file that is newer than a program means that it is not built yet.
+    for program in farglassd farglass-login farglass-session; do
+        newer=$(find "$REPO/crates" "$REPO/Cargo.toml" "$REPO/Cargo.lock" \( -name '*.rs' -o -name Cargo.toml -o -name Cargo.lock \) -newer "$REPO/target/release/$program" -print -quit 2>/dev/null ||
+            true)
+        [ -z "$newer" ] ||
+            die "$program is older than $newer. Build it first: cargo build --release -p farglassd -p farglass-login -p farglass-session"
+    done
+    newer=$(find "$REPO/web/src" "$REPO/crates/farglass-proto/src" -newer "$REPO/web/dist/index.html" -print -quit 2>/dev/null || true)
+    [ -z "$newer" ] || die "The shell is older than $newer. Build it first: npm --prefix web run build"
 
     getent group farglass >/dev/null || groupadd --system farglass
     id farglass >/dev/null 2>&1 ||
