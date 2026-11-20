@@ -109,8 +109,12 @@ button.notification-text {
     transform: translateX(1rem);
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .notification {
-    animation: none;
+/* The reduced version: a short fade with no movement (F046). */
+@keyframes notification-fade {
+  from {
+    opacity: 0;
   }
+}
+[data-motion="reduced"] .notification {
+  animation: notification-fade 120ms linear;
 }

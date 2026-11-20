@@ -220,3 +220,16 @@
 .settings-confirm-text p {
   margin: 0 0 1rem;
 }
+
+/* The resource score (F046): the level in words, and a mark of the color of its state. */
+.settings-score {
+  padding: 0.5rem 0.75rem;
+  border-left: 4px solid var(--ok);
+  background: var(--bar);
+}
+.settings-score[data-score="moderate"] {
+  border-left-color: var(--focus);
+}
+.settings-score[data-score="heavy"] {
+  border-left-color: var(--bad);
+}

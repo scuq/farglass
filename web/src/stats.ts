@@ -25,7 +25,7 @@ export function formatBytes(bytes: number): string {
     value /= 1000;
     unit++;
   }
-  return `${value >= 100 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
+  return `${value >= 100 || unit === 0 ? Math.round(value) : Number(value.toFixed(1))} ${units[unit]}`;
 }
 
 /** Returns the details of a use, for a tooltip: "CPU 12 %, memory 340 MB, network 1.2 MB/s". */

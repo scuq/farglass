@@ -7,6 +7,7 @@ import { FocusPage } from "./pages/Focus";
 import { KeyboardPage } from "./pages/Keyboard";
 import { NetworkPage } from "./pages/Network";
 import { PowerPage } from "./pages/Power";
+import { ResourcesPage } from "./pages/Resources";
 import { SystemPage } from "./pages/System";
 import { UsersPage } from "./pages/Users";
 import "./settings.css";
@@ -85,6 +86,9 @@ export default function Settings(props: { context: AppContext }) {
           </Match>
           <Match when={page() === "users"}>
             <UsersPage dbus={dbus} user={props.context.user} />
+          </Match>
+          <Match when={page() === "resources"}>
+            <ResourcesPage context={props.context} />
           </Match>
           <Match when={page() === "power"}>
             <PowerPage dbus={dbus} />

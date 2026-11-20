@@ -1,8 +1,9 @@
 import { createSignal, For } from "solid-js";
-import { ACCENTS, APPEARANCE_KEY, type Appearance, DEFAULT_APPEARANCE, parseAppearance, TEXT_SIZES, THEMES } from "../../../appearance";
+import { ACCENTS, APPEARANCE_KEY, type Appearance, DEFAULT_APPEARANCE, MOTIONS, parseAppearance, TEXT_SIZES, THEMES } from "../../../appearance";
 import type { AppContext } from "../../types";
 
 const THEME_LABELS: Record<Appearance["theme"], string> = { system: "Same as this computer", light: "Light", dark: "Dark" };
+const MOTION_LABELS: Record<Appearance["motion"], string> = { system: "Same as this computer", full: "Full", reduced: "Reduced: no movement, no pulse, and no blinking cursor" };
 const ACCENT_LABELS: Record<Appearance["accent"], string> = { blue: "Blue", green: "Green", purple: "Purple", orange: "Orange" };
 
 /** The appearance of the shell. The value is in the state store, thus each tab and each login gets it. */
@@ -48,6 +49,17 @@ export function AppearancePage(props: { context: AppContext }) {
             <label class="settings-choice">
               <input type="radio" name="text-size" value={size} checked={value().textSize === size} onChange={() => change({ textSize: size })} />
               {size} %
+            </label>
+          )}
+        </For>
+      </fieldset>
+      <fieldset>
+        <legend>Motion</legend>
+        <For each={MOTIONS}>
+          {(motion) => (
+            <label class="settings-choice">
+              <input type="radio" name="motion" value={motion} checked={value().motion === motion} onChange={() => change({ motion })} />
+              {MOTION_LABELS[motion]}
             </label>
           )}
         </For>

@@ -6,7 +6,7 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { isDarkTheme, onThemeChange } from "../../appearance";
+import { isDarkTheme, isReducedMotion, onThemeChange } from "../../appearance";
 import type { TerminalEngine } from "./engine";
 
 /**
@@ -37,7 +37,8 @@ function theme() {
 export function createXterm(element: HTMLElement): TerminalEngine {
   const terminal = new Terminal({
     allowProposedApi: true,
-    cursorBlink: true,
+    // A blinking cursor is an effect: with reduced motion, it stays (F046).
+    cursorBlink: !isReducedMotion(),
     fontFamily: 'ui-monospace, "DejaVu Sans Mono", "Cascadia Mono", Menlo, monospace',
     fontSize: 14,
     scrollback: 10_000,
@@ -52,6 +53,7 @@ export function createXterm(element: HTMLElement): TerminalEngine {
   terminal.open(element);
   const stopTheme = onThemeChange(() => {
     terminal.options.theme = theme();
+    terminal.options.cursorBlink = !isReducedMotion();
   });
 
   let renderer: TerminalEngine["renderer"] = "dom";

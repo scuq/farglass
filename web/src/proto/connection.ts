@@ -189,6 +189,7 @@ export class Connection {
         reject(new Error(`The connection closed: ${reason}`));
       };
       transport.onmessage = (message) => {
+        connection.#bytesReceived += message.byteLength;
         try {
           const frame = decodeFrame(message);
           if (connection.#state === "connecting") {
@@ -247,8 +248,17 @@ export class Connection {
   /** @internal Sends one encoded frame. */
   sendRaw(frame: Uint8Array<ArrayBuffer>): void {
     if (this.#state === "open") {
+      this.#bytesSent += frame.byteLength;
       this.#transport.send(frame);
     }
+  }
+
+  #bytesSent = 0;
+  #bytesReceived = 0;
+
+  /** The bytes of the frames that the shell sent and received on this connection, for the resource score (F046). */
+  get bytes(): { readonly sent: number; readonly received: number } {
+    return { sent: this.#bytesSent, received: this.#bytesReceived };
   }
 
   #hello(frame: Frame): void {

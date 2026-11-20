@@ -60,6 +60,11 @@
   border-color: var(--focus);
   animation: task-busy 1.2s ease-in-out infinite alternate;
 }
+/* The reduced version: a dot with a ring, with no pulse (F046). */
+[data-motion="reduced"] .wm-task[data-activity="busy"]::after {
+  animation: none;
+  box-shadow: 0 0 0 2px var(--bar), 0 0 0 3px var(--focus);
+}
 @keyframes task-busy {
   from {
     opacity: 1;

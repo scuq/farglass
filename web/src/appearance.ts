@@ -13,14 +13,17 @@ export const THEMES = ["system", "light", "dark"] as const;
 export const ACCENTS = ["blue", "green", "purple", "orange"] as const;
 /** The text sizes in percent. */
 export const TEXT_SIZES = [90, 100, 110, 125] as const;
+/** The motion of the effects. "system" follows prefers-reduced-motion of the client (F046). */
+export const MOTIONS = ["system", "full", "reduced"] as const;
 
 export interface Appearance {
   readonly theme: (typeof THEMES)[number];
   readonly accent: (typeof ACCENTS)[number];
   readonly textSize: (typeof TEXT_SIZES)[number];
+  readonly motion: (typeof MOTIONS)[number];
 }
 
-export const DEFAULT_APPEARANCE: Appearance = { theme: "system", accent: "blue", textSize: 100 };
+export const DEFAULT_APPEARANCE: Appearance = { theme: "system", accent: "blue", textSize: 100, motion: "system" };
 
 const oneOf = <T>(list: readonly T[], value: unknown, fallback: T): T => (list.includes(value as T) ? (value as T) : fallback);
 
@@ -31,6 +34,7 @@ export function parseAppearance(value: unknown): Appearance {
     theme: oneOf(THEMES, record.theme, DEFAULT_APPEARANCE.theme),
     accent: oneOf(ACCENTS, record.accent, DEFAULT_APPEARANCE.accent),
     textSize: oneOf(TEXT_SIZES, record.textSize, DEFAULT_APPEARANCE.textSize),
+    motion: oneOf(MOTIONS, record.motion, DEFAULT_APPEARANCE.motion),
   };
 }
 
@@ -43,7 +47,34 @@ export function applyAppearance(appearance: Appearance, root: HTMLElement = docu
   }
   root.dataset.accent = appearance.accent;
   root.style.fontSize = appearance.textSize === 100 ? "" : `${appearance.textSize}%`;
+  motionChoice = appearance.motion;
+  applyMotion(root);
   document.dispatchEvent(new Event(THEME_EVENT));
+}
+
+const MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+let motionChoice: Appearance["motion"] = DEFAULT_APPEARANCE.motion;
+let motionListening = false;
+
+/** Reports whether the effects are reduced: the choice of the user, or else the setting of the client. */
+export function isReducedMotion(): boolean {
+  if (motionChoice !== "system") return motionChoice === "reduced";
+  return window.matchMedia?.(MOTION_QUERY).matches ?? false;
+}
+
+/**
+ * Sets `data-motion` of the root element to "reduced" or "full". The style sheets read it,
+ * and a change of the setting of the client applies at once, with no reload (F046).
+ */
+function applyMotion(root: HTMLElement): void {
+  root.dataset.motion = isReducedMotion() ? "reduced" : "full";
+  if (!motionListening) {
+    motionListening = true;
+    window.matchMedia?.(MOTION_QUERY).addEventListener?.("change", () => {
+      root.dataset.motion = isReducedMotion() ? "reduced" : "full";
+      document.dispatchEvent(new Event(THEME_EVENT));
+    });
+  }
 }
 
 const THEME_EVENT = "farglass-theme";

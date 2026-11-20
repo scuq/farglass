@@ -302,12 +302,15 @@ The agent changes nothing if the user manager has a display already, for example
 
 The settings app has these pages:
 
-- Appearance: the theme, the accent color, and the text size. Each tab and each login of the user gets them.
+- Appearance: the theme, the accent color, the text size, and the motion. Each tab and each login of the user gets them.
+  The motion follows the reduced motion setting of your computer, or Full, or Reduced. Reduced has no movement, no pulse, and no blinking cursor in the terminal. A change applies at once, with no reload.
+- Keyboard: the shortcut scheme, the hints, the list of shortcuts, and the tour.
 - Focus: the rules of focus protection, each on or off. See [Focus protection](#focus-protection).
 - Date and time: the time of the host, the timezone, and the network time (timedate1).
 - System: the hostname, the display name, and the facts of the host (hostname1).
 - Network: the devices of NetworkManager with their state and addresses. The page does not change the network, because a change can stop the connection to farglass.
 - Users and sessions: the sessions of logind. End stops a session after a confirm step.
+- Resources: what the desktop costs. The CPU and the memory of farglassd and of the agent, the data rate of the connection of the tab, and a score: light, moderate, or heavy.
 - Power: Restart and Power off, each after a confirm step.
 
 Each change of the host goes through polkit, thus the host can ask for an administrator password in the shell.

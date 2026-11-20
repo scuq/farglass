@@ -10,6 +10,7 @@ export const PAGES = [
   { id: "system", label: "System", keywords: ["hostname", "host name", "computer name", "kernel", "operating system", "about"] },
   { id: "network", label: "Network", keywords: ["ip", "address", "ethernet", "wifi", "wi-fi", "wireless", "dns", "networkmanager"] },
   { id: "users", label: "Users and sessions", keywords: ["user", "session", "log out", "logout", "logind"] },
+  { id: "resources", label: "Resources", keywords: ["cpu", "memory", "ram", "bandwidth", "data rate", "performance", "usage", "score", "cost"] },
   { id: "power", label: "Power", keywords: ["restart", "reboot", "shut down", "shutdown", "power off"] },
 ] as const;
 
