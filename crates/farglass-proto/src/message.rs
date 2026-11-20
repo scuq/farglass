@@ -417,6 +417,14 @@ pub enum SurfaceAck {
     },
     /// The client cannot decode the video region (F037). The agent ends it and sends tiles only on this channel.
     NoVideo,
+    /// The rectangle in buffer pixels where the client shows a redirected video, or none (F040).
+    /// It never goes as video: the client keys its exact black.
+    Key {
+        /// The rectangle.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        rect: Option<SurfaceRect>,
+    },
 }
 
 /// A message of the shell on a surface input channel.

@@ -362,6 +362,10 @@ where
                                 stream.no_video();
                                 None
                             }
+                            Ok(SurfaceAck::Key { rect }) => {
+                                stream.key(rect);
+                                None
+                            }
                             Err(error) => Some((
                                 CloseReason::ProtocolError,
                                 format!("The surface acknowledgment is not valid: {error}"),

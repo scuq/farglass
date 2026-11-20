@@ -134,6 +134,8 @@ pub struct Encoder {
     stream: Option<VideoStream>,
     /// Reports whether the video encoder did not start: the encoder then uses tiles only.
     video_failed: bool,
+    /// A rectangle that never goes as video, for example a redirected video of the client (F040).
+    exclude: Option<(usize, usize, usize, usize)>,
 }
 
 /// Ends the video `stream`: the region of the copy of the client gets the last frame of the video,
@@ -150,15 +152,29 @@ fn end_video(
     stream: &VideoStream,
 ) {
     out.u8(code::VIDEO_END);
-    let (x, y, w, h) = stream.rect;
-    if stream.last.len() == w * h * 4 {
-        for (line, chunk) in stream.last.chunks_exact(w * 4).enumerate() {
-            let start = ((y + line) * width + x) * 4;
-            shown[start..start + w * 4].copy_from_slice(chunk);
-        }
-    }
+    let (x, y, w, _) = stream.rect;
     let columns = width.div_ceil(TILE);
     let (c0, r0, c1, r1) = stream.block;
+    // The copy of the client gets the last frame in the tiles that the video drew, and only there:
+    // an excluded tile went as tiles, and the client has those.
+    if !stream.last.is_empty() {
+        for row in r0..r1.min(height.div_ceil(TILE)) {
+            for column in c0..c1.min(columns) {
+                if !stream.covers(column, row, width, height) {
+                    continue;
+                }
+                let (tx, ty) = (column * TILE, row * TILE);
+                let (tw, th) = (TILE.min(width - tx), TILE.min(height - ty));
+                for line in ty..ty + th {
+                    let from = ((line - y) * w + (tx - x)) * 4;
+                    let to = (line * width + tx) * 4;
+                    if let Some(source) = stream.last.get(from..from + tw * 4) {
+                        shown[to..to + tw * 4].copy_from_slice(source);
+                    }
+                }
+            }
+        }
+    }
     let mut current = Vec::with_capacity(TILE * TILE * 4);
     for row in r0..r1.min(height.div_ceil(TILE)) {
         for column in c0..c1.min(columns) {
@@ -285,6 +301,7 @@ impl Default for Encoder {
             detector: Detector::default(),
             stream: None,
             video_failed: false,
+            exclude: None,
         }
     }
 }
@@ -552,13 +569,21 @@ impl Encoder {
             .and_then(|stream| stream.frame(image.pixels, width, now));
         if self.video && !self.video_failed && !resized {
             let mut seen = changed.clone();
+            // A tile of the excluded rectangle does not make a video region.
+            for row in 0..rows {
+                for column in 0..columns {
+                    if video::excluded(self.exclude, column, row) {
+                        seen[row * columns + column] = false;
+                    }
+                }
+            }
             if video_frame.is_some()
                 && let Some(stream) = &self.stream
             {
                 let (c0, r0, c1, r1) = stream.block;
                 for row in r0..r1 {
                     for column in c0..c1 {
-                        seen[row * columns + column] = true;
+                        seen[row * columns + column] = !video::excluded(self.exclude, column, row);
                     }
                 }
             }
@@ -582,6 +607,7 @@ impl Encoder {
                 {
                     match VideoStream::new(rect, block, now) {
                         Ok(mut stream) => {
+                            stream.exclude = self.exclude;
                             tracing::info!(?rect, "a region of the surface goes as video");
                             video_frame = stream.frame(image.pixels, width, now);
                             self.stream = Some(stream);
@@ -759,6 +785,15 @@ impl Encoder {
             stream.last_change = Instant::now()
                 .checked_sub(video::VIDEO_IDLE)
                 .unwrap_or_else(Instant::now);
+        }
+    }
+
+    /// Sets a rectangle in buffer pixels that never goes as video, or none: x, y, width, and height.
+    /// The client shows a redirected video there, through the exact black of the tiles (F040).
+    pub fn set_exclude(&mut self, rect: Option<(usize, usize, usize, usize)>) {
+        self.exclude = rect;
+        if let Some(stream) = &mut self.stream {
+            stream.exclude = rect;
         }
     }
 
@@ -1546,6 +1581,43 @@ mod lossy_tests {
         let encoded = encoder.refine(start + Duration::from_secs(10)).unwrap();
         canvas.apply(&encoded.bytes);
         assert_eq!(canvas.pixels, last);
+    }
+
+    #[test]
+    fn an_excluded_rectangle_goes_as_tiles_also_inside_the_video_region() {
+        let (width, height) = (640, 480);
+        let mut encoder = Encoder::new();
+        // The middle of the moving area: 128 x 128 at (192, 192), whole tiles.
+        encoder.set_exclude(Some((192, 192, 128, 128)));
+        let start = Instant::now();
+        let full = [Rect {
+            x: 0,
+            y: 0,
+            width: 640,
+            height: 480,
+        }];
+        let mut late = Stats::default();
+        for n in 0..40 {
+            let pixels = video_frame(n);
+            let image = Image {
+                width,
+                height,
+                pixels: &pixels,
+            };
+            let now = start + Duration::from_millis(33) * u32::try_from(n).unwrap();
+            let encoded = encoder.encode_at(&image, &full, now).unwrap();
+            if n >= 30 {
+                late.video += encoded.stats.video;
+                late.tiles += encoded.stats.tiles + encoded.stats.lossy + encoded.stats.fills;
+            }
+        }
+        assert!(
+            encoder.video_rect().is_some(),
+            "the area around goes as video"
+        );
+        assert_eq!(late.video, 10);
+        // The 2 x 2 excluded tiles change in each frame and go as tiles.
+        assert_eq!(late.tiles, 40);
     }
 
     #[test]

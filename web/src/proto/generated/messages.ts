@@ -408,7 +408,11 @@ export type SurfaceAck = { "type": "ack",
 /**
  * The sequence of the end message.
  */
-seq: number, } | { "type": "no-video" };
+seq: number, } | { "type": "no-video" } | { "type": "key", 
+/**
+ * The rectangle.
+ */
+rect?: SurfaceRect, };
 
 /**
  * The use of the host by one process or by the processes of one window.

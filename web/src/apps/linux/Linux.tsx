@@ -95,7 +95,12 @@ function SurfaceCanvas(props: {
   );
   createEffect(
     () => JSON.stringify(props.keyRect?.() ?? null),
-    (key) => worker.postMessage({ key: JSON.parse(key) as unknown }),
+    (key) => {
+      const rect = JSON.parse(key) as { x: number; y: number; width: number; height: number } | null;
+      worker.postMessage({ key: rect });
+      // The encoder of the agent sends this rectangle as tiles, never as video: the key needs their exact black (F040).
+      channel.control(rect ? { type: "key", rect } : { type: "key" });
+    },
   );
   createEffect(
     () => [props.left, props.top] as const,

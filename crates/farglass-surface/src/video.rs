@@ -146,6 +146,8 @@ pub struct VideoStream {
     pub last: Vec<u8>,
     encoder: Encoder,
     started: bool,
+    /// A rectangle that never goes as video: x, y, width, and height (F040).
+    pub exclude: Option<(usize, usize, usize, usize)>,
 }
 
 impl std::fmt::Debug for VideoStream {
@@ -197,18 +199,34 @@ impl VideoStream {
             last: Vec::new(),
             encoder,
             started: false,
+            exclude: None,
         })
     }
 
-    /// Reports whether the tile at (`column`, `row`) is fully in the region.
+    /// Reports whether the tile at (`column`, `row`) is fully in the region, and not in the excluded rectangle.
     #[must_use]
     pub fn covers(&self, column: usize, row: usize, width: usize, height: usize) -> bool {
         let (x, y, w, h) = self.rect;
         let (tx, ty) = (column * TILE, row * TILE);
         let (tw, th) = (TILE.min(width - tx), TILE.min(height - ty));
-        tx >= x && ty >= y && tx + tw <= x + w && ty + th <= y + h
+        tx >= x
+            && ty >= y
+            && tx + tw <= x + w
+            && ty + th <= y + h
+            && !excluded(self.exclude, column, row)
     }
+}
 
+/// Reports whether the tile at (`column`, `row`) touches the rectangle `exclude`.
+#[must_use]
+pub fn excluded(exclude: Option<(usize, usize, usize, usize)>, column: usize, row: usize) -> bool {
+    exclude.is_some_and(|(x, y, w, h)| {
+        let (tx, ty) = (column * TILE, row * TILE);
+        tx < x + w && x < tx + TILE && ty < y + h && y < ty + TILE
+    })
+}
+
+impl VideoStream {
     /// Encodes the region of the buffer `pixels` with the row length `width` if it changed since the last frame.
     pub fn frame(&mut self, pixels: &[u8], width: usize, now: Instant) -> Option<VideoFrame> {
         let (x, y, w, h) = self.rect;

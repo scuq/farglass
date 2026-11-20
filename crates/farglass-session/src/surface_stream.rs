@@ -22,6 +22,7 @@ pub struct SurfaceStream {
     acked: Arc<AtomicU32>,
     ack_notify: Arc<Notify>,
     no_video: Arc<AtomicBool>,
+    key: Arc<Mutex<Option<(usize, usize, usize, usize)>>>,
 }
 
 /// The most frames that the client did not acknowledge. While the client lags, the commits wait and merge (F029).
@@ -53,6 +54,19 @@ fn merge(waiting: &mut Option<FrameUpdate>, update: FrameUpdate) {
 }
 
 impl SurfaceStream {
+    /// Sets the rectangle where the client shows a redirected video: it never goes as video (F040).
+    pub fn key(&self, rect: Option<farglass_proto::message::SurfaceRect>) {
+        let rect = rect.and_then(|r| {
+            Some((
+                usize::try_from(r.x).ok()?,
+                usize::try_from(r.y).ok()?,
+                usize::try_from(r.width).ok()?,
+                usize::try_from(r.height).ok()?,
+            ))
+        });
+        *self.key.lock().unwrap_or_else(PoisonError::into_inner) = rect;
+    }
+
     /// Turns the video off for this channel: the client cannot decode it (F037).
     pub fn no_video(&self) {
         if !self.no_video.swap(true, Ordering::AcqRel) {
@@ -95,6 +109,8 @@ impl SurfaceStream {
         let task_acked = acked.clone();
         let task_ack_notify = ack_notify.clone();
         let no_video = Arc::new(AtomicBool::new(false));
+        let key: Arc<Mutex<Option<(usize, usize, usize, usize)>>> = Arc::new(Mutex::new(None));
+        let task_key = key.clone();
         let task_no_video = no_video.clone();
         // FARGLASS_VIDEO=0 turns the video off, for example to find a fault.
         let video = video && std::env::var_os("FARGLASS_VIDEO").is_none_or(|value| value != "0");
@@ -110,6 +126,7 @@ impl SurfaceStream {
                 if !encoder.video || task_no_video.load(Ordering::Acquire) {
                     encoder.disable_video();
                 }
+                encoder.set_exclude(*task_key.lock().unwrap_or_else(PoisonError::into_inner));
                 // The lossless pass of the lossy tiles comes when they did not change for a time (F028).
                 let refine_at = encoder.next_refine();
                 let sleep = async {
@@ -164,6 +181,7 @@ impl SurfaceStream {
             acked,
             ack_notify,
             no_video,
+            key,
             _watch: watch,
             task,
         }

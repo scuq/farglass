@@ -10,6 +10,7 @@
  */
 
 import { avcCodec, SurfaceDecoder, VideoFlag } from "./decoder";
+import { keyArea, unkeyPixel } from "./key";
 
 let context: OffscreenCanvasRenderingContext2D | null = null;
 let canvas: OffscreenCanvas | null = null;
@@ -64,9 +65,7 @@ function startVideo(codec: string): void {
         current.places.delete(frame.timestamp);
         current.lastOutput = performance.now();
         if (place && video === current) {
-          context?.drawImage(frame, place.x, place.y, place.w, place.h);
-          // A region that changes in each frame, for example the glow of a player around a redirected video.
-          keyLossy(place.x, place.y, place.w, place.h);
+          drawVideoFrame(frame, place.x, place.y, place.w, place.h);
           videoFrames += 1;
           postMessage({ type: "video", frames: videoFrames });
         }
@@ -121,16 +120,36 @@ function rekey(part: KeyRect, transparent: boolean, tolerance = 0): void {
   if (!context) return;
   const image = context.getImageData(part.x, part.y, part.width, part.height);
   const data = image.data;
-  for (let i = 0; i < data.length; i += 4) {
-    if (data[i]! <= tolerance && data[i + 1]! <= tolerance && data[i + 2]! <= tolerance) data[i + 3] = transparent ? 0 : 255;
+  if (transparent) {
+    // The blocks follow the tiles of the canvas.
+    keyArea(data, part.width, 0, 0, part.width, part.height, tolerance, -part.x, -part.y);
+  } else {
+    for (let i = 0; i < data.length; i += 4) unkeyPixel(data, i);
   }
   context.putImageData(image, part.x, part.y);
 }
 
-/** Makes the near-black pixels of a lossy draw in the key rectangle transparent, for example a frame of the video region. */
+/** Makes the near-black pixels of a lossy tile in the key rectangle transparent. Its grays stay: they are a picture. */
 function keyLossy(x: number, y: number, w: number, h: number): void {
   const part = keyPart(x, y, w, h);
   if (part) rekey(part, true, LOSSY_BLACK);
+}
+
+/** Draws a frame of the video region, but not in the key rectangle: the agent sends that part as tiles (F040). */
+function drawVideoFrame(frame: VideoFrame, x: number, y: number, w: number, h: number): void {
+  if (!context) return;
+  const part = keyPart(x, y, w, h);
+  if (!part) {
+    context.drawImage(frame, x, y, w, h);
+    return;
+  }
+  context.save();
+  const clip = new Path2D();
+  clip.rect(x, y, w, h);
+  clip.rect(part.x, part.y, part.width, part.height);
+  context.clip(clip, "evenodd");
+  context.drawImage(frame, x, y, w, h);
+  context.restore();
 }
 
 function setKey(next: KeyRect | null): void {
@@ -161,12 +180,7 @@ const decoder = new SurfaceDecoder({
     if (part) {
       // The cache keeps `rgba`: the transparent black goes into a copy.
       const keyed = rgba.slice();
-      for (let row: number = part.y - y; row < part.y - y + part.height; row++) {
-        for (let column: number = part.x - x; column < part.x - x + part.width; column++) {
-          const i = (row * width + column) * 4;
-          if (keyed[i] === 0 && keyed[i + 1] === 0 && keyed[i + 2] === 0) keyed[i + 3] = 0;
-        }
-      }
+      keyArea(keyed, width, part.x - x, part.y - y, part.width, part.height, 0, -x, -y);
       context?.putImageData(new ImageData(keyed, width, height), x, y);
       return;
     }

@@ -194,6 +194,16 @@ try {
     });
     console.log(`VIDEO ${label}: own brightness ${own.toFixed(0)}`);
   };
+  // The pointer on the progress bar of the host: the graph of the most replayed parts and the scrim show.
+  if (process.env.FARGLASS_HOVER) {
+    const bar = await player.locator(".ytp-progress-bar").boundingBox();
+    if (bar) {
+      await player.mouse.move(bar.x + bar.width * 0.4, bar.y + bar.height / 2, { steps: 5 });
+      await shell.waitForTimeout(2500);
+      if (SHOTS) await shell.screenshot({ path: join(SHOTS, "yt-hover.png") });
+      console.log("HOVER done");
+    }
+  }
   if (process.env.FARGLASS_THEATRE) {
     await sample("normal");
     await player.keyboard.press("t");
