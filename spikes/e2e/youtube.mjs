@@ -124,6 +124,8 @@ try {
     [".youtube.com", ".google.com"].flatMap((domain) => [
       { name: "SOCS", value: "CAESEwgDEgk0ODE3Nzk3MjQaAmVuIAEaBgiA_LyaBg", domain, path: "/", secure: true },
       { name: "CONSENT", value: "PENDING+987", domain, path: "/", secure: true },
+      // The dark theme of YouTube with FARGLASS_DARK=1: it has the ambient glow around the player.
+      ...(process.env.FARGLASS_DARK ? [{ name: "PREF", value: "f6=400", domain, path: "/", secure: true }] : []),
     ]),
   );
   await player.goto(pageUrl, { waitUntil: "domcontentloaded" });
@@ -208,6 +210,16 @@ try {
       await shell.waitForTimeout(2500);
       if (SHOTS) await shell.screenshot({ path: join(SHOTS, "yt-menu.png") });
       console.log("MENU done");
+    }
+  }
+  // The use of the agent over a minute, with FARGLASS_WATCH=1: a leak grows.
+  if (process.env.FARGLASS_WATCH) {
+    for (let i = 0; i < 6; i++) {
+      const before = cpuOfTree(agent.child.pid);
+      await shell.waitForTimeout(10000);
+      const after = cpuOfTree(agent.child.pid);
+      const rss = Number(readFileSync(`/proc/${agent.child.pid}/statm`, "utf8").split(" ")[1]) * 4096;
+      console.log(`WATCH ${(i + 1) * 10} s: agent ${(((after - before) / 10) * 100).toFixed(0)} %, memory ${Math.round(rss / 1e6)} MB`);
     }
   }
   if (process.env.FARGLASS_THEATRE) {
