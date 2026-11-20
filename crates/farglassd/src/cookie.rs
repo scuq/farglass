@@ -86,10 +86,17 @@ impl SessionStore {
     /// Returns the user of the session that the cookie in `headers` names.
     #[must_use]
     pub fn user(&self, headers: &HeaderMap) -> Option<Identity> {
+        self.session(headers).map(|(identity, _)| identity)
+    }
+
+    /// Returns the user of the session that the cookie in `headers` names, and the end of the session.
+    /// A connection from the cookie ends at that time (F054).
+    #[must_use]
+    pub fn session(&self, headers: &HeaderMap) -> Option<(Identity, Instant)> {
         let token = cookie_value(headers)?;
         let sessions = lock(&self.sessions);
         let entry = sessions.get(&hash(token))?;
-        (entry.expires > Instant::now()).then(|| entry.identity.clone())
+        (entry.expires > Instant::now()).then(|| (entry.identity.clone(), entry.expires))
     }
 
     /// Removes all sessions and tickets of the user `uid`.

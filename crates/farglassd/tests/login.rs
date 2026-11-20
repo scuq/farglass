@@ -772,6 +772,36 @@ fn raw_connection(context: &Arc<Context>, user: Option<Identity>) -> Raw {
     (to_server, from_server, task)
 }
 
+/// Starts a connection with `client` and does the hello exchange. Returns the queues and the task.
+async fn hello_connection(context: &Arc<Context>, client: connection::Client) -> Raw {
+    let (to_server, server_in) = mpsc::channel(16);
+    let (server_out, mut from_server) = mpsc::channel(16);
+    let context = context.clone();
+    let task = tokio::spawn(async move {
+        let mut incoming = stream::unfold(server_in, |mut rx| async move {
+            rx.recv().await.map(|item| (item, rx))
+        })
+        .boxed();
+        let outgoing = sink::unfold(server_out, |tx, frame: Frame| async move {
+            tx.send(frame).await.map(|()| tx)
+        });
+        let mut outgoing = std::pin::pin!(outgoing);
+        connection::run(&context, client, &mut incoming, &mut outgoing).await
+    });
+    recv_frame(&mut from_server).await;
+    let hello = ConnectionMessage::Hello {
+        version: PROTOCOL_VERSION,
+        user: None,
+        locked: None,
+        pin: None,
+    };
+    to_server
+        .send(Ok(Frame::connection(&hello).unwrap()))
+        .await
+        .unwrap();
+    (to_server, from_server, task)
+}
+
 fn limited(service: &LoginService, adjust: impl FnOnce(&mut Context)) -> Arc<Context> {
     let mut context = Context::new(
         service.registry.clone(),
@@ -1002,4 +1032,48 @@ async fn recv_frame(from: &mut mpsc::Receiver<Frame>) -> Frame {
         .await
         .unwrap()
         .unwrap()
+}
+
+fn alice() -> Identity {
+    Identity {
+        uid: 4242,
+        name: "alice".to_owned(),
+    }
+}
+
+#[tokio::test]
+async fn a_connection_from_a_cookie_ends_at_the_end_of_the_cookie() {
+    let service = LoginService::start().await;
+    let context = limited(&service, |_| {});
+    let client = connection::Client {
+        user: Some(alice()),
+        expires: Some(std::time::Instant::now() + Duration::from_millis(300)),
+        ..connection::Client::default()
+    };
+    let (_to, mut from, task) = hello_connection(&context, client).await;
+    let result = tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
+    assert!(result.is_ok());
+    assert!(from.recv().await.is_none());
+}
+
+#[tokio::test]
+async fn a_connection_that_misses_user_events_ends() {
+    let service = LoginService::start().await;
+    let context = limited(&service, |_| {});
+    let client = connection::Client {
+        user: Some(alice()),
+        ..connection::Client::default()
+    };
+    let (_to, _from, task) = hello_connection(&context, client).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    // More events than the queue holds, with no await: the connection misses some.
+    // One of them could be a lock or a logout of its user.
+    for _ in 0..200 {
+        context.presence.announce_logout(9999);
+    }
+    let result = tokio::time::timeout(WAIT, task).await;
+    assert!(
+        result.is_ok(),
+        "the connection did not end after missed events"
+    );
 }

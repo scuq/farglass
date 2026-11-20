@@ -186,10 +186,13 @@ async fn create_transport(
     let Some(transport) = &context.transport else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let identity = context
-        .sessions
-        .user(&headers)
-        .or_else(|| context.dev_user.clone());
+    let (user, expires) = match context.dev_user.clone() {
+        Some(user) => (Some(user), None),
+        None => context
+            .sessions
+            .session(&headers)
+            .map_or((None, None), |(user, expires)| (Some(user), Some(expires))),
+    };
     let hex = |bytes: &[u8]| {
         bytes
             .iter()
@@ -199,7 +202,11 @@ async fn create_transport(
     let body = serde_json::json!({
         "port": transport.port,
         "path": crate::quic::WT_PATH,
-        "ticket": transport.tickets.issue(identity, context.devices.valid(&headers)),
+        "ticket": transport.tickets.issue(crate::quic::Admission {
+            user,
+            expires,
+            device: context.devices.valid(&headers),
+        }),
         "hashes": transport.certs.hashes().iter().map(|hash| hex(hash)).collect::<Vec<_>>(),
     });
     let mut response = body.to_string().into_response();

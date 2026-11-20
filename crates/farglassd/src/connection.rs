@@ -51,6 +51,8 @@ pub struct Client {
     pub origin: Option<String>,
     /// Reports whether the browser has a valid device cookie (F051).
     pub device: bool,
+    /// The end of the session cookie of `user` (F054). `None` for `dev_user` or no user.
+    pub expires: Option<std::time::Instant>,
 }
 
 /// The connections with no user of each address group (F051).
@@ -290,6 +292,8 @@ struct Connection<'a, O> {
     device: bool,
     /// Reports whether the connection gave the machine PIN, or needs none (F059).
     pin_passed: bool,
+    /// The end of the session of the user: the connection ends then (F054).
+    expires: Option<std::time::Instant>,
     user: SharedUser,
     /// The user of a locked session. The connection then has no user until a login of this user.
     locked: Option<Identity>,
@@ -331,6 +335,7 @@ where
         user,
         origin,
         device,
+        expires,
     } = client;
     let rhost = peer.map_or_else(String::new, |ip| ip.to_canonical().to_string());
     let user = match user {
@@ -401,6 +406,7 @@ where
         origin,
         device,
         pin_passed: !pin_needed,
+        expires,
         user,
         locked,
         outgoing,
@@ -491,7 +497,20 @@ where
         let mut events = self.context.presence.subscribe();
         let idle = tokio::time::sleep(self.context.login_idle);
         tokio::pin!(idle);
+        let far = tokio::time::Instant::now() + Duration::from_secs(365 * 24 * 3600);
+        let expiry =
+            tokio::time::sleep_until(self.expires.map_or(far, tokio::time::Instant::from_std));
+        tokio::pin!(expiry);
         loop {
+            // A login on this connection starts a session cookie: the connection ends with it (F054).
+            if self.expires.is_none()
+                && self.context.dev_user.is_none()
+                && self.user.get().is_some()
+            {
+                let end = std::time::Instant::now() + crate::cookie::SESSION_LIFETIME;
+                self.expires = Some(end);
+                expiry.as_mut().reset(tokio::time::Instant::from_std(end));
+            }
             tokio::select! {
                 // Frames to the browser first: they free the queue of the agent link.
                 biased;
@@ -499,16 +518,37 @@ where
                     connection_event("idle-timeout", &self.rhost).refused();
                     return Ok(());
                 }
-                event = events.recv() => {
-                    if let Ok(event) = event
-                        && let Some(message) = self.user_event(event)
-                    {
-                        if let Ok(frame) = Frame::connection(&message) {
-                            let _ = self.outgoing.send(frame).await;
+                () = &mut expiry, if self.expires.is_some() => {
+                    let user = self.user.get();
+                    Event {
+                        user: user.as_ref().map(|user| user.name.as_str()),
+                        uid: user.as_ref().map(|user| user.uid),
+                        ..connection_event("cookie-expired", &self.rhost)
+                    }
+                    .refused();
+                    return Ok(());
+                }
+                event = events.recv() => match event {
+                    Ok(event) => {
+                        if let Some(message) = self.user_event(event) {
+                            if let Ok(frame) = Frame::connection(&message) {
+                                let _ = self.outgoing.send(frame).await;
+                            }
+                            return Ok(());
                         }
+                    }
+                    // A missed event can be a lock or a logout of this user: end the connection (F054).
+                    // The shell connects again and gets the current state.
+                    Err(error) => {
+                        let detail = error.to_string();
+                        Event {
+                            detail: Some(&detail),
+                            ..connection_event("missed-events", &self.rhost)
+                        }
+                        .refused();
                         return Ok(());
                     }
-                }
+                },
                 Some(frame) = from_agents.recv() => {
                     self.note_peer_frame(&frame);
                     if self.outgoing.send(frame).await.is_err() {

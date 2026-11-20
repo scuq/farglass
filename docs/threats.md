@@ -70,6 +70,7 @@ Threat: the shell, or a person at an unlocked tab, uses the host as the user.
 Controls:
 
 - A connection with no user, or with a locked session, can open only the login channel (`connection.rs`). The lock ends each connection of the user.
+- A connection ends at the end of its session cookie, also through WebTransport, and when it misses a lock or logout event (F054).
 - The agent refuses the login and the passkeys channels: farglassd serves them.
 - The terminal runs the shell of the user, at most 64 terminals. This is full access as the user, by design.
 - The launcher starts only entries of the desktop files, each in a systemd scope.
@@ -101,8 +102,8 @@ Gap: finding 9.
 | 3 | Medium | A connection waits for its hello with no time limit, and 32 logins that do not answer hold all login places. An attacker with no password can stop all logins and use up the file descriptors. | Fixed in F051 |
 | 4 | Medium | Each script of a page in the host browser can send redirection messages. The agent keeps media, sources, and init segments with no limit, and the client places a video on each window whose title starts with the title that the page gives. | F052 |
 | 5 | Low | A person at an unlocked tab, or with a stolen cookie, can remove all passkeys with no new check. | Fixed in F053 |
-| 6 | Low | A connection that misses a lock or logout event, after 64 events in its queue, keeps its channels. | F054 |
-| 7 | Low | A connection from a cookie continues after the cookie ends. | F054 |
+| 6 | Low | A connection that misses a lock or logout event, after 64 events in its queue, keeps its channels. | Fixed in F054 |
+| 7 | Low | A connection from a cookie continues after the cookie ends. | Fixed in F054 |
 | 8 | Low | Output in a terminal (OSC 52) can write the clipboard of the client computer. | F055 |
 | 9 | Low | farglass-login runs as root with all capabilities and accepts each peer of its socket. | F056 |
 | 10 | Low | Each local user can open connections to the agent socket with no limit. | Fixed in F051 |

@@ -39,15 +39,19 @@ pub async fn upgrade(
         .get(axum::http::header::ORIGIN)
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned);
-    let user = context
-        .dev_user
-        .clone()
-        .or_else(|| context.sessions.user(&headers));
+    let (user, expires) = match context.dev_user.clone() {
+        Some(user) => (Some(user), None),
+        None => context
+            .sessions
+            .session(&headers)
+            .map_or((None, None), |(user, expires)| (Some(user), Some(expires))),
+    };
     let client = connection::Client {
         addr: Some(peer.ip()),
         user,
         origin,
         device: context.devices.valid(&headers),
+        expires,
     };
     ws.max_message_size(MAX_MESSAGE_LEN)
         .max_frame_size(MAX_MESSAGE_LEN)

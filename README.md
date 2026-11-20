@@ -475,6 +475,9 @@ If you have no browser connection for 8 hours, farglassd logs you out in the sam
 Programs in the session, for example terminals, continue until then.
 To change the time, set `idle_logout_minutes` in the configuration file. The value 0 turns the idle logout off.
 
+A session cookie is valid for 12 hours. Each connection ends when its cookie ends, and the next connection shows the login screen.
+A connection that misses a lock or logout event, for example under high load, ends too. The shell then connects again and gets the current state.
+
 ## Login service
 
 farglass-login does the PAM login and runs as root.

@@ -223,8 +223,19 @@ fn make_pinned(
     })
 }
 
-/// The user of a ticket, the device cookie of its browser (F051), and the end of its validity.
-type TicketEntry = (Option<Identity>, bool, Instant);
+/// What a ticket gives its WebTransport session.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Admission {
+    /// The user of the cookie, or `None` for a connection that must log in.
+    pub user: Option<Identity>,
+    /// The end of the session cookie (F054). `None` for `dev_user` or no user.
+    pub expires: Option<Instant>,
+    /// Reports whether the browser has a valid device cookie (F051).
+    pub device: bool,
+}
+
+/// The admission of a ticket and the end of the validity of the ticket.
+type TicketEntry = (Admission, Instant);
 
 /// The single-use tickets of `POST /transport`. Each names the user of the
 /// cookie, or no user for a connection that must log in.
@@ -234,25 +245,24 @@ pub struct Tickets {
 }
 
 impl Tickets {
-    /// Returns a new ticket for `identity`. `device` reports whether the browser has a valid device cookie.
-    pub fn issue(&self, identity: Option<Identity>, device: bool) -> String {
+    /// Returns a new ticket for `admission`.
+    pub fn issue(&self, admission: Admission) -> String {
         let ticket = crate::cookie::secret();
         let now = Instant::now();
         let mut tickets = self.tickets.lock().unwrap_or_else(PoisonError::into_inner);
-        tickets.retain(|_, (_, _, expires)| *expires > now);
+        tickets.retain(|_, (_, expires)| *expires > now);
         tickets.insert(
             crate::cookie::hash(&ticket),
-            (identity, device, now + TICKET_LIFETIME),
+            (admission, now + TICKET_LIFETIME),
         );
         ticket
     }
 
-    /// Redeems `ticket` one time. Returns the identity and the device flag of the ticket,
-    /// or `None` if the ticket is not valid.
-    pub fn redeem(&self, ticket: &str) -> Option<(Option<Identity>, bool)> {
+    /// Redeems `ticket` one time. Returns its admission, or `None` if the ticket is not valid.
+    pub fn redeem(&self, ticket: &str) -> Option<Admission> {
         let mut tickets = self.tickets.lock().unwrap_or_else(PoisonError::into_inner);
-        let (identity, device, expires) = tickets.remove(&crate::cookie::hash(ticket))?;
-        (expires > Instant::now()).then_some((identity, device))
+        let (admission, expires) = tickets.remove(&crate::cookie::hash(ticket))?;
+        (expires > Instant::now()).then_some(admission)
     }
 }
 
@@ -409,8 +419,8 @@ fn empty(status: StatusCode) -> Response<()> {
     response
 }
 
-/// Checks a WebTransport request. Returns the identity and the device flag of its ticket.
-fn admit(context: &Context, request: &Request<()>) -> Result<(Option<Identity>, bool), StatusCode> {
+/// Checks a WebTransport request. Returns the admission of its ticket.
+fn admit(context: &Context, request: &Request<()>) -> Result<Admission, StatusCode> {
     if request.uri().path() != WT_PATH {
         return Err(StatusCode::NOT_FOUND);
     }
@@ -494,7 +504,7 @@ type Routes = Arc<Mutex<RouteTable>>;
 /// Runs the channel protocol on a WebTransport session until it ends.
 async fn run_session(
     session: WebTransportSession<h3_quinn::Connection, Bytes>,
-    (identity, device): (Option<Identity>, bool),
+    admission: Admission,
     origin: Option<String>,
     router: Router,
     context: Arc<Context>,
@@ -537,9 +547,10 @@ async fn run_session(
     let mut outgoing = std::pin::pin!(outgoing);
     let client = connection::Client {
         addr: Some(peer.ip()),
-        user: identity,
+        user: admission.user,
         origin,
-        device,
+        device: admission.device,
+        expires: admission.expires,
     };
     if let Err(violation) = connection::run(&context, client, &mut incoming, &mut outgoing).await {
         tracing::warn!(%peer, %violation, "the shell broke the protocol on WebTransport");
@@ -677,8 +688,13 @@ mod tests {
     #[test]
     fn tickets_are_single_use() {
         let tickets = Tickets::default();
-        let ticket = tickets.issue(None, true);
-        assert_eq!(tickets.redeem(&ticket), Some((None, true)));
+        let admission = Admission {
+            user: None,
+            expires: None,
+            device: true,
+        };
+        let ticket = tickets.issue(admission.clone());
+        assert_eq!(tickets.redeem(&ticket), Some(admission));
         assert_eq!(tickets.redeem(&ticket), None);
         assert_eq!(tickets.redeem("guess"), None);
     }
