@@ -51,3 +51,10 @@
 .linux-app:focus {
   outline: none;
 }
+
+/* The edges of the last frame, stretched into the new area while the size of the window changes (F047). */
+.linux-app .linux-edge {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+}

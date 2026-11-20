@@ -23,6 +23,12 @@ function SurfaceCanvas(props: {
   onpressed: (press: { pointerId: number; clientX: number; clientY: number; canvas: HTMLCanvasElement } | null) => void;
   /** The rectangle in buffer pixels where black is transparent: a redirected video shows through (F040). */
   keyRect?: () => { x: number; y: number; width: number; height: number } | null;
+  /** A request for the edges of a rectangle in buffer pixels: each new object asks again (F047). */
+  edgeRequest?: () => { x: number; y: number; width: number; height: number } | null;
+  /** Takes the right column and the bottom row of the requested rectangle. */
+  onEdges?: (right: ImageBitmap, bottom: ImageBitmap) => void;
+  /** The buffer got a new size: the app drew at a new size. */
+  onResized?: () => void;
 }) {
   const canvas = document.createElement("canvas");
   canvas.dataset.surface = String(props.id);
@@ -65,7 +71,17 @@ function SurfaceCanvas(props: {
   const worker = new Worker(new URL("../../surface/worker.ts", import.meta.url), { type: "module" });
   const offscreen = canvas.transferControlToOffscreen();
   worker.postMessage({ canvas: offscreen }, [offscreen]);
-  worker.onmessage = (event: MessageEvent<{ type: string; width?: number; height?: number; seq?: number; frames?: number }>) => {
+  createEffect(
+    () => props.edgeRequest?.() ?? null,
+    (edge) => {
+      if (edge) worker.postMessage({ edges: edge });
+    },
+  );
+  worker.onmessage = (event: MessageEvent<{ type: string; width?: number; height?: number; seq?: number; frames?: number; right?: ImageBitmap; bottom?: ImageBitmap }>) => {
+    if (event.data.type === "edges" && event.data.right && event.data.bottom) {
+      props.onEdges?.(event.data.right, event.data.bottom);
+      return;
+    }
     // The count of video frames: a hint for diagnosis and for the tests (F037).
     if (event.data.type === "video") {
       canvas.dataset.videoFrames = String(event.data.frames ?? 0);
@@ -81,6 +97,7 @@ function SurfaceCanvas(props: {
     if (event.data.type === "size") {
       canvas.style.width = `${(event.data.width ?? 0) / props.scale}px`;
       canvas.style.height = `${(event.data.height ?? 0) / props.scale}px`;
+      props.onResized?.();
     }
   };
   const channel = props.connection.openChannel(
@@ -273,28 +290,116 @@ export default function Linux(props: { context: AppContext }) {
     };
   };
 
-  // The size of the content goes to the client, after a short quiet time.
+  // The size of the content goes to the client, after a short quiet time. While the user changes the
+  // size with the pointer, nothing goes: the window shows its last frame, and its edges stretch into
+  // the new area. One size goes at the end of the gesture (F047).
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let settle: ReturnType<typeof setTimeout> | undefined;
   let sent = "";
+  let resizing = false;
+  let requested: { w: number; h: number } | null = null;
+  const [strips, setStrips] = createSignal(false);
+  const [edgeRequest, setEdgeRequest] = createSignal<{ x: number; y: number; width: number; height: number } | null>(null);
+  let rightEdge: HTMLCanvasElement | undefined;
+  let bottomEdge: HTMLCanvasElement | undefined;
+  /** The window geometry in logical pixels: the window without the shadow of the client. */
+  const frame = () => {
+    const surface = info();
+    if (!surface) return null;
+    return surface.geometry ?? { x: 0, y: 0, width: surface.width / surface.scale, height: surface.height / surface.scale };
+  };
+  const configure = (w: number, h: number) => {
+    const current = info()?.geometry;
+    const key = `${w}x${h}`;
+    if (key !== sent && (!current || current.width !== w || current.height !== h)) {
+      sent = key;
+      requested = { w, h };
+      manager.request({ type: "configure", id, width: w, height: h });
+    }
+  };
+  /** An app that keeps its own size, for example with a smallest size: the frame takes the size of the app. */
+  const takeAppSize = () => {
+    const wanted = requested;
+    const shown = frame();
+    requested = null;
+    if (!wanted || !shown || !element) return;
+    if (Math.abs(shown.width - wanted.w) <= 1 && Math.abs(shown.height - wanted.h) <= 1) return;
+    const outer = element.closest<HTMLElement>(".wm-window");
+    if (!outer) return;
+    const content = element.getBoundingClientRect();
+    const box = outer.getBoundingClientRect();
+    props.context.resizeWindow?.(shown.width + (box.width - content.width), shown.height + (box.height - content.height));
+  };
+  const endSettle = () => {
+    clearTimeout(settle);
+    settle = undefined;
+    setStrips(false);
+    takeAppSize();
+  };
+  const onGesture = (event: Event) => {
+    const { active, kind } = (event as CustomEvent<{ active: boolean; kind: string }>).detail;
+    // The gesture of a different window.
+    if (kind !== "resize" || !element || !(event.target as Element).contains(element)) return;
+    if (active) {
+      resizing = true;
+      clearTimeout(timer);
+      clearTimeout(settle);
+      const shown = frame();
+      const scale = info()?.scale ?? 1;
+      if (shown) {
+        setEdgeRequest({ x: Math.round(shown.x * scale), y: Math.round(shown.y * scale), width: Math.round(shown.width * scale), height: Math.round(shown.height * scale) });
+      }
+      return;
+    }
+    resizing = false;
+    const now = size();
+    if (now) configure(now.w, now.h);
+    // The live content shows again after a frame at the new size, or after 500 ms.
+    settle = setTimeout(endSettle, 500);
+  };
+  const onEdges = (right: ImageBitmap, bottom: ImageBitmap) => {
+    for (const [target, bitmap] of [
+      [rightEdge, right],
+      [bottomEdge, bottom],
+    ] as const) {
+      if (target) {
+        target.width = bitmap.width;
+        target.height = bitmap.height;
+        target.getContext("2d")?.drawImage(bitmap, 0, 0);
+      }
+      bitmap.close();
+    }
+    if (resizing) setStrips(true);
+  };
+  const onResized = () => {
+    if (!resizing && settle !== undefined) queueMicrotask(endSettle);
+  };
   const observer = new ResizeObserver(([entry]) => {
     if (!entry) return;
     const w = Math.round(entry.contentRect.width);
     const h = Math.round(entry.contentRect.height);
     setSize({ w, h });
     clearTimeout(timer);
-    timer = setTimeout(() => {
-      const current = info()?.geometry;
-      const key = `${w}x${h}`;
-      if (key !== sent && (!current || current.width !== w || current.height !== h)) {
-        sent = key;
-        manager.request({ type: "configure", id, width: w, height: h });
-      }
-    }, 120);
+    if (resizing) return;
+    timer = setTimeout(() => configure(w, h), 120);
   });
   onCleanup(() => {
     observer.disconnect();
     clearTimeout(timer);
+    clearTimeout(settle);
+    window.removeEventListener("farglass-gesture", onGesture);
   });
+  /** The place of the stretched edges: right of the window geometry and under it, in the new area. */
+  const stripStyle = (side: "right" | "bottom") => {
+    const shown = frame();
+    const now = size();
+    if (!strips() || !shown || !now) return { display: "none" };
+    const right = side === "right";
+    const width = right ? now.w - shown.width : Math.min(now.w, shown.width);
+    const height = right ? Math.min(now.h, shown.height) : now.h - shown.height;
+    if (width <= 0 || height <= 0) return { display: "none" };
+    return { left: `${right ? shown.width : 0}px`, top: `${right ? 0 : shown.height}px`, width: `${width}px`, height: `${height}px` };
+  };
 
   /** The place of a popup in the window: the chain of parents to this window. */
   const placeOf = (popup: SurfaceInfo): { left: number; top: number } => {
@@ -328,6 +433,7 @@ export default function Linux(props: { context: AppContext }) {
       ref={(el) => {
         element = el;
         observer.observe(el);
+        window.addEventListener("farglass-gesture", onGesture);
         el.addEventListener("keydown", (event) => onKey(event, true));
         el.addEventListener("keyup", (event) => onKey(event, false));
         el.addEventListener("blur", releaseAll);
@@ -362,6 +468,9 @@ export default function Linux(props: { context: AppContext }) {
               moving={() => moving}
               onpressed={onpressed}
               keyRect={keyRect}
+              edgeRequest={edgeRequest}
+              onEdges={onEdges}
+              onResized={onResized}
               id={id}
               left={-origin(surface().geometry).x}
               top={-origin(surface().geometry).y}
@@ -369,6 +478,22 @@ export default function Linux(props: { context: AppContext }) {
             />
           )}
         </Show>
+        <canvas
+          class="linux-edge"
+          aria-hidden="true"
+          ref={(el) => {
+            rightEdge = el;
+          }}
+          style={stripStyle("right")}
+        />
+        <canvas
+          class="linux-edge"
+          aria-hidden="true"
+          ref={(el) => {
+            bottomEdge = el;
+          }}
+          style={stripStyle("bottom")}
+        />
       </div>
       <For each={popups()} keyed={(popup: SurfaceInfo) => popup.id}>
         {(popup) => (

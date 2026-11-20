@@ -68,13 +68,13 @@ try {
   await shell.waitForTimeout(2000);
   await raise(shell, window);
   const box = await window.locator(".linux-app").boundingBox();
-  const canvases = () => window.locator("canvas").count();
+  const canvases = () => window.locator("canvas[data-surface]").count();
   const shot = async (name) => SHOTS && writeFileSync(join(SHOTS, name), await shell.screenshot());
 
   // 1. The list of suggestions of the address bar: a subsurface.
   await shell.mouse.click(box.x + 300, box.y + 56);
   await shell.keyboard.type("wiki", { delay: 60 });
-  await shell.waitForFunction(() => document.querySelectorAll(".linux-app canvas").length >= 2, null, { timeout: TIMEOUT_MS });
+  await shell.waitForFunction(() => document.querySelectorAll(".linux-app canvas[data-surface]").length >= 2, null, { timeout: TIMEOUT_MS });
   await shot("popups-omnibox.png");
   check(true, "the list of suggestions of the address bar shows");
   await shell.keyboard.press("Escape");
@@ -84,7 +84,7 @@ try {
   // 2. The panel of the extensions: a subsurface.
   const before = await canvases();
   await shell.mouse.click(box.x + box.width - 113, box.y + 62);
-  await shell.waitForFunction((n) => document.querySelectorAll(".linux-app canvas").length > n, before, { timeout: TIMEOUT_MS }).catch(() => {});
+  await shell.waitForFunction((n) => document.querySelectorAll(".linux-app canvas[data-surface]").length > n, before, { timeout: TIMEOUT_MS }).catch(() => {});
   await shot("popups-extensions.png");
   check((await canvases()) > before, "the panel of the extensions shows");
   await shell.keyboard.press("Escape");
@@ -93,10 +93,10 @@ try {
   // 3. The main menu and a submenu: popups that reach past the window.
   await shell.mouse.click(box.x + box.width - 20, box.y + 56);
   // The popups of the window: each canvas after the canvas of the window, with its box.
-  const popupBoxes = () => window.locator("canvas").evaluateAll((all) => all.slice(1).map((c) => { const r = c.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; }));
+  const popupBoxes = () => window.locator("canvas[data-surface]").evaluateAll((all) => all.slice(1).map((c) => { const r = c.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; }));
   const tallest = (boxes) => boxes.reduce((a, b) => (b.height > (a?.height ?? 0) ? b : a), null);
   const opened = (await popupBoxes()).length;
-  await shell.waitForFunction((n) => document.querySelectorAll(".linux-app canvas").length - 1 > n, opened - 1, { timeout: TIMEOUT_MS });
+  await shell.waitForFunction((n) => document.querySelectorAll(".linux-app canvas[data-surface]").length - 1 > n, opened - 1, { timeout: TIMEOUT_MS });
   await shell.waitForTimeout(800);
   const menu = tallest(await popupBoxes());
   check(menu.y + menu.height > box.y + box.height, `the menu reaches below the window (${Math.round(menu.y + menu.height)} > ${Math.round(box.y + box.height)})`);

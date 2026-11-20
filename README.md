@@ -249,6 +249,12 @@ The size, the focus, the close, the keyboard, and the pointer of the window go t
 `npm --prefix spikes/e2e run apps` starts gnome-calculator and VS Code side by side.
 It moves each window by the own title bar of the app, types in the two windows, and switches the focus between them: each key must go to the window where it was typed.
 
+A move or a resize of a Linux app window happens in the client browser.
+During a resize, the window shows the last frame of the app, and the right and bottom edges of that frame stretch into the new area.
+The app gets one new size at the end of the drag.
+If the app refuses that size, for example because it is smaller than the smallest size of the app, the frame takes the size of the app.
+`npm --prefix spikes/e2e run resize` tests this with gnome-calculator.
+
 The launcher lists the apps of the host with the apps of the shell.
 The agent reads the desktop entries in `applications` of `XDG_DATA_HOME` and of each directory in `XDG_DATA_DIRS`, in the language of `LANG`.
 It does not list an entry with `NoDisplay`, `Hidden`, or `Terminal`, an entry for a different desktop in `OnlyShowIn` or `NotShowIn`, or an entry whose `TryExec` program is missing.

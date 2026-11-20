@@ -321,6 +321,7 @@ impl Surfaces {
     pub fn request(&self, request: SurfaceRequest) {
         let command = match request {
             SurfaceRequest::Configure { id, width, height } => {
+                tracing::debug!(id, width, height, "the shell gives a window a size");
                 Command::Configure { id, width, height }
             }
             SurfaceRequest::Activate { id } => Command::Activate { id },

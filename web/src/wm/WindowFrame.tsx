@@ -77,6 +77,7 @@ export function WindowFrame(props: {
     event: PointerEvent,
     move: (dx: number, dy: number, pointer: PointerEvent) => Rect,
     end: (last: Rect, pointer: PointerEvent) => void,
+    kind: "move" | "resize" = "move",
   ) => {
     if (event.button !== 0) {
       return;
@@ -88,6 +89,10 @@ export function WindowFrame(props: {
     const startY = event.clientY;
     let last = rect();
     element?.classList.add("wm-dragging");
+    // The content learns of the gesture: a Linux app gets its new size only at the end (F047).
+    const announce = (active: boolean) =>
+      element?.dispatchEvent(new CustomEvent("farglass-gesture", { bubbles: true, detail: { active, kind } }));
+    announce(true);
 
     const onMove = (pointer: PointerEvent) => {
       // No button is down: the release did not reach this element, for example after a lost
@@ -106,6 +111,7 @@ export function WindowFrame(props: {
       target.removeEventListener("lostpointercapture", onLost);
       window.removeEventListener("keydown", onKey, true);
       element?.classList.remove("wm-dragging");
+      announce(false);
       props.actions.preview(null);
       cancelAnimationFrame(frame);
       frame = 0;
@@ -189,6 +195,7 @@ export function WindowFrame(props: {
       event,
       (dx, dy) => resizeRect(start, edge, dx, dy),
       (last) => props.actions.place(props.win().id, last, null),
+      "resize",
     );
   };
 

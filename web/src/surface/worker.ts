@@ -7,6 +7,7 @@
  * `{ type: "video", frames }` with the count of decoded video frames, and
  * `{ type: "video-failed" }` if this browser cannot decode the video (F037).
  * `{ key }` sets the rectangle where black is transparent, or none (F040).
+ * `{ edges }` asks for the edges of a rectangle: `{ type: "edges", right, bottom }` (F047).
  */
 
 import { avcCodec, SurfaceDecoder, VideoFlag } from "./decoder";
@@ -229,7 +230,23 @@ const decoder = new SurfaceDecoder({
   },
 });
 
-onmessage = (event: MessageEvent<{ canvas?: OffscreenCanvas; bytes?: ArrayBuffer; key?: KeyRect | null }>) => {
+/**
+ * Sends the right column and the bottom row of the rectangle `edge` of the canvas, in buffer pixels:
+ * the shell stretches them into the new area of a window that grows, until the app draws it (F047).
+ */
+async function sendEdges(edge: KeyRect): Promise<void> {
+  if (!canvas || edge.width < 1 || edge.height < 1 || edge.x + edge.width > canvas.width || edge.y + edge.height > canvas.height) return;
+  const right = await createImageBitmap(canvas, edge.x + edge.width - 1, edge.y, 1, edge.height);
+  const bottom = await createImageBitmap(canvas, edge.x, edge.y + edge.height - 1, edge.width, 1);
+  postMessage({ type: "edges", right, bottom }, { transfer: [right, bottom] });
+}
+
+onmessage = (event: MessageEvent<{ canvas?: OffscreenCanvas; bytes?: ArrayBuffer; key?: KeyRect | null; edges?: KeyRect }>) => {
+  if (event.data.edges) {
+    const edge = event.data.edges;
+    queue = queue.then(() => sendEdges(edge)).catch(() => {});
+    return;
+  }
   if ("key" in event.data) {
     // The key changes after the frames that came before it.
     const next = event.data.key ?? null;

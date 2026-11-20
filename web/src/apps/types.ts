@@ -67,6 +67,8 @@ export interface AppContext {
   windows?(): readonly { readonly id: string; readonly title: string; readonly app: string }[];
   /** Gives a window the focus, also on a different workspace. */
   activateWindow?(id: string): void;
+  /** Sets the size of the frame of this window, if it floats: for an app that keeps its own size (F047). */
+  resizeWindow?(width: number, height: number): void;
 }
 
 /** The component of an app window: the default export of the app module. */

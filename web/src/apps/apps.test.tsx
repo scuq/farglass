@@ -39,6 +39,7 @@ async function host(component: () => Promise<{ default: AppComponent }>) {
     focusedId: () => "w1",
     desktop: () => emptyDesktop(),
     activate: () => {},
+    place: () => {},
   };
   const element = document.createElement("div");
   document.body.append(element);
