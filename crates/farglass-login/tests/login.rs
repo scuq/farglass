@@ -751,3 +751,133 @@ async fn a_blocked_user_gets_no_password_prompt_from_a_new_address() {
     let event = result(&mut attempt).await;
     assert!(matches!(event, LoginEvent::Blocked { .. }), "{event:?}");
 }
+
+/// Returns the name of the primary group of the current user.
+fn primary_group() -> String {
+    let gid = nix::unistd::getgid();
+    nix::unistd::Group::from_gid(gid).unwrap().unwrap().name
+}
+
+#[tokio::test]
+async fn a_member_of_the_allowed_group_logs_in() {
+    let group = primary_group();
+    let harness = Harness::start(|settings| settings.allowed_group = Some(group)).await;
+    let events = harness.login(&current_user(), "secret").await;
+    assert!(
+        matches!(events.last(), Some(LoginEvent::Success { .. })),
+        "{events:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_user_outside_the_group_fails_as_a_wrong_password_does_and_gets_no_passkey_step() {
+    let user = current_user();
+    let wrong = Harness::start(|_| {}).await.login(&user, "wrong").await;
+    // The user of the tests is not in the group root.
+    let harness = Harness::start(|settings| settings.allowed_group = Some("root".to_owned())).await;
+    let mut attempt = harness.attempt(Some(&user)).await;
+    let mut events = Vec::new();
+    loop {
+        // No helper: a Verified event here would show the passkey step.
+        let event = tokio::time::timeout(WAIT, attempt.next())
+            .await
+            .unwrap()
+            .unwrap();
+        if let LoginEvent::Prompt { prompt, .. } = &event {
+            attempt
+                .answer(*prompt, Zeroizing::new("secret".to_owned()))
+                .await
+                .unwrap();
+        }
+        assert!(
+            !matches!(event, LoginEvent::Verified { .. }),
+            "the passkey step showed"
+        );
+        let done = matches!(event, LoginEvent::Failure { .. });
+        events.push(event);
+        if done {
+            break;
+        }
+    }
+    assert_eq!(
+        events.last(),
+        wrong.last(),
+        "the text differs from a wrong password"
+    );
+    // The refusal counts as a failure.
+    for _ in 0..limiter::FREE_FAILURES {
+        harness.login(&user, "secret").await;
+    }
+    let events = harness.login(&user, "secret").await;
+    assert!(
+        matches!(events.as_slice(), [LoginEvent::Blocked { .. }]),
+        "{events:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_missing_group_refuses_each_login() {
+    let harness = Harness::start(|settings| {
+        settings.allowed_group = Some("farglass-no-such-group".to_owned());
+    })
+    .await;
+    let events = harness.login(&current_user(), "secret").await;
+    assert_eq!(
+        events.last(),
+        Some(&LoginEvent::Failure {
+            message: "The login failed.".to_owned()
+        })
+    );
+}
+
+#[tokio::test]
+async fn the_member_question_follows_the_group() {
+    let uid = nix::unistd::getuid().as_raw();
+    let group = primary_group();
+    let member = Harness::start(|settings| settings.allowed_group = Some(group)).await;
+    assert!(
+        farglass_login::client::member(&member.socket, uid)
+            .await
+            .unwrap()
+    );
+    let other = Harness::start(|settings| settings.allowed_group = Some("root".to_owned())).await;
+    assert!(
+        !farglass_login::client::member(&other.socket, uid)
+            .await
+            .unwrap()
+    );
+    let missing = Harness::start(|settings| {
+        settings.allowed_group = Some("farglass-no-such-group".to_owned());
+    })
+    .await;
+    assert!(
+        !farglass_login::client::member(&missing.socket, uid)
+            .await
+            .unwrap()
+    );
+    let open = Harness::start(|_| {}).await;
+    assert!(
+        farglass_login::client::member(&open.socket, 4_000_000)
+            .await
+            .unwrap()
+    );
+}
+
+#[test]
+fn membership_counts_a_supplementary_group() {
+    let user = nix::unistd::User::from_uid(nix::unistd::getuid())
+        .unwrap()
+        .unwrap();
+    let name = std::ffi::CString::new(user.name.clone()).unwrap();
+    let groups = nix::unistd::getgrouplist(&name, user.gid).unwrap();
+    if let Some(extra) = groups.iter().find(|gid| **gid != user.gid) {
+        let extra = nix::unistd::Group::from_gid(*extra).unwrap().unwrap().name;
+        assert_eq!(
+            farglass_login::server::membership(&extra, &user.name, user.gid),
+            Ok(true)
+        );
+    }
+    assert!(
+        farglass_login::server::membership("farglass-no-such-group", &user.name, user.gid).is_err()
+    );
+}

@@ -133,6 +133,9 @@ pub struct Context {
     pub hello_timeout: Duration,
     /// The time with no login frame before a connection with no user closes.
     pub login_idle: Duration,
+    /// Reports whether a connection with a session cookie asks farglass-login if its user is still
+    /// in the allowed group (F058). farglassd sets it with no `dev_user`.
+    pub check_membership: bool,
     /// The value of the Alt-Svc header that points to HTTP/3. Only with a certificate of the administrator.
     pub alt_svc: Option<axum::http::HeaderValue>,
 }
@@ -160,6 +163,7 @@ impl Context {
             max_anonymous: MAX_ANONYMOUS_PER_ADDRESS,
             hello_timeout: HELLO_TIMEOUT,
             login_idle: LOGIN_IDLE,
+            check_membership: false,
         }
     }
 }
@@ -324,6 +328,12 @@ where
         device,
     } = client;
     let rhost = peer.map_or_else(String::new, |ip| ip.to_canonical().to_string());
+    let user = match user {
+        Some(identity) if context.check_membership && context.dev_user.is_none() => {
+            still_allowed(context, identity, &rhost).await
+        }
+        user => user,
+    };
     // A locked session gives the connection no user: only a login of the same user unlocks it.
     let (user, locked) = match user {
         Some(identity) if context.presence.is_locked(identity.uid) => (None, Some(identity)),
@@ -394,6 +404,57 @@ where
     let result = conn.relay(incoming, &mut from_agents).await;
     conn.detach();
     result
+}
+
+/// The time for the answer of farglass-login to a membership question.
+const MEMBER_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Returns `identity` if its user is still in the allowed group (F058). Otherwise
+/// removes the cookie sessions of the user and returns `None`: the browser gets the login screen.
+/// A fault, a timeout, or no farglass-login gives `None` (ADR-042).
+async fn still_allowed(context: &Context, identity: Identity, rhost: &str) -> Option<Identity> {
+    let answer = tokio::time::timeout(
+        MEMBER_TIMEOUT,
+        farglass_login::client::member(&context.login_socket, identity.uid),
+    )
+    .await;
+    let event = Event {
+        event: "session",
+        addr: rhost,
+        user: Some(&identity.name),
+        uid: Some(identity.uid),
+        ..Event::default()
+    };
+    match answer {
+        Ok(Ok(true)) => Some(identity),
+        Ok(Ok(false)) => {
+            Event {
+                reason: "not-in-group",
+                ..event
+            }
+            .refused();
+            context.sessions.remove_user(identity.uid);
+            None
+        }
+        Ok(Err(error)) => {
+            let detail = error.to_string();
+            Event {
+                reason: "group-check",
+                detail: Some(&detail),
+                ..event
+            }
+            .fault();
+            None
+        }
+        Err(_) => {
+            Event {
+                reason: "group-check-timeout",
+                ..event
+            }
+            .fault();
+            None
+        }
+    }
 }
 
 /// Returns a security event of a browser connection.

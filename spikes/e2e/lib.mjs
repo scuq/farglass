@@ -1,11 +1,13 @@
 // lib.mjs - helpers of the end-to-end tests
 
-import { spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import net from "node:net";
 import { resolve } from "node:path";
 
 export const root = resolve(import.meta.dirname, "../..");
 export const TIMEOUT_MS = 15_000;
+/** The primary group of the user of the tests: farglass-login lets only its members log in (F058). */
+export const PRIMARY_GROUP = execFileSync("id", ["-gn"]).toString().trim();
 
 /** Runs a build command and throws if it fails. */
 export function build(command, args) {

@@ -144,6 +144,7 @@ impl Server {
             hsts,
             transport,
             alt_svc,
+            check_membership: !dev_mode,
             devices: Arc::new(crate::device::DeviceKeys::load(
                 &config.state_dir.join("device.key"),
             )),

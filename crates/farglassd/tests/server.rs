@@ -59,8 +59,16 @@ impl TestServer {
             web_root,
             state_dir: dir.path().join("state"),
             agent_socket: dir.path().join("agent.sock"),
+            login_socket: dir.path().join("login.sock"),
             ..Config::default()
         };
+        // farglassd asks farglass-login at each connection with a cookie if the user
+        // is in the allowed group (F058). This farglass-login lets each user in.
+        let listener = farglass_login::activation::bind(&config.login_socket, 0o600).unwrap();
+        tokio::spawn(
+            farglass_login::server::Service::new(farglass_login::server::Settings::default())
+                .run(listener),
+        );
         Self::start_with(config, dir).await
     }
 

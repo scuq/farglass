@@ -170,6 +170,7 @@ impl LoginTask {
                         }
                         LoginEvent::Failure { .. } | LoginEvent::Blocked { .. } | LoginEvent::LoggedOut { .. } => true,
                         LoginEvent::Prompt { .. }
+                        | LoginEvent::Member { .. }
                         | LoginEvent::Verified { .. }
                         | LoginEvent::Passkey { .. }
                         | LoginEvent::Info { .. }

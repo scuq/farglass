@@ -76,8 +76,11 @@ If farglassd stops, the agent connects again when farglassd starts.
 `packaging/install-local.sh` installs farglass from this source tree, with the systemd units and PAM files:
 
 ```sh
-sudo packaging/install-local.sh install
+sudo packaging/install-local.sh install --user USER
 ```
+
+`--user USER` adds USER to the group `farglass-users`: only its members can log in.
+The option can come more than one time.
 
 The script builds first, as the owner of the source tree and with the PATH of its login shell: `cargo build --release` and `npm --prefix web run build`.
 If the build fails, the script installs nothing.
@@ -478,6 +481,20 @@ farglass-login does the PAM login and runs as root.
 farglassd connects to its socket for each login attempt and relays each PAM prompt.
 On a host, systemd starts it through `packaging/systemd/farglass-login.socket`.
 The PAM service file is `packaging/pam.d/farglass`.
+
+Only members of the group `farglass-users` can log in (`--allowed-group`).
+To let a user log in:
+
+```sh
+sudo usermod -aG farglass-users USER
+```
+
+`install-local.sh install --user USER` creates the group and adds the user.
+A user outside the group gets the same answer as for a wrong password, and the login never asks for the passkey.
+Only the journal shows the cause: `event=login result=refused reason=not-in-group`.
+If the group does not exist, farglass-login refuses each login and writes an error at the start.
+farglassd also asks farglass-login at each connection with a session cookie: a user removed from the group gets the login screen.
+An empty `--allowed-group ""` lets each user of the host log in, for development only.
 
 farglass-login refuses a login as root unless it starts with `--allow-root`.
 After five failures from one address or for one user, it blocks that address or user for 30 seconds.

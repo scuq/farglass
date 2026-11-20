@@ -1069,7 +1069,11 @@ message: string, } | { "type": "logged-out",
 /**
  * The number of web sessions that ended.
  */
-sessions: number, } | { "type": "blocked", 
+sessions: number, } | { "type": "member", 
+/**
+ * `true` if the user can use farglass. A fault of the host gives `false` (ADR-042).
+ */
+allowed: boolean, } | { "type": "blocked", 
 /**
  * The time in seconds until the next attempt can start.
  */

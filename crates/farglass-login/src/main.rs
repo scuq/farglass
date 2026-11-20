@@ -79,6 +79,10 @@ struct Args {
     #[arg(long, value_name = "S", default_value_t = 60)]
     login_deadline: u64,
 
+    /// Only members of this group can log in. An empty value lets each user log in, for development
+    #[arg(long, value_name = "NAME", default_value = "farglass-users")]
+    allowed_group: String,
+
     /// How to start the web session after a login
     #[arg(long, value_enum, default_value = "systemd")]
     session: SessionMode,
@@ -193,9 +197,21 @@ async fn serve(args: Args) -> ExitCode {
         reserved_attempts: args.reserved_attempts,
         max_per_address: args.max_per_address.max(1),
         login_deadline: Duration::from_secs(args.login_deadline.max(1)),
+        allowed_group: (!args.allowed_group.is_empty()).then(|| args.allowed_group.clone()),
         host,
     };
-    tracing::info!(service = settings.service, allow_root = settings.allow_root, session = ?args.session, "ready");
+    match &settings.allowed_group {
+        None => tracing::warn!("--allowed-group is empty: each user of the host can log in"),
+        Some(group) => {
+            if !matches!(nix::unistd::Group::from_name(group), Ok(Some(_))) {
+                tracing::error!(
+                    group,
+                    "the allowed group does not exist or cannot be read: each login is refused. Create it with: groupadd {group}"
+                );
+            }
+        }
+    }
+    tracing::info!(service = settings.service, allow_root = settings.allow_root, allowed_group = ?settings.allowed_group, session = ?args.session, "ready");
     tokio::select! {
         () = Service::new(settings).run(listener) => {}
         _ = tokio::signal::ctrl_c() => {}

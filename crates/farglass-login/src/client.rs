@@ -53,6 +53,24 @@ pub async fn logout(path: &Path, uid: u32) -> Result<u32, ClientError> {
     }
 }
 
+/// Asks farglass-login through the login socket at `path` if the user `uid` can use farglass (F058).
+///
+/// # Errors
+///
+/// [`ClientError`] if the connection fails or farglass-login gives no answer.
+/// The caller must treat an error as a refusal (ADR-042).
+pub async fn member(path: &Path, uid: u32) -> Result<bool, ClientError> {
+    let stream = UnixStream::connect(path).await?;
+    let mut attempt = Attempt {
+        link: Framed::new(stream, FrameCodec),
+    };
+    attempt.send(&LoginRequest::Member { uid }).await?;
+    match attempt.next().await? {
+        LoginEvent::Member { allowed } => Ok(allowed),
+        _ => Err(ClientError::Closed),
+    }
+}
+
 /// One login attempt. Drop it to stop the attempt.
 #[derive(Debug)]
 pub struct Attempt {

@@ -18,7 +18,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } fr
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
-import { buildAll, launch, logout, start, TIMEOUT_MS } from "./lib.mjs";
+import { PRIMARY_GROUP, buildAll, launch, logout, start, TIMEOUT_MS } from "./lib.mjs";
 
 const state = mkdtempSync(join(tmpdir(), "farglass-e2e-"));
 const children = [];
@@ -67,7 +67,7 @@ try {
   const login = start(
     "farglass-login",
     "target/debug/farglass-login",
-    ["--socket", loginSocket, "--pam-dir", pamDirectory(), "--fail-delay-ms", "0", "--session", "none"],
+    ["--socket", loginSocket, "--pam-dir", pamDirectory(), "--fail-delay-ms", "0", "--session", "none", "--allowed-group", PRIMARY_GROUP],
     {},
     /ready/,
   );

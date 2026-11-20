@@ -17,7 +17,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } 
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { firefox, webkit } from "playwright";
-import { buildAll, echo, launch, logout, raise, start, TIMEOUT_MS } from "./lib.mjs";
+import { PRIMARY_GROUP, buildAll, echo, launch, logout, raise, start, TIMEOUT_MS } from "./lib.mjs";
 
 const ENGINES = { firefox, webkit };
 const NAMES = (process.env.BROWSERS ?? "firefox,webkit").split(",").map((name) => name.trim());
@@ -213,7 +213,7 @@ try {
   const login = start(
     "farglass-login",
     "target/debug/farglass-login",
-    ["--socket", loginSocket, "--pam-dir", pamDirectory(), "--fail-delay-ms", "0", "--session", "none"],
+    ["--socket", loginSocket, "--pam-dir", pamDirectory(), "--fail-delay-ms", "0", "--session", "none", "--allowed-group", PRIMARY_GROUP],
     {},
     /ready/,
   );

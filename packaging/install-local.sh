@@ -2,7 +2,7 @@
 # install-local.sh - install farglass from this source tree on the local host
 #
 # Usage:
-#   sudo packaging/install-local.sh install [--no-build] [ADDRESS...]
+#   sudo packaging/install-local.sh install [--no-build] [--user USER]... [ADDRESS...]
 #   sudo packaging/install-local.sh uninstall [--purge]
 #
 # install builds first, as the owner of the source tree and with the PATH of
@@ -18,6 +18,10 @@
 # farglassd.service. farglassd listens on 0.0.0.0:8443 with a self-signed
 # certificate. The certificate has the hostname, localhost, the address of the
 # default route, and each ADDRESS.
+#
+# Only members of the group farglass-users can log in (F058). install creates
+# the group and adds each USER of --user. Add a user later with:
+#   usermod -aG farglass-users USER
 #
 # install does not change an existing /etc/farglass/farglassd.conf.
 # uninstall removes all files except the configuration, the state, and the
@@ -58,11 +62,26 @@ build_as_owner() {
 }
 
 install_all() {
-    if [ "${1:-}" = --no-build ]; then
+    build=yes
+    users=""
+    addresses=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --no-build) build=no ;;
+            --user)
+                [ $# -ge 2 ] || die "--user needs a username."
+                shift
+                id "$1" >/dev/null 2>&1 || die "The user $1 does not exist."
+                users="$users $1"
+                ;;
+            *) addresses="$addresses $1" ;;
+        esac
         shift
-    else
-        build_as_owner
-    fi
+    done
+    # The addresses have no spaces.
+    # shellcheck disable=SC2086
+    set -- $addresses
+    [ "$build" = no ] || build_as_owner
     for program in farglassd farglass-login farglass-session; do
         [ -x "$REPO/target/release/$program" ] ||
             die "$REPO/target/release/$program is missing. Build it first: cargo build --release -p $program"
@@ -79,6 +98,12 @@ install_all() {
     [ -z "$newer" ] || die "The shell is older than $newer. Build it first: npm --prefix web run build"
 
     getent group farglass >/dev/null || groupadd --system farglass
+    # Only members of farglass-users can log in (F058).
+    getent group farglass-users >/dev/null || groupadd --system farglass-users
+    for user in $users; do
+        usermod -aG farglass-users "$user"
+        echo "Added $user to the group farglass-users."
+    done
     id farglass >/dev/null 2>&1 ||
         useradd --system --gid farglass --home-dir /var/lib/farglass --no-create-home \
             --shell /usr/sbin/nologin --comment "farglass web server" farglass
@@ -140,6 +165,14 @@ install_all() {
     for address in $(ip -4 -o addr show scope global | awk '{print $4}' | cut -d/ -f1); do
         echo "  https://$address:$PORT/"
     done
+    members=$(getent group farglass-users | cut -d: -f4)
+    echo
+    if [ -z "$members" ]; then
+        echo "WARNING: The group farglass-users has no member: no user can log in."
+        echo "Add a user with: sudo usermod -aG farglass-users USER"
+    else
+        echo "These users can log in (group farglass-users): $members"
+    fi
     echo
     echo "Before you accept the self-signed certificate, compare its SHA-256 fingerprint:"
     journalctl -u farglassd --no-pager -o cat | sed 's/\x1b\[[0-9;]*m//g' | grep -o 'sha256=[0-9A-F:]*' | tail -1
@@ -177,6 +210,7 @@ uninstall_all() {
         rm -rf /etc/farglass /var/lib/farglass
         userdel farglass 2>/dev/null || true
         groupdel farglass 2>/dev/null || true
+        groupdel farglass-users 2>/dev/null || true
         echo "Removed farglass, its configuration, its state, and the user farglass."
     else
         echo "Removed farglass. The configuration in /etc/farglass, the state in /var/lib/farglass, and the user farglass stay."
@@ -193,6 +227,6 @@ case "${1:-}" in
         uninstall_all "$@"
         ;;
     *)
-        die "Usage: sudo $0 install [--no-build] [ADDRESS...] | uninstall [--purge]"
+        die "Usage: sudo $0 install [--no-build] [--user USER]... [ADDRESS...] | uninstall [--purge]"
         ;;
 esac

@@ -41,6 +41,14 @@ impl LoginService {
     }
 
     async fn start_with(host: Arc<dyn farglass_login::host::Host>, agent_wait: Duration) -> Self {
+        Self::start_full(host, agent_wait, None).await
+    }
+
+    async fn start_full(
+        host: Arc<dyn farglass_login::host::Host>,
+        agent_wait: Duration,
+        allowed_group: Option<String>,
+    ) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let pam_dir = dir.path().join("pam.d");
         std::fs::create_dir(&pam_dir).unwrap();
@@ -65,6 +73,7 @@ impl LoginService {
             pam_dir: Some(pam_dir),
             fail_delay: Duration::ZERO,
             host,
+            allowed_group,
             ..Settings::default()
         };
         tokio::spawn(Service::new(settings).run(listener));
@@ -814,4 +823,44 @@ async fn a_connection_with_no_user_closes_after_the_login_idle_time() {
         .await
         .unwrap();
     assert!(closed.is_none(), "the idle connection did not close");
+}
+
+#[tokio::test]
+async fn a_session_cookie_of_a_user_outside_the_group_gives_the_login_screen() {
+    let (name, uid) = current_user();
+    let identity = Identity { uid, name };
+    let primary = nix::unistd::Group::from_gid(nix::unistd::getgid())
+        .unwrap()
+        .unwrap()
+        .name;
+    let member = LoginService::start_full(
+        Arc::new(farglass_login::host::NoSessions),
+        Duration::ZERO,
+        Some(primary),
+    )
+    .await;
+    let context = limited(&member, |c| c.check_membership = true);
+    let browser = Browser::connect_as(&context, Some(identity.clone())).await;
+    assert_eq!(browser.hello_user.as_deref(), Some(identity.name.as_str()));
+
+    let outside = LoginService::start_full(
+        Arc::new(farglass_login::host::NoSessions),
+        Duration::ZERO,
+        Some("root".to_owned()),
+    )
+    .await;
+    let context = limited(&outside, |c| c.check_membership = true);
+    let browser = Browser::connect_as(&context, Some(identity.clone())).await;
+    assert_eq!(
+        browser.hello_user, None,
+        "a user outside the group kept the session"
+    );
+
+    // No farglass-login: the check fails closed.
+    let context = Arc::new(Context {
+        check_membership: true,
+        ..Context::new(Registry::new(), "/nonexistent/login.sock".into())
+    });
+    let browser = Browser::connect_as(&context, Some(identity)).await;
+    assert_eq!(browser.hello_user, None, "a fault kept the session");
 }

@@ -42,6 +42,12 @@ pub enum LoginRequest {
         /// `false` stops the login, and the local sessions continue.
         accept: bool,
     },
+    /// Asks if the user `uid` can use farglass: a member of the allowed group (F058).
+    /// It is the first and only message of the connection. The answer is [`LoginEvent::Member`].
+    Member {
+        /// The uid of the user of a session cookie.
+        uid: u32,
+    },
     /// Answers [`LoginEvent::Verified`] (F034).
     SecondFactor {
         /// `true` if the user has no passkey or used one, or a recovery code. `false` stops the login as a failure.
@@ -133,6 +139,11 @@ pub enum LoginEvent {
     LoggedOut {
         /// The number of web sessions that ended.
         sessions: u32,
+    },
+    /// The answer to [`LoginRequest::Member`]. farglassd does not give this event to the shell.
+    Member {
+        /// `true` if the user can use farglass. A fault of the host gives `false` (ADR-042).
+        allowed: bool,
     },
     /// Too many failures from the address or for the user. The connection ends after this message.
     Blocked {

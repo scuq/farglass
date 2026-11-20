@@ -48,6 +48,8 @@ pub struct Settings {
     pub max_per_address: usize,
     /// The time for the whole login. A login that is not complete in this time fails.
     pub login_deadline: Duration,
+    /// Only members of this group can log in (F058). `None` lets each user log in, for tests.
+    pub allowed_group: Option<String>,
     /// The actions on the host: the logind sessions and the start of the web session.
     pub host: Arc<dyn Host>,
 }
@@ -63,6 +65,7 @@ impl Default for Settings {
             reserved_attempts: 8,
             max_per_address: 4,
             login_deadline: LOGIN_DEADLINE,
+            allowed_group: None,
             host: Arc::new(NoSessions),
         }
     }
@@ -186,6 +189,10 @@ impl Service {
                 device,
             } => (user, rhost, device),
             LoginRequest::Logout { uid } => return self.logout(&mut link, uid, peer).await,
+            LoginRequest::Member { uid } => {
+                let allowed = self.uid_allowed(uid);
+                return send(&mut link, &LoginEvent::Member { allowed }).await;
+            }
             _ => return Err("the first message was not a start message".into()),
         };
         let group = audit::address_group(&rhost);
@@ -264,7 +271,9 @@ impl Service {
                                 answered = true;
                                 let _ = answers.send((prompt, text));
                             }
-                            LoginRequest::Start { .. } | LoginRequest::Logout { .. } => {
+                            LoginRequest::Start { .. }
+                            | LoginRequest::Logout { .. }
+                            | LoginRequest::Member { .. } => {
                                 return Err("a second start message".into());
                             }
                             // A confirm or a second factor before the question. Ignore it.
@@ -358,6 +367,68 @@ impl Service {
         }
     }
 
+    /// Reports whether the user `name` with the primary group `gid` is in the allowed group (F058).
+    ///
+    /// A fault, for example a read error of the group database, gives `false` (ADR-042).
+    fn allowed(&self, name: &str, gid: nix::unistd::Gid, addr: &str) -> bool {
+        let Some(group) = &self.settings.allowed_group else {
+            return true;
+        };
+        match membership(group, name, gid) {
+            Ok(true) => true,
+            Ok(false) => {
+                log_event("not-in-group", addr, Some(name)).refused();
+                false
+            }
+            Err(error) => {
+                Event {
+                    detail: Some(&error),
+                    ..log_event("group-check", addr, Some(name))
+                }
+                .fault();
+                false
+            }
+        }
+    }
+
+    /// Reports whether the user `uid` is in the allowed group, for a reconnect with a session cookie.
+    fn uid_allowed(&self, uid: u32) -> bool {
+        if self.settings.allowed_group.is_none() {
+            return true;
+        }
+        match nix::unistd::User::from_uid(uid.into()) {
+            Ok(Some(user)) => {
+                let allowed = self.allowed(&user.name, user.gid, "");
+                if !allowed {
+                    Event {
+                        event: "session",
+                        reason: "not-in-group",
+                        user: Some(&user.name),
+                        uid: Some(uid),
+                        ..Event::default()
+                    }
+                    .refused();
+                }
+                allowed
+            }
+            other => {
+                let detail = match other {
+                    Err(error) => error.to_string(),
+                    _ => "no account".to_owned(),
+                };
+                Event {
+                    event: "session",
+                    reason: "group-check",
+                    uid: Some(uid),
+                    detail: Some(&detail),
+                    ..Event::default()
+                }
+                .fault();
+                false
+            }
+        }
+    }
+
     /// Counts a failed or abandoned attempt for the address and, if known, the user.
     fn count_failure(&self, address: &Key, user: Option<&str>) {
         self.limiter.failed(address.clone());
@@ -380,8 +451,8 @@ impl Service {
             log_event("blocked-user", rhost, Some(&name)).refused();
             return blocked(link, left).await;
         }
-        let uid = match nix::unistd::User::from_name(&name) {
-            Ok(Some(user)) => user.uid.as_raw(),
+        let (uid, gid) = match nix::unistd::User::from_name(&name) {
+            Ok(Some(user)) => (user.uid.as_raw(), user.gid),
             other => {
                 // A read error of the user database is a refusal (ADR-042).
                 let detail = match other {
@@ -403,6 +474,14 @@ impl Service {
             self.limiter.failed(address.clone());
             tokio::time::sleep(self.settings.fail_delay).await;
             let message = "The login as root is not permitted.".to_owned();
+            return send(link, &LoginEvent::Failure { message }).await;
+        }
+        // A user outside the allowed group fails as a wrong password does (F058).
+        // The login never reaches the passkey step, thus nothing shows the membership.
+        if !self.allowed(&name, gid, rhost) {
+            self.count_failure(address, Some(&name));
+            tokio::time::sleep(self.settings.fail_delay).await;
+            let message = FAILURE_MESSAGE.to_owned();
             return send(link, &LoginEvent::Failure { message }).await;
         }
         // farglassd checks the passkey of the user, if the user has one (F034).
@@ -638,6 +717,22 @@ impl Conversation for Bridge {
             text: text.to_owned(),
         });
     }
+}
+
+/// Reports whether the user `name` with the primary group `gid` is a member of `group`,
+/// by the primary group or a supplementary group.
+///
+/// # Errors
+///
+/// The text of the cause if the group does not exist or the group database cannot be read.
+pub fn membership(group: &str, name: &str, gid: nix::unistd::Gid) -> Result<bool, String> {
+    let wanted = nix::unistd::Group::from_name(group)
+        .map_err(|error| format!("the group database: {error}"))?
+        .ok_or_else(|| format!("the group {group} does not exist"))?;
+    let cname = std::ffi::CString::new(name).map_err(|error| error.to_string())?;
+    let groups = nix::unistd::getgrouplist(&cname, gid)
+        .map_err(|error| format!("the groups of the user: {error}"))?;
+    Ok(groups.contains(&wanted.gid))
 }
 
 /// Locks `mutex`. A panic in another thread does not make the data unusable here.
