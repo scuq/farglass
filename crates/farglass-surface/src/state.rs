@@ -138,13 +138,17 @@ pub enum Event {
         id: u32,
     },
     /// A new popup, for example a menu, with its place relative to its parent surface in logical pixels.
+    /// A new popup, or a new place or size of a popup. A subsurface comes as a popup too.
     PopupNew {
         /// The id of the popup. Popups and top-level windows share the ids.
         id: u32,
         /// The surface that the popup belongs to: a top-level window or a popup.
         parent: u32,
-        /// The place and the size of the popup.
+        /// The place and the size of the popup, relative to the window geometry of its parent.
         geometry: Rect,
+        /// The popup is a subsurface: a part of its parent, for example a bubble of Chromium.
+        /// A click outside it does not close it.
+        subsurface: bool,
     },
     /// A popup closed.
     PopupClosed {
@@ -266,6 +270,8 @@ pub(crate) struct State {
     seat: Seat<Self>,
     toplevels: HashMap<u32, ToplevelSurface>,
     popups: HashMap<u32, PopupSurface>,
+    /// The subsurfaces with their parent and their last place for the shell.
+    subsurfaces: HashMap<u32, (WlSurface, u32, Option<Rect>)>,
     next_id: u32,
     frame_callbacks: Vec<WlCallback>,
     /// The window with the keyboard focus.
@@ -371,6 +377,7 @@ fn setup(
         seat,
         toplevels: HashMap::new(),
         popups: HashMap::new(),
+        subsurfaces: HashMap::new(),
         next_id: 0,
         frame_callbacks: Vec::new(),
         focused: None,
@@ -594,7 +601,8 @@ impl State {
                     .toplevels
                     .get(&id)
                     .map(|t| t.wl_surface().clone())
-                    .or_else(|| self.popups.get(&id).map(|p| p.wl_surface().clone()));
+                    .or_else(|| self.popups.get(&id).map(|p| p.wl_surface().clone()))
+                    .or_else(|| self.subsurfaces.get(&id).map(|(s, _, _)| s.clone()));
                 if let (Some(pointer), Some(surface)) = (self.seat.get_pointer(), surface) {
                     // The location is local to the surface: the focus has the origin (0, 0).
                     let event = MotionEvent {
@@ -835,7 +843,104 @@ impl CompositorHandler for State {
             .compositor
     }
 
+    fn new_subsurface(&mut self, surface: &WlSurface, parent: &WlSurface) {
+        let Some(parent) = Self::id_of(parent) else {
+            return;
+        };
+        let id = self.new_id(surface);
+        tracing::debug!(id, parent, "a new subsurface");
+        self.subsurfaces.insert(id, (surface.clone(), parent, None));
+    }
+
+    fn destroyed(&mut self, surface: &WlSurface) {
+        if let Some(id) = Self::id_of(surface)
+            && self.subsurfaces.remove(&id).is_some()
+        {
+            self.emit(Event::PopupClosed { id });
+        }
+    }
+
     fn commit(&mut self, surface: &WlSurface) {
+        self.commit_surface(surface);
+        // A synchronized subsurface applies its state with the commit of its parent.
+        let mut children = smithay::wayland::compositor::get_children(surface);
+        while let Some(child) = children.pop() {
+            self.commit_surface(&child);
+            children.extend(smithay::wayland::compositor::get_children(&child));
+        }
+    }
+}
+
+impl State {
+    /// Gives the shell the place and the size of a subsurface when they change. `buffer` is the size
+    /// of a new buffer in buffer pixels; with none, the size of the last buffer.
+    fn place_subsurface(&mut self, id: u32, surface: &WlSurface, buffer: Option<(i32, i32)>) {
+        let Some((_, parent, last)) = self.subsurfaces.get(&id) else {
+            return;
+        };
+        let parent_id = *parent;
+        let (location, size) = with_states(surface, |states| {
+            let location = states
+                .cached_state
+                .get::<smithay::wayland::compositor::SubsurfaceCachedState>()
+                .current()
+                .location;
+            let size = states.data_map.get::<LastSize>().and_then(|last| {
+                *last
+                    .0
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+            });
+            (location, buffer.or(size))
+        });
+        let scale = with_states(surface, |states| {
+            states
+                .cached_state
+                .get::<SurfaceAttributes>()
+                .current()
+                .buffer_scale
+                .max(1)
+        });
+        let Some((width, height)) = size else {
+            return;
+        };
+        // The place of a popup is relative to the window geometry of its parent; a subsurface is relative to the surface of its parent.
+        let parent_offset = self
+            .toplevels
+            .get(&parent_id)
+            .map(|t| t.wl_surface().clone())
+            .or_else(|| self.popups.get(&parent_id).map(|p| p.wl_surface().clone()))
+            .and_then(|parent| {
+                with_states(&parent, |states| {
+                    states
+                        .cached_state
+                        .get::<SurfaceCachedState>()
+                        .current()
+                        .geometry
+                })
+            })
+            .map_or((0, 0), |g| (g.loc.x, g.loc.y));
+        let place = Rect {
+            x: location.x - parent_offset.0,
+            y: location.y - parent_offset.1,
+            width: width / scale,
+            height: height / scale,
+        };
+        if *last == Some(place) {
+            return;
+        }
+        if let Some(entry) = self.subsurfaces.get_mut(&id) {
+            entry.2 = Some(place);
+        }
+        self.emit(Event::PopupNew {
+            id,
+            parent: parent_id,
+            geometry: place,
+            subsurface: true,
+        });
+    }
+
+    fn commit_surface(&mut self, surface: &WlSurface) {
         // The first commit of an xdg surface asks for its first configure.
         if let Some(toplevel) = self.toplevels.values().find(|t| t.wl_surface() == surface)
             && !toplevel.is_initial_configure_sent()
@@ -861,13 +966,24 @@ impl CompositorHandler for State {
         let Some(id) = Self::id_of(surface) else {
             // A surface with no role yet, or a subsurface. Its buffer goes back at once.
             if let Some(BufferAssignment::NewBuffer(buffer)) = buffer {
+                tracing::debug!(
+                    subsurface = smithay::wayland::compositor::is_sync_subsurface(surface)
+                        || smithay::wayland::compositor::get_parent(surface).is_some(),
+                    "a buffer of a surface with no window"
+                );
                 buffer.release();
             }
             return;
         };
         match buffer {
             Some(BufferAssignment::NewBuffer(buffer)) => {
-                self.take_buffer(id, surface, &buffer, damage, scale)
+                // The shell gets the place of a subsurface before its pixels.
+                if self.subsurfaces.contains_key(&id) {
+                    let size =
+                        with_buffer_contents(&buffer, |_, _, data| (data.width, data.height)).ok();
+                    self.place_subsurface(id, surface, size);
+                }
+                self.take_buffer(id, surface, &buffer, damage, scale);
             }
             Some(BufferAssignment::Removed) => {
                 with_states(surface, |states| {
@@ -880,7 +996,11 @@ impl CompositorHandler for State {
                 });
                 self.emit(Event::Unmapped { id });
             }
-            None => {}
+            None => {
+                if self.subsurfaces.contains_key(&id) {
+                    self.place_subsurface(id, surface, None);
+                }
+            }
         }
     }
 }
@@ -944,6 +1064,7 @@ impl XdgShellHandler for State {
         surface.with_pending_state(|state| state.geometry = geometry);
         let parent = surface.get_parent_surface().as_ref().and_then(Self::id_of);
         let id = self.new_id(surface.wl_surface());
+        tracing::debug!(id, ?parent, ?geometry, "a new popup");
         self.popups.insert(id, surface);
         let Some(parent) = parent else {
             return;
@@ -957,6 +1078,7 @@ impl XdgShellHandler for State {
                 width: geometry.size.w,
                 height: geometry.size.h,
             },
+            subsurface: false,
         });
     }
 
@@ -967,9 +1089,27 @@ impl XdgShellHandler for State {
         token: u32,
     ) {
         let geometry = positioner.get_geometry();
+        tracing::debug!(id = ?Self::id_of(surface.wl_surface()), ?geometry, "a popup moves");
         surface.with_pending_state(|state| state.geometry = geometry);
         surface.send_repositioned(token);
         let _ = surface.send_pending_configure();
+        // The shell gets the new place: a popup that grows or moves, for example a list of suggestions.
+        if let (Some(id), Some(parent)) = (
+            Self::id_of(surface.wl_surface()),
+            surface.get_parent_surface().as_ref().and_then(Self::id_of),
+        ) {
+            self.emit(Event::PopupNew {
+                id,
+                parent,
+                geometry: Rect {
+                    x: geometry.loc.x,
+                    y: geometry.loc.y,
+                    width: geometry.size.w,
+                    height: geometry.size.h,
+                },
+                subsurface: false,
+            });
+        }
     }
 
     fn grab(&mut self, _surface: PopupSurface, _seat: WlSeat, _serial: Serial) {

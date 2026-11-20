@@ -214,7 +214,8 @@ export default function Linux(props: { context: AppContext }) {
 
   /** A press on the surface `target`: closes each popup that is not `target` or under it. Returns `true` if the press goes to the app. */
   const pressAt = (target: number): boolean => {
-    const open = popups();
+    // A subsurface is a part of its window: a press outside it does not close it.
+    const open = popups().filter((popup) => !popup.subsurface);
     if (open.length === 0) return true;
     const keep = new Set<number>();
     for (let current: number | null = target; current !== null; ) {

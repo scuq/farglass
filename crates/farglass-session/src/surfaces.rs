@@ -59,7 +59,7 @@ struct Toplevel {
 #[derive(Default)]
 struct Inner {
     toplevels: BTreeMap<u32, Toplevel>,
-    popups: BTreeMap<u32, (u32, SurfaceRect)>,
+    popups: BTreeMap<u32, (u32, SurfaceRect, bool)>,
     /// The last commit of each surface, with the whole buffer as damage, for a new channel.
     commits: HashMap<u32, SurfaceEvent>,
     /// The last pixels of each surface, for the tile codec.
@@ -213,10 +213,11 @@ impl Surfaces {
             let popups = inner
                 .popups
                 .iter()
-                .map(|(id, (parent, geometry))| SurfaceEvent::Popup {
+                .map(|(id, (parent, geometry, subsurface))| SurfaceEvent::Popup {
                     id: *id,
                     parent: *parent,
                     geometry: *geometry,
+                    subsurface: *subsurface,
                 });
             toplevels
                 .chain(popups)
@@ -412,12 +413,16 @@ impl Surfaces {
                     id,
                     parent,
                     geometry,
+                    subsurface,
                 } => {
-                    inner.popups.insert(id, (parent, rect(geometry)));
+                    inner
+                        .popups
+                        .insert(id, (parent, rect(geometry), subsurface));
                     SurfaceEvent::Popup {
                         id,
                         parent,
                         geometry: rect(geometry),
+                        subsurface,
                     }
                 }
                 Event::PopupClosed { id } => {

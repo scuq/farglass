@@ -364,6 +364,10 @@ pub enum SurfaceEvent {
         parent: u32,
         /// The place and the size.
         geometry: SurfaceRect,
+        /// The popup is a subsurface, for example a bubble of Chromium: a click outside it does not close it.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(as = "Option<bool>", optional)]
+        subsurface: bool,
     },
     /// A popup closed.
     PopupClosed {

@@ -330,7 +330,11 @@ parent: number,
 /**
  * The place and the size.
  */
-geometry: SurfaceRect, } | { "type": "popup-closed", 
+geometry: SurfaceRect, 
+/**
+ * The popup is a subsurface, for example a bubble of Chromium: a click outside it does not close it.
+ */
+subsurface?: boolean, } | { "type": "popup-closed", 
 /**
  * The popup.
  */

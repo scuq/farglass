@@ -20,6 +20,8 @@ export interface SurfaceInfo {
   /** For a popup: the surface that it belongs to. For a top-level window: the window that it belongs to, or null. */
   readonly parent: number | null;
   readonly popup: boolean;
+  /** The popup is a subsurface, for example a bubble of Chromium: a click outside it does not close it. */
+  readonly subsurface: boolean;
   /** For a popup: its place relative to the window geometry of its parent, in logical pixels. */
   readonly place: SurfaceRect | null;
   readonly width: number;
@@ -148,6 +150,7 @@ export class SurfaceManager {
       appId: null,
       parent: null,
       popup,
+      subsurface: false,
       place: null,
       width: 0,
       height: 0,
@@ -170,7 +173,7 @@ export class SurfaceManager {
         break;
       }
       case "popup":
-        this.#set(event.id, (old) => ({ ...old, parent: event.parent, place: event.geometry }), true);
+        this.#set(event.id, (old) => ({ ...old, parent: event.parent, place: event.geometry, subsurface: event.subsurface ?? false }), true);
         break;
       case "commit": {
         const known = this.#map.get(event.id);

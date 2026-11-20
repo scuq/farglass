@@ -11,7 +11,7 @@
     "echo": "node echo.mjs",
     "login": "node login.mjs",
     "wm": "node wm.mjs",
-    "test": "node echo.mjs && node login.mjs && node wm.mjs && node term.mjs && node notify.mjs && node settings.mjs && node transport.mjs && node surface.mjs && node apps.mjs && node clipboard.mjs && node launcher.mjs && node video.mjs && node sound.mjs && node redirect.mjs",
+    "test": "node echo.mjs && node login.mjs && node wm.mjs && node term.mjs && node notify.mjs && node settings.mjs && node transport.mjs && node surface.mjs && node apps.mjs && node clipboard.mjs && node launcher.mjs && node video.mjs && node sound.mjs && node redirect.mjs && node popups.mjs",
     "term": "node term.mjs",
     "notify": "node notify.mjs",
     "settings": "node settings.mjs",
@@ -23,6 +23,7 @@
     "video": "node video.mjs",
     "sound": "node sound.mjs",
     "redirect": "node redirect.mjs",
+    "popups": "node popups.mjs",
     "youtube": "node youtube.mjs"
   },
   "devDependencies": {

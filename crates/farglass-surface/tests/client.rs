@@ -13,7 +13,8 @@ use wayland_client::WEnum;
 use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::{
     wl_buffer, wl_compositor, wl_data_device, wl_data_device_manager, wl_data_offer,
-    wl_data_source, wl_keyboard, wl_pointer, wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_surface,
+    wl_data_source, wl_keyboard, wl_pointer, wl_registry, wl_seat, wl_shm, wl_shm_pool,
+    wl_subcompositor, wl_subsurface, wl_surface,
 };
 use wayland_client::{
     Connection, Dispatch, EventQueue, Proxy as _, QueueHandle, delegate_noop, event_created_child,
@@ -251,6 +252,8 @@ delegate_noop!(App: ignore wl_compositor::WlCompositor);
 delegate_noop!(App: ignore wl_surface::WlSurface);
 delegate_noop!(App: ignore wl_shm::WlShm);
 delegate_noop!(App: ignore wl_shm_pool::WlShmPool);
+delegate_noop!(App: ignore wl_subcompositor::WlSubcompositor);
+delegate_noop!(App: ignore wl_subsurface::WlSubsurface);
 delegate_noop!(App: ignore wl_buffer::WlBuffer);
 delegate_noop!(App: ignore xdg_positioner::XdgPositioner);
 delegate_noop!(App: ignore wl_seat::WlSeat);
@@ -265,6 +268,7 @@ struct Client {
     wm: xdg_wm_base::XdgWmBase,
     seat: wl_seat::WlSeat,
     data: wl_data_device_manager::WlDataDeviceManager,
+    subcompositor: wl_subcompositor::WlSubcompositor,
 }
 
 impl Client {
@@ -278,6 +282,7 @@ impl Client {
             wm: globals.bind(&qh, 1..=6, ()).unwrap(),
             seat: globals.bind(&qh, 5..=9, ()).unwrap(),
             data: globals.bind(&qh, 3..=3, ()).unwrap(),
+            subcompositor: globals.bind(&qh, 1..=1, ()).unwrap(),
             app: App::default(),
             queue,
             qh,
@@ -471,11 +476,13 @@ fn a_toplevel_gives_its_buffer_and_damage_and_the_shell_controls_size_focus_and_
         id: popup_id,
         parent,
         geometry,
+        subsurface,
     } = new_popup
     else {
         unreachable!()
     };
     assert_eq!(parent, id);
+    assert!(!subsurface);
     assert_eq!((geometry.width, geometry.height), (50, 30));
     while !client.app.popup_configured {
         client.roundtrip();
@@ -686,5 +693,94 @@ fn the_clipboard_goes_from_an_app_to_the_shell_and_back() {
     assert!(
         events.try_iter().all(|e| !matches!(e, Event::Clipboard(_))),
         "the clipboard of the shell does not come back to the shell"
+    );
+}
+
+/// A subsurface, as Chromium draws its bubbles and the list of suggestions: it comes as a popup
+/// marked as a subsurface, at its place relative to the window, with its own commits.
+#[test]
+fn a_subsurface_shows_as_a_popup_at_its_place() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("wayland-test");
+    let (sender, events) = mpsc::channel();
+    let compositor = Compositor::spawn(&socket, move |event| {
+        let _ = sender.send(event);
+    })
+    .unwrap();
+    let mut client = Client::connect(compositor.socket());
+    let surface = client.compositor.create_surface(&client.qh, ());
+    let xdg = client.wm.get_xdg_surface(&surface, &client.qh, ());
+    let _toplevel = xdg.get_toplevel(&client.qh, ());
+    surface.commit();
+    let Event::ToplevelNew { id, .. } = next(&events, &mut client, |e| {
+        matches!(e, Event::ToplevelNew { .. })
+    }) else {
+        unreachable!()
+    };
+    client.roundtrip();
+    let buffer = client.buffer(200, 100, [9, 9, 9, 255]);
+    surface.attach(Some(&buffer), 0, 0);
+    surface.commit();
+    next(
+        &events,
+        &mut client,
+        |e| matches!(e, Event::Commit(c) if c.id == id),
+    );
+
+    let child = client.compositor.create_surface(&client.qh, ());
+    let subsurface = client
+        .subcompositor
+        .get_subsurface(&child, &surface, &client.qh, ());
+    subsurface.set_desync();
+    subsurface.set_position(40, 60);
+    let small = client.buffer(30, 20, [200, 0, 0, 255]);
+    child.attach(Some(&small), 0, 0);
+    child.commit();
+    surface.commit();
+    let Event::PopupNew {
+        id: child_id,
+        parent,
+        geometry,
+        subsurface: marked,
+    } = next(&events, &mut client, |e| {
+        matches!(e, Event::PopupNew { .. })
+    })
+    else {
+        unreachable!()
+    };
+    assert_eq!(parent, id);
+    assert!(marked);
+    assert_eq!(
+        geometry,
+        Rect {
+            x: 40,
+            y: 60,
+            width: 30,
+            height: 20
+        }
+    );
+    let commit = commit_of(next(
+        &events,
+        &mut client,
+        |e| matches!(e, Event::Commit(c) if c.id == child_id),
+    ));
+    assert_eq!((commit.width, commit.height), (30, 20));
+
+    // A new place goes to the shell, and the end of the subsurface closes the popup.
+    subsurface.set_position(50, 70);
+    surface.commit();
+    child.commit();
+    let Event::PopupNew { geometry, .. } = next(&events, &mut client, |e| {
+        matches!(e, Event::PopupNew { .. })
+    }) else {
+        unreachable!()
+    };
+    assert_eq!((geometry.x, geometry.y), (50, 70));
+    subsurface.destroy();
+    child.destroy();
+    next(
+        &events,
+        &mut client,
+        |e| matches!(e, Event::PopupClosed { id } if *id == child_id),
     );
 }
