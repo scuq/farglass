@@ -90,6 +90,12 @@ export function WindowFrame(props: {
     element?.classList.add("wm-dragging");
 
     const onMove = (pointer: PointerEvent) => {
+      // No button is down: the release did not reach this element, for example after a lost
+      // capture. The gesture ends where it is, and the window does not follow the pointer.
+      if (pointer.buttons === 0) {
+        finish(pointer, false);
+        return;
+      }
       last = move(pointer.clientX - startX, pointer.clientY - startY, pointer);
       draw(last);
     };
@@ -97,6 +103,7 @@ export function WindowFrame(props: {
       target.removeEventListener("pointermove", onMove);
       target.removeEventListener("pointerup", onUp);
       target.removeEventListener("pointercancel", onCancel);
+      target.removeEventListener("lostpointercapture", onLost);
       window.removeEventListener("keydown", onKey, true);
       element?.classList.remove("wm-dragging");
       props.actions.preview(null);
@@ -117,6 +124,8 @@ export function WindowFrame(props: {
     };
     const onUp = (pointer: PointerEvent) => finish(pointer, false);
     const onCancel = (pointer: PointerEvent) => finish(pointer, true);
+    // The capture went to a different element, or the element left the page: the release can no longer come here.
+    const onLost = (pointer: PointerEvent) => finish(pointer, false);
     // Escape stops the gesture, and the window goes back.
     const onKey = (key: KeyboardEvent) => {
       if (key.key === "Escape") {
@@ -127,6 +136,7 @@ export function WindowFrame(props: {
     target.addEventListener("pointermove", onMove);
     target.addEventListener("pointerup", onUp);
     target.addEventListener("pointercancel", onCancel);
+    target.addEventListener("lostpointercapture", onLost);
     window.addEventListener("keydown", onKey, true);
   };
 

@@ -16,6 +16,14 @@
   image-rendering: pixelated;
 }
 
+/* The container of the redirected videos: it covers the window and takes no pointer. */
+.linux-redirects {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
 /* A video of the host browser that the client plays (F040): under the canvas, which is transparent where the host draws it black. */
 .linux-app .linux-redirect {
   position: absolute;

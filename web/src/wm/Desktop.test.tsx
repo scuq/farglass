@@ -47,6 +47,32 @@ function key(type: "keydown" | "keyup", init: KeyboardEventInit) {
   window.dispatchEvent(new KeyboardEvent(type, { bubbles: true, cancelable: true, ...init }));
 }
 
+describe("window drags", () => {
+  test("a move with no button down ends the drag: the window does not follow the pointer", async () => {
+    const { host } = await mountDesktop(twoWindows());
+    const frame = win(host, "b");
+    const before = frame.style.transform;
+    const pointer = (type: string, x: number, buttons: number) => {
+      const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 100, button: 0, buttons });
+      Object.defineProperty(event, "pointerId", { value: 1 });
+      return event;
+    };
+    const bar = frame.querySelector<HTMLElement>(".wm-titlebar")!;
+    bar.dispatchEvent(pointer("pointerdown", 100, 1));
+    bar.dispatchEvent(pointer("pointermove", 150, 1));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const dragged = frame.style.transform;
+    expect(dragged).not.toBe(before);
+    // The release went elsewhere: the next move has no button down.
+    bar.dispatchEvent(pointer("pointermove", 300, 0));
+    bar.dispatchEvent(pointer("pointermove", 400, 0));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await settle();
+    expect(frame.classList.contains("wm-dragging")).toBe(false);
+    expect(frame.style.transform).toBe(dragged);
+  });
+});
+
 describe("Desktop", () => {
   test("the windows come back from the state store with their title and stack order", async () => {
     const { host } = await mountDesktop(twoWindows());

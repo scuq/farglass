@@ -122,6 +122,8 @@ export default function Linux(props: { context: AppContext }) {
   }
   const info = () => manager.surfaces().get(id);
   let element: HTMLDivElement | undefined;
+  /** The container of the redirected videos. Solid does not manage its children, thus the canvases never move in the page. */
+  let redirects: HTMLDivElement | undefined;
   const [size, setSize] = createSignal<{ w: number; h: number } | null>(null);
 
   // The cursor that the app selected shows on the window: the browser draws it with no delay.
@@ -228,14 +230,14 @@ export default function Linux(props: { context: AppContext }) {
     const now = new Set<string>();
     for (const { media, rect } of list) {
       now.add(media.id);
-      if (element && media.video.parentElement !== element) element.prepend(media.video);
+      if (redirects && media.video.parentElement !== redirects) redirects.append(media.video);
       Object.assign(media.video.style, { left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.width}px`, height: `${rect.height}px` });
       manager.redirect.setShowing(media.id, true);
     }
     for (const id of shown) {
       if (!now.has(id)) {
         manager.redirect.setShowing(id, false);
-        element?.querySelector(`video[data-redirect="${CSS.escape(id)}"]`)?.remove();
+        redirects?.querySelector(`video[data-redirect="${CSS.escape(id)}"]`)?.remove();
       }
     }
     shown.clear();
@@ -333,6 +335,12 @@ export default function Linux(props: { context: AppContext }) {
       data-cursor={manager.cursor()}
       data-size={size() ? `${size()!.w}x${size()!.h}` : undefined}
     >
+      <div
+        class="linux-redirects"
+        ref={(el) => {
+          redirects = el;
+        }}
+      />
       <Show when={info()} fallback={<p class="linux-waiting">The app is not connected.</p>}>
         {(surface) => (
           <SurfaceCanvas
