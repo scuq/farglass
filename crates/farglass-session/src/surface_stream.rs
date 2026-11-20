@@ -22,8 +22,11 @@ pub struct SurfaceStream {
     acked: Arc<AtomicU32>,
     ack_notify: Arc<Notify>,
     no_video: Arc<AtomicBool>,
-    key: Arc<Mutex<Option<(usize, usize, usize, usize)>>>,
+    key: SharedKey,
 }
+
+/// The key rectangle of the client in buffer pixels, shared with the encoder task (F040).
+type SharedKey = Arc<Mutex<Option<(usize, usize, usize, usize)>>>;
 
 /// The most frames that the client did not acknowledge. While the client lags, the commits wait and merge (F029).
 pub const MAX_IN_FLIGHT: u32 = 2;
@@ -109,7 +112,7 @@ impl SurfaceStream {
         let task_acked = acked.clone();
         let task_ack_notify = ack_notify.clone();
         let no_video = Arc::new(AtomicBool::new(false));
-        let key: Arc<Mutex<Option<(usize, usize, usize, usize)>>> = Arc::new(Mutex::new(None));
+        let key: SharedKey = Arc::new(Mutex::new(None));
         let task_key = key.clone();
         let task_no_video = no_video.clone();
         // FARGLASS_VIDEO=0 turns the video off, for example to find a fault.
