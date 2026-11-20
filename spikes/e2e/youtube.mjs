@@ -89,7 +89,7 @@ try {
 
   // The client: the shell.
   browser = await chromium.launch();
-  const shell = await (await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1400, height: 900 } })).newPage();
+  const shell = await (await browser.newContext({ ignoreHTTPSErrors: true, viewport: process.env.FARGLASS_HOST_SIZE ? { width: 1900, height: 1100 } : { width: 1400, height: 900 } })).newPage();
   const errors = [];
   shell.on("pageerror", (error) => errors.push(error.message));
   if (process.env.FARGLASS_DEBUG) shell.on("console", (message) => console.log(`SHELL ${message.type()}: ${message.text()}`));
@@ -115,7 +115,7 @@ try {
     headless: false,
     viewport: null,
     locale: "en-US",
-    args: ["--ozone-platform=wayland", `--disable-extensions-except=${EXTENSION}`, `--load-extension=${EXTENSION}`, "--window-size=900,700", "--autoplay-policy=no-user-gesture-required"],
+    args: ["--ozone-platform=wayland", `--disable-extensions-except=${EXTENSION}`, `--load-extension=${EXTENSION}`, process.env.FARGLASS_HOST_SIZE ? `--window-size=${process.env.FARGLASS_HOST_SIZE}` : "--window-size=900,700", "--autoplay-policy=no-user-gesture-required"],
     env: { ...process.env, WAYLAND_DISPLAY: wayland, DISPLAY: "", FARGLASS_REDIRECT_SOCKET: redirectSocket },
   });
   const player = host.pages()[0] ?? (await host.newPage());
@@ -155,6 +155,54 @@ try {
   check(t1 - t0 > 0.6, `the client decodes and plays the stream (${(t1 - t0).toFixed(2)} s in 1 s)`);
 
   if (SHOTS) await shell.screenshot({ path: join(SHOTS, "youtube.png") });
+  // The theatre mode and back (key t): the client must show the video in each layout.
+  const sample = async (label) => {
+    await shell.waitForTimeout(3000);
+    const box = await shell.locator("video[data-redirect]").boundingBox().catch(() => null);
+    if (!box) return console.log(`SAMPLE ${label}: no client video`);
+    const shot = await shell.screenshot({ clip: { x: box.x + box.width * 0.3, y: box.y + box.height * 0.3, width: box.width * 0.4, height: box.height * 0.3 } });
+    if (SHOTS) {
+      writeFileSync(join(SHOTS, `yt-${label}.png`), shot);
+      await shell.screenshot({ path: join(SHOTS, `yt-full-${label}.png`) });
+    }
+    const level = await shell.evaluate(async (b64) => {
+      const image = new Image();
+      image.src = `data:image/png;base64,${b64}`;
+      await image.decode();
+      const canvas = new OffscreenCanvas(image.width, image.height);
+      const context = canvas.getContext("2d");
+      context.drawImage(image, 0, 0);
+      const data = context.getImageData(0, 0, image.width, image.height).data;
+      let sum = 0;
+      for (let i = 0; i < data.length; i += 4) sum += data[i] + data[i + 1] + data[i + 2];
+      return sum / (data.length / 4);
+    }, shot.toString("base64"));
+    console.log(`SAMPLE ${label}: brightness ${level.toFixed(0)} box ${Math.round(box.width)}x${Math.round(box.height)}`);
+    console.log(`DIAG ${label}: ${JSON.stringify(await shell.evaluate(() => globalThis.farglassRedirect?.()))}`);
+    // The client video alone, with the canvas hidden: is the video bright?
+    const own = await shell.evaluate(() => {
+      const video = document.querySelector("video[data-redirect]");
+      const canvas = document.createElement("canvas");
+      canvas.width = 64;
+      canvas.height = 36;
+      const context = canvas.getContext("2d");
+      context.drawImage(video, 0, 0, 64, 36);
+      const data = context.getImageData(0, 0, 64, 36).data;
+      let sum = 0;
+      for (let i = 0; i < data.length; i += 4) sum += data[i] + data[i + 1] + data[i + 2];
+      return sum / (data.length / 4);
+    });
+    console.log(`VIDEO ${label}: own brightness ${own.toFixed(0)}`);
+  };
+  if (process.env.FARGLASS_THEATRE) {
+    await sample("normal");
+    await player.keyboard.press("t");
+    await sample("theatre");
+    await player.keyboard.press("t");
+    await sample("back");
+    await shell.waitForTimeout(4000);
+    await sample("later");
+  }
   const mode = await player.evaluate(() => [...document.querySelectorAll("video")].map((v) => `${v.style.getPropertyValue("visibility") || "-"} ${v.style.getPropertyValue("filter") || "-"}`));
   console.log("HOST DRAW", JSON.stringify(mode));
   const chain = await player.evaluate(() => {

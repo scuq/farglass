@@ -65,6 +65,8 @@ function startVideo(codec: string): void {
         current.lastOutput = performance.now();
         if (place && video === current) {
           context?.drawImage(frame, place.x, place.y, place.w, place.h);
+          // A region that changes in each frame, for example the glow of a player around a redirected video.
+          keyLossy(place.x, place.y, place.w, place.h);
           videoFrames += 1;
           postMessage({ type: "video", frames: videoFrames });
         }
@@ -108,15 +110,27 @@ function keyPart(x: number, y: number, w: number, h: number): KeyRect | null {
   return x1 > x0 && y1 > y0 ? { x: x0, y: y0, width: x1 - x0, height: y1 - y0 } : null;
 }
 
-/** Makes the black pixels of `part` of the canvas transparent, or opaque again. */
-function rekey(part: KeyRect, transparent: boolean): void {
+/**
+ * The largest channel value that counts as black after a lossy draw: an H.264 frame or a JPEG tile
+ * has noise near the black of the host. An exact tile has black at 0.
+ */
+const LOSSY_BLACK = 20;
+
+/** Makes the black pixels of `part` of the canvas transparent, or opaque again. `tolerance` is the largest channel value of black. */
+function rekey(part: KeyRect, transparent: boolean, tolerance = 0): void {
   if (!context) return;
   const image = context.getImageData(part.x, part.y, part.width, part.height);
   const data = image.data;
   for (let i = 0; i < data.length; i += 4) {
-    if (data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 0) data[i + 3] = transparent ? 0 : 255;
+    if (data[i]! <= tolerance && data[i + 1]! <= tolerance && data[i + 2]! <= tolerance) data[i + 3] = transparent ? 0 : 255;
   }
   context.putImageData(image, part.x, part.y);
+}
+
+/** Makes the near-black pixels of a lossy draw in the key rectangle transparent, for example a frame of the video region. */
+function keyLossy(x: number, y: number, w: number, h: number): void {
+  const part = keyPart(x, y, w, h);
+  if (part) rekey(part, true, LOSSY_BLACK);
 }
 
 function setKey(next: KeyRect | null): void {
@@ -168,6 +182,7 @@ const decoder = new SurfaceDecoder({
     context?.clearRect(x, y, width, height);
     context?.drawImage(bitmap, x, y, width, height);
     bitmap.close();
+    keyLossy(x, y, width, height);
   },
   video(x, y, w, h, flags, data) {
     if (videoFailed) return Promise.resolve();

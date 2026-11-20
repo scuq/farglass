@@ -25,9 +25,20 @@ export const STALL_MS = 3000;
 /** The state of a video element of the host. */
 type HostState = Extract<RedirectEvent, { type: "state" }>;
 
-/** Returns the rectangle of the video in the window, in logical pixels, clipped to the viewport. None if no part shows. */
-export function placement(state: Pick<HostState, "rect" | "viewport" | "zoom">): RedirectRect | null {
-  const { rect, viewport, zoom } = state;
+/**
+ * Returns the rectangle of the video in the window, in logical pixels, clipped to the viewport. None if no part shows.
+ *
+ * With `frame`, the size of the window geometry from the compositor, the viewport goes at the bottom
+ * of the window, with side frames of the same width. The page knows the size of its viewport, but its
+ * outer size can have the shadow of the window in it.
+ */
+export function placement(state: Pick<HostState, "rect" | "viewport" | "zoom">, frame?: { width: number; height: number }): RedirectRect | null {
+  const { rect, zoom } = state;
+  let viewport = state.viewport;
+  if (frame && frame.width >= viewport.width && frame.height >= viewport.height) {
+    const side = (frame.width - viewport.width) / 2;
+    viewport = { ...viewport, x: side, y: Math.max(0, frame.height - viewport.height - side) };
+  }
   const x0 = Math.max(viewport.x + rect.x * zoom, viewport.x);
   const y0 = Math.max(viewport.y + rect.y * zoom, viewport.y);
   const x1 = Math.min(viewport.x + (rect.x + rect.width) * zoom, viewport.x + viewport.width);
@@ -68,8 +79,13 @@ export class RedirectedMedia {
   state: HostState | null = null;
   stateAt = 0;
   failed = false;
-  /** Reports whether the video had a frame. A seek then does not take it away. */
+  /** Reports whether the video had a frame. */
   started = false;
+  /**
+   * Reports whether the video played in step with the host one time. Only then does the client
+   * show it, thus the host does not hide its video while the client still seeks. A later seek keeps it.
+   */
+  inStep = false;
   /** Why the client gave the video back to the host, for the diagnosis. */
   reason: string | null = null;
   readonly #created = performance.now();
@@ -220,6 +236,9 @@ export class RedirectedMedia {
     if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) this.started = true;
     this.#check(now, !state.paused);
     if (this.failed) return;
+    if (!this.inStep && video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA && !video.seeking) {
+      this.inStep = Math.abs(video.currentTime - hostTime(state, now - this.stateAt)) < SEEK_AFTER * 1.5;
+    }
     if (video.playbackRate !== state.rate) video.playbackRate = state.rate;
     const host = hostTime(state, now - this.stateAt);
     if (video.readyState >= HTMLMediaElement.HAVE_METADATA && !video.seeking && mustSeek(video.currentTime, host)) {
@@ -276,6 +295,7 @@ export class RedirectManager {
         showing: this.#showing.get(media.id) ?? false,
         failed: media.reason,
         started: media.started,
+        inStep: media.inStep,
         paused: video.paused,
         time: Number(video.currentTime.toFixed(2)),
         host: media.state ? Number(hostTime(media.state, performance.now() - media.stateAt).toFixed(2)) : null,
@@ -294,15 +314,15 @@ export class RedirectManager {
     this.#medias.clear();
   }
 
-  /** The players that show in a window whose title is `title`. */
-  playersFor(title: string): Player[] {
+  /** The players that show in a window whose title is `title`, and whose window geometry has the size `frame`. */
+  playersFor(title: string, frame?: { width: number; height: number }): Player[] {
     this.#version[0]();
     const players: Player[] = [];
     for (const media of this.#medias.values()) {
       const state = media.state;
       if (!state || !state.visible || media.failed || !state.title || !title.startsWith(state.title)) continue;
-      if (!media.started) continue;
-      const rect = placement(state);
+      if (!media.started || !media.inStep) continue;
+      const rect = placement(state, frame);
       if (rect) players.push({ media, rect });
     }
     return players;

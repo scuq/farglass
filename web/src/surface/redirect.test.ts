@@ -12,6 +12,13 @@ describe("placement", () => {
     // Scrolled half out at the top: the part under the toolbar does not show.
     expect(placement({ rect: { x: 0, y: -100, width: 400, height: 200 }, viewport, zoom: 1 })).toEqual({ x: 0, y: 90, width: 400, height: 100 });
     expect(placement({ rect: { x: 0, y: -300, width: 400, height: 200 }, viewport, zoom: 1 })).toBeNull();
+    // The window geometry from the compositor: no shadow. A frame of 1000 x 790 has no side frame and the toolbar above.
+    expect(placement({ rect: { x: 10, y: 20, width: 400, height: 225 }, viewport: { x: 12, y: 102, width: 1000, height: 700 }, zoom: 1 }, { width: 1000, height: 790 })).toEqual({
+      x: 10,
+      y: 110,
+      width: 400,
+      height: 225,
+    });
   });
 
   test("the time of the host moves on while it plays, and the client seeks only for a large difference", () => {

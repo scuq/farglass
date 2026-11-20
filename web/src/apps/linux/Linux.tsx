@@ -224,7 +224,11 @@ export default function Linux(props: { context: AppContext }) {
 
   // The videos of the host browser in this window play in the client (F040). The container has
   // the window geometry at (0, 0): a rectangle of the window is a rectangle of the container.
-  const players = () => manager.redirect.playersFor(info()?.title ?? "");
+  const players = () => {
+    const surface = info();
+    const frame = surface?.geometry ?? (surface ? { width: surface.width / surface.scale, height: surface.height / surface.scale } : undefined);
+    return manager.redirect.playersFor(surface?.title ?? "", frame && { width: frame.width, height: frame.height });
+  };
   const shown = new Set<string>();
   createEffect(players, (list) => {
     const now = new Set<string>();
