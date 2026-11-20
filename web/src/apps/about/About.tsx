@@ -1,4 +1,5 @@
 import { createSignal, onCleanup } from "solid-js";
+import logo from "../../brand/farglass.svg";
 import { DbusClient } from "../../dbus";
 import { PROTOCOL_VERSION } from "../../proto";
 import type { AppContext } from "../types";
@@ -22,7 +23,10 @@ export default function About(props: { context: AppContext }) {
 
   return (
     <section class="about">
-      <h1>farglass</h1>
+      <h1>
+        <img class="about-logo" src={logo} alt="" width="40" height="40" />
+        farglass
+      </h1>
       <p>The desktop of {window.location.hostname} in your browser.</p>
       <dl>
         <dt>User</dt>

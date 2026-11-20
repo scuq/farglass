@@ -187,6 +187,16 @@ describe("App", () => {
     expect(host.querySelector("h1")?.textContent).toContain("Log in to");
   });
 
+  test("the login screen is in the LCARS frame, and the frame is hidden from screen readers", async () => {
+    const { connection } = await fakeConnection();
+    const host = mount(() => <App connect={() => Promise.resolve(connection)} />);
+    await settle();
+    expect(host.querySelector(".lcars-page .login")).not.toBeNull();
+    expect(host.querySelector(".lcars-top")?.getAttribute("aria-hidden")).toBe("true");
+    expect(host.querySelector(".lcars-side")?.getAttribute("aria-hidden")).toBe("true");
+    expect(host.querySelector(".lcars-brand img")?.getAttribute("alt")).toBe("");
+  });
+
   test("a login with a ticket stores the session", async () => {
     const { server, connection } = await fakeConnection();
     const tickets: string[] = [];

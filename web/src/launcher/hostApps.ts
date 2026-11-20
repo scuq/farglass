@@ -9,6 +9,7 @@
 
 import { createSignal, type Signal } from "solid-js";
 import { APPS } from "../apps/registry";
+import logo from "../brand/farglass.svg";
 import type { AppsEvent, AppsRequest, Channel, Connection, HostApp } from "../proto";
 import { surfaceManagerFor, surfaceOf } from "../surface/manager";
 
@@ -149,11 +150,11 @@ export function startHostApps(connection: Connection): () => void {
   };
 }
 
-/** Returns the icon of a window: the icon of the host app for a surface window, else the icon of the shell app. */
-export function windowIcon(win: { readonly id: string; readonly app: string }): string | undefined {
+/** Returns the icon of a window: the icon of the host app for a surface window, else the icon of the shell app, else the farglass icon. */
+export function windowIcon(win: { readonly id: string; readonly app: string }): string {
   if (win.app === "linux") {
     const icon = active?.iconForWindow(win.id);
     if (icon) return icon;
   }
-  return APPS[win.app]?.icon;
+  return APPS[win.app]?.icon ?? logo;
 }

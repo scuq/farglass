@@ -1,4 +1,5 @@
 import { createSignal, onCleanup, Show } from "solid-js";
+import { LcarsFrame } from "./brand/LcarsFrame";
 import type { Connection } from "./proto";
 
 /**
@@ -54,38 +55,43 @@ export function PinScreen(props: { connection: Connection; onaccepted: () => voi
   const minutes = () => Math.ceil(retryIn() / 60);
 
   return (
-    <section class="login" aria-labelledby="pin-title">
-      <h1 id="pin-title">Log in to {window.location.hostname}</h1>
-      <p>This host asks for its PIN before the login.</p>
-      <Show when={error()}>
-        <ul class="login-messages">
-          <li data-kind="error" role="alert">
-            {error()}
-            <Show when={retryIn() > 0}> Try again in {minutes() === 1 ? "1 minute" : `${minutes()} minutes`}.</Show>
-          </li>
-        </ul>
-      </Show>
-      <form onSubmit={(event) => void submit(event)}>
-        <label for="pin-answer">PIN of this host</label>
-        <input
-          id="pin-answer"
-          ref={(element) => {
-            input = element;
-            queueMicrotask(() => element.focus());
-          }}
-          type="password"
-          inputmode="numeric"
-          pattern="[0-9]{4,6}"
-          minlength={4}
-          maxlength={6}
-          autocomplete="off"
-          disabled={busy() || retryIn() > 0}
-          required
-        />
-        <button type="submit" disabled={busy() || retryIn() > 0}>
-          Continue
-        </button>
-      </form>
-    </section>
+    <LcarsFrame>
+      <section class="login" aria-labelledby="pin-title">
+        <h1 id="pin-title">Log in to {window.location.hostname}</h1>
+        <p>This host asks for its PIN before the login.</p>
+        <Show when={error()}>
+          <ul class="login-messages">
+            <li data-kind="error" role="alert">
+              {error()}
+              <Show when={retryIn() > 0}> Try again in {minutes() === 1 ? "1 minute" : `${minutes()} minutes`}.</Show>
+            </li>
+          </ul>
+        </Show>
+        <form onSubmit={(event) => void submit(event)}>
+          <div class="field secret">
+            <label for="pin-answer">PIN of this host</label>
+            <input
+              id="pin-answer"
+              ref={(element) => {
+                input = element;
+                queueMicrotask(() => element.focus());
+              }}
+              type="password"
+              inputmode="numeric"
+              pattern="[0-9]{4,6}"
+              minlength={4}
+              maxlength={6}
+              autocomplete="off"
+              disabled={busy() || retryIn() > 0}
+              required
+            />
+          </div>
+          <button type="submit" class="connect" disabled={busy() || retryIn() > 0}>
+            Continue
+            <span aria-hidden="true">→</span>
+          </button>
+        </form>
+      </section>
+    </LcarsFrame>
   );
 }

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="64" fill="#100B1A"/>
+
+  <!-- LCARS -->
+  <path d="M30 192V132Q30 30 132 30H208V72H132Q72 72 72 132V192Z" fill="#FFB23F"/>
+  <rect x="218" y="30" width="126" height="42" rx="3" fill="#FF9F27"/>
+  <rect x="354" y="30" width="60" height="42" rx="3" fill="#A98AC6"/>
+  <rect x="424" y="30" width="58" height="42" rx="3" fill="#D96C79"/>
+  <rect x="30" y="203" width="42" height="125" rx="3" fill="#E88B61"/>
+  <rect x="30" y="338" width="42" height="144" rx="3" fill="#A98AC6"/>
+
+  <!-- F -->
+  <path d="M178 163H402V215H232V349H178Z" fill="#FFF0D5"/>
+  <path d="M232 263H360V311H232Z" fill="#FFAA23"/>
+</svg>

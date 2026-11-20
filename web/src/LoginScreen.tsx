@@ -1,4 +1,5 @@
 import { createSignal, For, onCleanup, Show } from "solid-js";
+import { LcarsFrame } from "./brand/LcarsFrame";
 import { describeSession, Login, promptAutocomplete, promptLabel } from "./login";
 import { credentialJson, hasPasskeys, passkeyError, requestOptions } from "./passkey";
 import type { Connection, LocalSession, LoginEvent } from "./proto";
@@ -194,158 +195,170 @@ export function LoginScreen(props: {
   });
 
   return (
-    <section class="login" data-locked={props.locked ? "true" : undefined} aria-labelledby="login-title">
-      <Show when={props.locked} fallback={<h1 id="login-title">Log in to {window.location.hostname}</h1>}>
-        {(user) => (
-          <>
-            <h1 id="login-title">Locked</h1>
-            <p class="login-locked">
-              The session of <strong>{user()}</strong> on {window.location.hostname} is locked. Your programs continue.
-            </p>
-          </>
-        )}
-      </Show>
-
-      <Show when={messages().length > 0}>
-        <ul class="login-messages">
-          <For each={messages()}>
-            {(message) => (
-              <li data-kind={message.kind} role={message.kind === "error" ? "alert" : undefined}>
-                {message.text}
-              </li>
-            )}
-          </For>
-        </ul>
-      </Show>
-
-      <Show when={prompt()}>
-        {(current) => (
-          <form onSubmit={submit}>
-            <label for="login-answer">{promptLabel(current().text)}</label>
-            <input
-              id="login-answer"
-              ref={(element) => {
-                input = element;
-              }}
-              type={current().echo ? "text" : "password"}
-              autocomplete={promptAutocomplete(current().text, current().echo)}
-              autocapitalize="off"
-              spellcheck={false}
-              value={answer()}
-              onInput={(event) => setAnswer(event.currentTarget.value)}
-              disabled={stage() !== "prompt"}
-              required
-            />
-            <button type="submit" disabled={stage() !== "prompt"}>
-              Continue
-            </button>
-          </form>
-        )}
-      </Show>
-
-      <Show when={stage() === "confirm"}>
-        <div class="login-confirm" role="alertdialog" aria-labelledby="confirm-title" aria-describedby="confirm-text">
-          <h2 id="confirm-title">End the local session?</h2>
-          <p id="confirm-text">
-            You have {local().map(describeSession).join(" and ")} on this host. One user has one graphical session at a
-            time. If you continue, the local session ends, and work that is not saved in it is lost.
-          </p>
-          <div class="login-confirm-actions">
-            <button
-              type="button"
-              ref={(element) => {
-                cancelButton = element;
-              }}
-              onClick={() => confirm(false)}
-            >
-              Cancel
-            </button>
-            <button type="button" class="danger" onClick={() => confirm(true)}>
-              End the local session and log in
-            </button>
-          </div>
-        </div>
-      </Show>
-
-      <Show when={stage() === "passkey" && passkey()}>
-        {(step) => (
-          <div class="login-passkey">
-            <h2>Second step: your passkey</h2>
-            <Show when={step().elsewhere.length > 0 && !step().options}>
-              <p>
-                Your passkeys belong to {step().elsewhere.join(" and ")}. A passkey works only on its host name: open farglass at{" "}
-                {step().elsewhere.map((host) => `https://${host}`).join(" or ")}, or use a recovery code.
+    <LcarsFrame>
+      <section class="login" data-locked={props.locked ? "true" : undefined} aria-labelledby="login-title">
+        <Show when={props.locked} fallback={<h1 id="login-title">Log in to {window.location.hostname}</h1>}>
+          {(user) => (
+            <>
+              <h1 id="login-title">Locked</h1>
+              <p class="login-locked">
+                The session of <strong>{user()}</strong> on {window.location.hostname} is locked. Your programs continue.
               </p>
-            </Show>
-            <Show when={step().options && !hasPasskeys()}>
-              <p>This browser cannot use a passkey on this page. A passkey needs HTTPS with a valid certificate. Use a recovery code.</p>
-            </Show>
-            <Show when={step().options && hasPasskeys()}>
-              <p>Use the passkey that you added in Settings &gt; Passkeys: your phone, a security key, or this computer.</p>
-              <button
-                type="button"
-                class="primary"
-                ref={(element) => {
-                  passkeyButton = element;
-                }}
-                onClick={() => void usePasskey()}
-              >
-                Use my passkey
-              </button>
-            </Show>
-            <Show
-              when={useCode()}
-              fallback={
-                <button type="button" class="login-link" onClick={() => setUseCode(true)}>
-                  I lost my passkey: use a recovery code
-                </button>
-              }
-            >
-              <form onSubmit={submitCode}>
-                <label for="login-code">Recovery code</label>
+            </>
+          )}
+        </Show>
+
+        <Show when={messages().length > 0}>
+          <ul class="login-messages">
+            <For each={messages()}>
+              {(message) => (
+                <li data-kind={message.kind} role={message.kind === "error" ? "alert" : undefined}>
+                  {message.text}
+                </li>
+              )}
+            </For>
+          </ul>
+        </Show>
+
+        <Show when={prompt()}>
+          {(current) => (
+            <form onSubmit={submit}>
+              <div class={current().echo ? "field" : "field secret"}>
+                <label for="login-answer">{promptLabel(current().text)}</label>
                 <input
-                  id="login-code"
+                  id="login-answer"
                   ref={(element) => {
-                    codeInput = element;
+                    input = element;
                   }}
-                  type="text"
-                  autocomplete="one-time-code"
+                  type={current().echo ? "text" : "password"}
+                  autocomplete={promptAutocomplete(current().text, current().echo)}
                   autocapitalize="off"
                   spellcheck={false}
-                  placeholder="xxxx-xxxx-xxxx-xxxx"
+                  value={answer()}
+                  onInput={(event) => setAnswer(event.currentTarget.value)}
+                  disabled={stage() !== "prompt"}
                   required
                 />
-                <button type="submit">Continue</button>
-              </form>
-              <p class="login-hint">Each recovery code works one time. With no code left, the administrator can remove your passkeys.</p>
-            </Show>
+              </div>
+              <button type="submit" class="connect" disabled={stage() !== "prompt"}>
+                Continue
+                <span aria-hidden="true">→</span>
+              </button>
+            </form>
+          )}
+        </Show>
+
+        <Show when={stage() === "confirm"}>
+          <div class="login-confirm" role="alertdialog" aria-labelledby="confirm-title" aria-describedby="confirm-text">
+            <h2 id="confirm-title">End the local session?</h2>
+            <p id="confirm-text">
+              You have {local().map(describeSession).join(" and ")} on this host. One user has one graphical session at a
+              time. If you continue, the local session ends, and work that is not saved in it is lost.
+            </p>
+            <div class="login-confirm-actions">
+              <button
+                type="button"
+                class="login-secondary"
+                ref={(element) => {
+                  cancelButton = element;
+                }}
+                onClick={() => confirm(false)}
+              >
+                Cancel
+              </button>
+              <button type="button" class="danger" onClick={() => confirm(true)}>
+                End the local session and log in
+              </button>
+            </div>
           </div>
-        )}
-      </Show>
+        </Show>
 
-      <p class="login-state" role="status">
-        {stage() === "waiting"
-          ? "Waiting for the login service"
-          : stage() === "checking"
-            ? "Checking"
-            : stage() === "blocked"
-              ? retryIn() > 0
-                ? `Too many failed logins. Try again in ${retryIn()} s.`
-                : "You can try again now."
-              : ""}
-      </p>
+        <Show when={stage() === "passkey" && passkey()}>
+          {(step) => (
+            <div class="login-passkey">
+              <h2>Second step: your passkey</h2>
+              <Show when={step().elsewhere.length > 0 && !step().options}>
+                <p>
+                  Your passkeys belong to {step().elsewhere.join(" and ")}. A passkey works only on its host name: open farglass at{" "}
+                  {step().elsewhere.map((host) => `https://${host}`).join(" or ")}, or use a recovery code.
+                </p>
+              </Show>
+              <Show when={step().options && !hasPasskeys()}>
+                <p>This browser cannot use a passkey on this page. A passkey needs HTTPS with a valid certificate. Use a recovery code.</p>
+              </Show>
+              <Show when={step().options && hasPasskeys()}>
+                <p>Use the passkey that you added in Settings &gt; Passkeys: your phone, a security key, or this computer.</p>
+                <button
+                  type="button"
+                  class="connect"
+                  ref={(element) => {
+                    passkeyButton = element;
+                  }}
+                  onClick={() => void usePasskey()}
+                >
+                  Use my passkey
+                  <span aria-hidden="true">→</span>
+                </button>
+              </Show>
+              <Show
+                when={useCode()}
+                fallback={
+                  <button type="button" class="login-link" onClick={() => setUseCode(true)}>
+                    I lost my passkey: use a recovery code
+                  </button>
+                }
+              >
+                <form onSubmit={submitCode}>
+                  <div class="field secret">
+                    <label for="login-code">Recovery code</label>
+                    <input
+                      id="login-code"
+                      ref={(element) => {
+                        codeInput = element;
+                      }}
+                      type="text"
+                      autocomplete="one-time-code"
+                      autocapitalize="off"
+                      spellcheck={false}
+                      placeholder="xxxx-xxxx-xxxx-xxxx"
+                      required
+                    />
+                  </div>
+                  <button type="submit" class="connect">
+                    Continue
+                    <span aria-hidden="true">→</span>
+                  </button>
+                </form>
+                <p class="login-hint">Each recovery code works one time. With no code left, the administrator can remove your passkeys.</p>
+              </Show>
+            </div>
+          )}
+        </Show>
 
-      <Show when={stage() === "failed" || stage() === "blocked"}>
-        <button type="button" onClick={retry} disabled={stage() === "blocked" && retryIn() > 0}>
-          Try again
-        </button>
-      </Show>
+        <p class="login-state" role="status">
+          {stage() === "waiting"
+            ? "Waiting for the login service"
+            : stage() === "checking"
+              ? "Checking"
+              : stage() === "blocked"
+                ? retryIn() > 0
+                  ? `Too many failed logins. Try again in ${retryIn()} s.`
+                  : "You can try again now."
+                : ""}
+        </p>
 
-      <Show when={props.locked && props.onswitch}>
-        <button type="button" class="login-switch" onClick={() => props.onswitch?.()}>
-          Log in as a different user
-        </button>
-      </Show>
-    </section>
+        <Show when={stage() === "failed" || stage() === "blocked"}>
+          <button type="button" class="login-secondary" onClick={retry} disabled={stage() === "blocked" && retryIn() > 0}>
+            Try again
+          </button>
+        </Show>
+
+        <Show when={props.locked && props.onswitch}>
+          <button type="button" class="login-switch" onClick={() => props.onswitch?.()}>
+            Log in as a different user
+          </button>
+        </Show>
+      </section>
+    </LcarsFrame>
   );
 }
