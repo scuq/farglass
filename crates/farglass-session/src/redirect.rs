@@ -39,7 +39,7 @@ const MAX_MESSAGE: usize = 64 << 20;
 const KEEP_APPENDS: usize = 300;
 
 /// The bytes of the appends that the agent keeps for each media source.
-const KEEP_BYTES: usize = 48 << 20;
+const KEEP_BYTES: usize = 16 << 20;
 
 /// Returns the path of the socket: `FARGLASS_REDIRECT_SOCKET`, or `farglass-redirect.sock` in `XDG_RUNTIME_DIR`.
 #[must_use]

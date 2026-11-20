@@ -179,11 +179,12 @@ try {
       const before = [cpuOfTree(hostPid), cpuOfTree(agent.child.pid)];
       await shell.waitForTimeout(10000);
       const after = [cpuOfTree(hostPid), cpuOfTree(agent.child.pid)];
-      console.log(`MEASURE: ${label}: host browser ${(((after[0] - before[0]) / 10) * 100).toFixed(0)} % of a core, agent ${(((after[1] - before[1]) / 10) * 100).toFixed(0)} %`);
+      const rss = Number(readFileSync(`/proc/${agent.child.pid}/statm`, "utf8").split(" ")[1]) * 4096;
+      console.log(`MEASURE: ${label}: host browser ${(((after[0] - before[0]) / 10) * 100).toFixed(0)} % of a core, agent ${(((after[1] - before[1]) / 10) * 100).toFixed(0)} %, agent memory ${Math.round(rss / 1e6)} MB`);
     };
     await measure("video drawn on the host", {});
     await measure("video drawn black (filter)", { filter: "brightness(0)" });
-    await measure("video hidden (visibility)", { visibility: "hidden" });
+    await measure("video hidden with a black box (the default)", { visibility: "hidden" });
   }
   check(errors.length === 0, `no page error ${errors.join("; ")}`);
 } catch (error) {

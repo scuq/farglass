@@ -89,35 +89,43 @@
     return url;
   };
 
-  /** Reports whether the page under the video is black: the first background under it is black. */
-  const blackBehind = (video) => {
-    for (let element = video.parentElement; element; element = element.parentElement) {
-      const color = getComputedStyle(element).backgroundColor;
-      const match = /rgba?\(([\d.]+), ([\d.]+), ([\d.]+)(?:, ([\d.]+))?\)/.exec(color);
-      if (!match || match[4] === "0") continue;
-      return match[1] === "0" && match[2] === "0" && match[3] === "0";
-    }
-    return false;
+  /** The black boxes behind the hidden videos. */
+  const backdrops = new WeakMap();
+
+  /** Places the black box of a video at the box of the video, under it. */
+  const place = (video, backdrop) => {
+    Object.assign(backdrop.style, {
+      left: `${video.offsetLeft}px`,
+      top: `${video.offsetTop}px`,
+      width: `${video.offsetWidth}px`,
+      height: `${video.offsetHeight}px`,
+    });
   };
 
   /**
-   * Sets how the host draws a video that the client shows: black, so that the client sees through it.
-   * A hidden video costs the host nothing to draw and gives no new frames to encode, thus the
-   * video hides if the page under it is black, as in most players. Else a filter draws it black.
+   * Sets how the host draws a video that the client shows. The video hides: the host has nothing
+   * to draw and nothing to encode. A black box takes its place under the controls of the page,
+   * and the client sees its own video through the black.
    */
   const draw = (video, black) => {
+    let backdrop = backdrops.get(video);
     if (black) {
-      const property = blackBehind(video) ? "visibility" : "filter";
-      if (video.dataset.farglassProperty === property) return;
-      // The page changed under the video, for example after its layout: the other way applies now.
-      if ("farglassProperty" in video.dataset) draw(video, false);
-      video.dataset.farglassProperty = property;
-      video.dataset.farglassValue = video.style.getPropertyValue(property);
-      video.style.setProperty(property, property === "visibility" ? "hidden" : "brightness(0)", "important");
-    } else if ("farglassProperty" in video.dataset) {
-      video.style.setProperty(video.dataset.farglassProperty, video.dataset.farglassValue);
-      delete video.dataset.farglassProperty;
-      delete video.dataset.farglassValue;
+      if (!backdrop) {
+        backdrop = document.createElement("div");
+        backdrop.dataset.farglassBackdrop = "";
+        backdrop.style.cssText = "position:absolute;background:#000;pointer-events:none;margin:0;padding:0;border:0";
+        backdrops.set(video, backdrop);
+        video.dataset.farglassVisibility = video.style.getPropertyValue("visibility");
+        video.style.setProperty("visibility", "hidden", "important");
+      }
+      // The box goes before the video: the controls after the video stay on top of it.
+      if (backdrop.nextSibling !== video) video.before(backdrop);
+      place(video, backdrop);
+    } else if (backdrop) {
+      backdrop.remove();
+      backdrops.delete(video);
+      video.style.setProperty("visibility", video.dataset.farglassVisibility ?? "");
+      delete video.dataset.farglassVisibility;
     }
   };
 

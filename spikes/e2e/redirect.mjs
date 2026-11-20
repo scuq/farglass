@@ -194,8 +194,12 @@ source.addEventListener("sourceopen", async () => {
   check(t1 - t0 > 0.6, `the client decodes and plays the stream (${(t1 - t0).toFixed(2)} s in 1 s)`);
 
   // 2. The host draws its video black, and the client shows its own video through the canvas.
-  await player.waitForFunction(() => getComputedStyle(document.getElementById("v")).filter.includes("brightness(0)"), null, { timeout: TIMEOUT_MS });
-  check(true, "the host draws the video black while the client shows it: the page under it is white");
+  await player.waitForFunction(
+    () => getComputedStyle(document.getElementById("v")).visibility === "hidden" && document.querySelector("[data-farglass-backdrop]")?.nextElementSibling?.id === "v",
+    null,
+    { timeout: TIMEOUT_MS },
+  );
+  check(true, "the host hides the video and puts a black box under it, also on a white page");
   const box = await video.boundingBox();
   check(box && box.width > 600 && box.width < 680, `the client video has the size of the player (${box?.width}x${box?.height})`);
   await shell.waitForTimeout(1500);
@@ -263,11 +267,12 @@ source.addEventListener("sourceopen", async () => {
       const before = [cpuOfTree(hostPid), cpuOfTree(agent.child.pid)];
       await shell.waitForTimeout(10000);
       const after = [cpuOfTree(hostPid), cpuOfTree(agent.child.pid)];
-      console.log(`MEASURE: ${label}: host browser ${(((after[0] - before[0]) / 10) * 100).toFixed(0)} % of a core, agent ${(((after[1] - before[1]) / 10) * 100).toFixed(0)} %`);
+      const rss = Number(readFileSync(`/proc/${agent.child.pid}/statm`, "utf8").split(" ")[1]) * 4096;
+      console.log(`MEASURE: ${label}: host browser ${(((after[0] - before[0]) / 10) * 100).toFixed(0)} % of a core, agent ${(((after[1] - before[1]) / 10) * 100).toFixed(0)} %, agent memory ${Math.round(rss / 1e6)} MB`);
     };
     await measure("video drawn on the host", {});
     await measure("video drawn black (filter)", { filter: "brightness(0)" });
-    await measure("video hidden (visibility)", { visibility: "hidden" });
+    await measure("video hidden with a black box (the default)", { visibility: "hidden" });
   }
   check(errors.length === 0, `no page error ${errors.join("; ")}`);
 } catch (error) {

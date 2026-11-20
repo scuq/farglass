@@ -276,7 +276,7 @@ A video of a web page in the host browser plays in your browser, with the decode
 The extension in `extension/redirect` copies what the page gives to Media Source Extensions and the state of the video.
 Its native messaging host, `farglass-session`, gives the copy to the agent through `$XDG_RUNTIME_DIR/farglass-redirect.sock`.
 Your browser plays the same stream in a video element under the window of the host browser, at the time of the host.
-The host hides the video or draws it black, and the black pixels of that rectangle are transparent in your browser: the controls of the page stay on top.
+The host hides the video and puts a black box under the controls of the page, and the black pixels of that rectangle are transparent in your browser: the controls stay on top.
 The agent then encodes nothing for the video.
 The launcher starts Chromium and Brave with the extension, and the agent writes the native messaging manifest in a web session.
 A browser that you start in a terminal needs `--load-extension=/usr/share/farglass/redirect-extension`.
