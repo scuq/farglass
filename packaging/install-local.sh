@@ -61,6 +61,8 @@ install_all() {
 
     install -D -m 0644 "$REPO/packaging/pam.d/farglass" /etc/pam.d/farglass
     install -D -m 0644 "$REPO/packaging/pam.d/farglass-session" /etc/pam.d/farglass-session
+    # The portals of the farglass desktop: the GTK backend, not the GNOME backend.
+    install -D -m 0644 "$REPO/packaging/xdg-desktop-portal/farglass-portals.conf" /usr/share/xdg-desktop-portal/farglass-portals.conf
 
     if [ -e "$CONF" ]; then
         echo "Keeping the existing $CONF."
@@ -133,7 +135,8 @@ uninstall_all() {
         rm -f "/etc/systemd/system/$unit"
     done
     systemctl daemon-reload
-    rm -rf "$LIBEXEC" /usr/share/farglass /etc/pam.d/farglass /etc/pam.d/farglass-session /run/farglass
+    rm -rf "$LIBEXEC" /usr/share/farglass /etc/pam.d/farglass /etc/pam.d/farglass-session /run/farglass \
+        /usr/share/xdg-desktop-portal/farglass-portals.conf
     if [ "${1:-}" = "--purge" ]; then
         rm -rf /etc/farglass /var/lib/farglass
         userdel farglass 2>/dev/null || true

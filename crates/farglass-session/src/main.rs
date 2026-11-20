@@ -82,6 +82,18 @@ async fn main() {
         match session.surfaces.start(&socket) {
             Ok(compositor) => {
                 tracing::info!(socket = %socket.display(), "the Wayland compositor listens");
+                // A web session: programs that D-Bus starts must find the compositor, not a GNOME that is not there.
+                if std::env::var_os("XDG_SESSION_ID").is_some() {
+                    let buses = session.buses.clone();
+                    let socket = socket.clone();
+                    tokio::spawn(async move {
+                        match farglass_session::desktop::announce(&buses, &socket).await {
+                            Ok(true) => tracing::info!("the user manager and D-Bus activation have the farglass desktop"),
+                            Ok(false) => tracing::info!("the user manager has a display already, the agent keeps it"),
+                            Err(error) => tracing::warn!(%error, "the desktop variables did not go to the user manager"),
+                        }
+                    });
+                }
                 Some(compositor)
             }
             Err(error) => {

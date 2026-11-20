@@ -8,6 +8,7 @@
 #![warn(missing_docs)]
 
 pub mod dbus;
+pub mod desktop;
 pub mod link;
 pub mod logind;
 pub mod notify;

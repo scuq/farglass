@@ -226,6 +226,11 @@ WAYLAND_DISPLAY=/tmp/farglass-wayland-test GDK_BACKEND=wayland gnome-calculator
 
 The example prints each event and writes the last frame of each window to `/tmp/ID.ppm`.
 
+In a web session, the agent gives `WAYLAND_DISPLAY`, `XDG_SESSION_TYPE=wayland`, and `XDG_CURRENT_DESKTOP=farglass` to the systemd user manager and to D-Bus activation, as a local desktop does.
+Thus a program that D-Bus starts, for example the desktop portal, finds the compositor.
+The agent changes nothing if the user manager has a display already, for example from a local GNOME session.
+`packaging/xdg-desktop-portal/farglass-portals.conf` selects the GTK portal backend for the farglass desktop.
+
 ## Settings
 
 The settings app has these pages:

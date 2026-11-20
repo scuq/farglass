@@ -336,7 +336,7 @@ fn spawn(
     };
     // The Wayland apps of a terminal show in the shell (F024).
     let command = match options.wayland.as_deref().filter(|path| path.exists()) {
-        Some(socket) => command.env("WAYLAND_DISPLAY", socket),
+        Some(socket) => command.envs(crate::desktop::variables(socket)),
         None => command,
     };
     let child = command
