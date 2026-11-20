@@ -26,6 +26,25 @@ pub enum ConnectionMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         locked: Option<String>,
+        /// From farglassd: the host has a machine PIN (F059). The connection has no user, and
+        /// the shell must send [`ConnectionMessage::Pin`] before it opens a login channel.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pin: Option<bool>,
+    },
+    /// From the shell: the machine PIN (F059). farglassd answers with [`ConnectionMessage::PinResult`].
+    Pin {
+        /// The digits that the user typed.
+        pin: String,
+    },
+    /// From farglassd: the answer to [`ConnectionMessage::Pin`].
+    PinResult {
+        /// `true` if the PIN is correct. The shell can then open a login channel.
+        accepted: bool,
+        /// With too many wrong PINs from the address: the time in seconds until the next try.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, type = "number")]
+        retry_after: Option<u64>,
     },
     /// From farglassd: the user logged out, in this tab or in a different one.
     /// farglassd closes the connection after this message.

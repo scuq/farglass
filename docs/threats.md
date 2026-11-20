@@ -43,6 +43,7 @@ Controls:
 - The failure text does not tell if the user exists. A login as root needs `--allow-root`.
 - Only members of the group `farglass-users` log in (F058). A user outside the group gets the answer of a wrong password and no passkey step. A reconnect with a session cookie checks the membership again. A missing group or a read error refuses (ADR-042).
 - After PAM, farglass-login waits until farglassd checks the passkey, before the session starts (ADR-040).
+- An optional machine PIN comes before each login channel (F059). It is a filter, not a factor. Five wrong PINs block the address for 15 minutes. A PIN file that cannot be read refuses each PIN (ADR-042).
 - The login socket has mode 0660 and the group farglass.
 
 ### Passkeys

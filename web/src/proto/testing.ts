@@ -34,19 +34,24 @@ export class FakeServer implements Transport {
 
 /**
  * Returns a connection on a fake server. `user` goes in the hello message of the server,
- * and `locked` names the user of a locked session.
+ * `locked` names the user of a locked session, and `pin` asks for the machine PIN (F059).
  */
-export async function fakeConnection(user?: string, locked?: string): Promise<{ server: FakeServer; connection: Connection }> {
+export async function fakeConnection(
+  user?: string,
+  locked?: string,
+  pin = false,
+): Promise<{ server: FakeServer; connection: Connection }> {
   const server = new FakeServer();
   const promise = Connection.start(server);
   server.push(
-    user === undefined && locked === undefined
+    user === undefined && locked === undefined && !pin
       ? helloFrame()
       : encodeJsonFrame(CONNECTION_CHANNEL, FrameType.Control, {
           type: "hello",
           version: PROTOCOL_VERSION,
           ...(user === undefined ? {} : { user }),
           ...(locked === undefined ? {} : { locked }),
+          ...(pin ? { pin: true } : {}),
         }),
   );
   const connection = await promise;

@@ -27,6 +27,7 @@
     "resize": "node resize.mjs",
     "pace": "node pace.mjs",
     "passkey": "node passkey.mjs",
+    "pin": "node pin.mjs",
     "browsers": "node browsers.mjs",
     "youtube": "node youtube.mjs"
   },

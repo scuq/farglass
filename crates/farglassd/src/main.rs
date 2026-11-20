@@ -7,6 +7,8 @@
 //!
 //!     farglassd [--config FILE] [--listen ADDR] [--web-root DIR] [--state-dir DIR]
 //!               [--agent-socket FILE] [--login-socket FILE] [--dev-user USER] [--tls-cert FILE --tls-key FILE]
+//!     farglassd [--config FILE] [--state-dir DIR] --set-pin < PIN
+//!     farglassd [--config FILE] [--state-dir DIR] --clear-pin
 //!
 //! SIGHUP loads the certificate files again. SIGTERM and SIGINT stop the server.
 
@@ -75,6 +77,14 @@ struct Args {
         requires = "tls_cert"
     )]
     tls_key: Option<PathBuf>,
+
+    /// Set the machine PIN of the web login (4 to 6 digits, from standard input) and exit
+    #[arg(long, conflicts_with = "clear_pin")]
+    set_pin: bool,
+
+    /// Remove the machine PIN of the web login and exit
+    #[arg(long)]
+    clear_pin: bool,
 }
 
 impl Args {
@@ -111,6 +121,8 @@ impl Args {
 async fn main() -> ExitCode {
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
+        // No color codes in the journal: fail2ban and grep match the plain text (ADR-043).
+        .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stderr()))
         // RUST_LOG sets the log level, for example RUST_LOG=farglassd=debug.
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
@@ -125,7 +137,11 @@ async fn main() -> ExitCode {
 }
 
 async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+    let (set_pin, clear_pin) = (args.set_pin, args.clear_pin);
     let config = args.into_config()?;
+    if set_pin || clear_pin {
+        return change_pin(&config.state_dir.join("pin"), set_pin);
+    }
     let server = Server::bind(&config).await?;
     let certs = server.certs();
     log_certificate(&certs);
@@ -174,6 +190,31 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         })
         .await;
     tracing::info!("stopped");
+    Ok(())
+}
+
+/// Sets the machine PIN from standard input, or removes it (F059).
+fn change_pin(path: &std::path::Path, set: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let event = farglass_login::audit::Event {
+        event: "pin-change",
+        reason: if set { "set" } else { "clear" },
+        ..Default::default()
+    };
+    if set {
+        let mut line = String::new();
+        std::io::stdin().read_line(&mut line)?;
+        let pin = zeroize::Zeroizing::new(line.trim().to_owned());
+        farglassd::pin::write_pin(path, &pin)?;
+        event.accepted();
+        println!(
+            "The machine PIN is set in {}. Each new login asks for it.",
+            path.display()
+        );
+    } else {
+        farglassd::pin::clear_pin(path)?;
+        event.accepted();
+        println!("The machine PIN is removed.");
+    }
     Ok(())
 }
 

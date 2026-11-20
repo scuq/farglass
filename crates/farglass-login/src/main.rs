@@ -115,6 +115,8 @@ fn parse_mode(text: &str) -> Result<u32, String> {
 fn main() -> ExitCode {
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
+        // No color codes in the journal: fail2ban and grep match the plain text (ADR-043).
+        .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stderr()))
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
     let args = Args::parse();

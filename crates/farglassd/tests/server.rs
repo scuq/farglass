@@ -313,6 +313,7 @@ fn hello(version: u16) -> Frame {
         version,
         user: None,
         locked: None,
+        pin: None,
     })
     .unwrap()
 }
@@ -330,6 +331,7 @@ where
             version: PROTOCOL_VERSION,
             user: None,
             locked: None,
+            pin: None,
         }
     );
 

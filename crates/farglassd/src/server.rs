@@ -145,6 +145,9 @@ impl Server {
             transport,
             alt_svc,
             check_membership: !dev_mode,
+            pin: Arc::new(crate::pin::PinStore::new(Some(
+                config.state_dir.join("pin"),
+            ))),
             devices: Arc::new(crate::device::DeviceKeys::load(
                 &config.state_dir.join("device.key"),
             )),

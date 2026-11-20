@@ -215,3 +215,57 @@ describe("App", () => {
     expect(host.querySelector("nav[aria-label='Workspaces']")).not.toBeNull();
   });
 });
+
+describe("machine PIN (F059)", () => {
+  const pinResult = (accepted: boolean, retry_after?: number) =>
+    encodeJsonFrame(0, FrameType.Control, { type: "pin-result", accepted, ...(retry_after ? { retry_after } : {}) });
+
+  test("the PIN screen comes first, and no login channel opens before the PIN", async () => {
+    const { server, connection } = await fakeConnection(undefined, undefined, true);
+    const host = mount(() => <App connect={() => Promise.resolve(connection)} />);
+    await settle();
+    expect(host.textContent).toContain("PIN of this host");
+    expect(server.take().filter((frame) => frame.type === FrameType.Open)).toEqual([]);
+
+    const field = host.querySelector<HTMLInputElement>("#pin-answer")!;
+    field.value = "0000";
+    host.querySelector("form")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    const sent = server.take();
+    expect(sent.map((frame) => parseJson(frame))).toEqual([{ type: "pin", pin: "0000" }]);
+    server.push(pinResult(false));
+    await settle();
+    expect(host.querySelector("[role='alert']")?.textContent).toContain("The PIN is not correct.");
+
+    field.value = "4829";
+    host.querySelector("form")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    server.take();
+    server.push(pinResult(true));
+    await settle();
+    // The login screen opens its login channel.
+    expect(server.take().some((frame) => frame.type === FrameType.Open)).toBe(true);
+    expect(host.textContent).not.toContain("PIN of this host");
+  });
+
+  test("a block disables the field and shows the wait", async () => {
+    const { server, connection } = await fakeConnection(undefined, undefined, true);
+    const host = mount(() => <App connect={() => Promise.resolve(connection)} />);
+    await settle();
+    const field = host.querySelector<HTMLInputElement>("#pin-answer")!;
+    field.value = "1111";
+    host.querySelector("form")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    server.push(pinResult(false, 900));
+    await settle();
+    expect(host.querySelector("[role='alert']")?.textContent).toContain("Try again in 15 minutes.");
+    expect(field.disabled).toBe(true);
+  });
+
+  test("a host with no PIN shows the login screen at once", async () => {
+    const { connection } = await fakeConnection();
+    const host = mount(() => <App connect={() => Promise.resolve(connection)} />);
+    await settle();
+    expect(host.textContent).not.toContain("PIN of this host");
+  });
+});

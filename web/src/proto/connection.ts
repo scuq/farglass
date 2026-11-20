@@ -145,6 +145,14 @@ export class Channel {
 /** The state of a connection. */
 export type ConnectionState = "connecting" | "open" | "closed";
 
+/** The answer of the server to a machine PIN (F059). */
+export interface PinResult {
+  /** Reports whether the PIN is correct. */
+  readonly accepted: boolean;
+  /** With too many wrong PINs: the seconds until the next try, else 0. */
+  readonly retryAfter: number;
+}
+
 /** One connection to farglassd. */
 export class Connection {
   #state: ConnectionState = "connecting";
@@ -157,6 +165,9 @@ export class Connection {
   user: string | null = null;
   /** The user of a locked session, from the hello message. The connection then has no user until a login. */
   locked: string | null = null;
+  /** Reports whether the host asks for its machine PIN before a login (F059). */
+  pin = false;
+  #pinAnswer: ((result: PinResult) => void) | null = null;
   /** The transport under the connection. */
   transport: "websocket" | "webtransport" = "websocket";
   /** Reports whether the server ended the connection because the user logged out. */
@@ -230,6 +241,17 @@ export class Connection {
     this.#sendConnection({ type: "lock" });
   }
 
+  /**
+   * Gives the machine PIN to the server (F059). Resolves with the answer.
+   * After an accepted PIN, the shell can open a login channel.
+   */
+  sendPin(pin: string): Promise<PinResult> {
+    return new Promise((resolve) => {
+      this.#pinAnswer = resolve;
+      this.#sendConnection({ type: "pin", pin });
+    });
+  }
+
   /** Tells the server that the user used the keyboard or the pointer. */
   activity(): void {
     this.#sendConnection({ type: "activity" });
@@ -277,6 +299,7 @@ export class Connection {
     }
     this.user = hello.user ?? null;
     this.locked = hello.locked ?? null;
+    this.pin = hello.pin ?? false;
     this.#state = "open";
   }
 
@@ -294,6 +317,15 @@ export class Connection {
       }
       if (message.type === "unlocked") {
         this.unlocked = true;
+        return;
+      }
+      if (message.type === "pin-result") {
+        if (message.accepted) {
+          this.pin = false;
+        }
+        const answer = this.#pinAnswer;
+        this.#pinAnswer = null;
+        answer?.({ accepted: message.accepted, retryAfter: message.retry_after ?? 0 });
         return;
       }
       throw new ProtocolError("invalid-connection-frame", "The server sent a second hello message.");

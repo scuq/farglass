@@ -16,6 +16,7 @@ pub mod lock;
 pub mod login;
 pub mod origin;
 pub mod passkeys;
+pub mod pin;
 pub mod presence;
 pub mod quic;
 pub mod server;

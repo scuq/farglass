@@ -136,6 +136,8 @@ pub struct Context {
     /// Reports whether a connection with a session cookie asks farglass-login if its user is still
     /// in the allowed group (F058). farglassd sets it with no `dev_user`.
     pub check_membership: bool,
+    /// The machine PIN (F059).
+    pub pin: Arc<crate::pin::PinStore>,
     /// The value of the Alt-Svc header that points to HTTP/3. Only with a certificate of the administrator.
     pub alt_svc: Option<axum::http::HeaderValue>,
 }
@@ -164,6 +166,7 @@ impl Context {
             hello_timeout: HELLO_TIMEOUT,
             login_idle: LOGIN_IDLE,
             check_membership: false,
+            pin: Arc::new(crate::pin::PinStore::default()),
         }
     }
 }
@@ -285,6 +288,8 @@ struct Connection<'a, O> {
     origin: Option<String>,
     /// Reports whether the browser has a valid device cookie.
     device: bool,
+    /// Reports whether the connection gave the machine PIN, or needs none (F059).
+    pin_passed: bool,
     user: SharedUser,
     /// The user of a locked session. The connection then has no user until a login of this user.
     locked: Option<Identity>,
@@ -353,10 +358,13 @@ where
         None
     };
     let user = SharedUser::new(user, context.presence.clone());
+    // A connection with no user must give the machine PIN first, if the host has one (F059).
+    let pin_needed = user.get().is_none() && context.pin.required();
     let hello = ConnectionMessage::Hello {
         version: PROTOCOL_VERSION,
         user: user.get().map(|identity| identity.name),
         locked: locked.as_ref().map(|identity| identity.name.clone()),
+        pin: pin_needed.then_some(true),
     };
     if outgoing.send(Frame::connection(&hello)?).await.is_err() {
         return Ok(());
@@ -392,6 +400,7 @@ where
         rhost,
         origin,
         device,
+        pin_passed: !pin_needed,
         user,
         locked,
         outgoing,
@@ -575,9 +584,11 @@ where
                     }
                     Ok(true)
                 }
+                ConnectionMessage::Pin { pin } => self.check_pin(pin).await,
                 ConnectionMessage::LoggedOut
                 | ConnectionMessage::Locked
-                | ConnectionMessage::Unlocked => Err(Violation::ServerMessage),
+                | ConnectionMessage::Unlocked
+                | ConnectionMessage::PinResult { .. } => Err(Violation::ServerMessage),
             };
         }
 
@@ -643,8 +654,84 @@ where
         Ok(true)
     }
 
+    /// Checks the machine PIN and answers the shell (F059). Returns `false` if the browser stopped.
+    async fn check_pin(&mut self, pin: String) -> Result<bool, Violation> {
+        use crate::pin::PinCheck;
+        let (accepted, retry_after) = if self.pin_passed {
+            (true, None)
+        } else {
+            let store = self.context.pin.clone();
+            let group = audit::address_group(&self.rhost);
+            // The hash takes some milliseconds: not on a thread of the runtime.
+            let check = tokio::task::spawn_blocking(move || store.check(&group, &pin))
+                .await
+                .unwrap_or(PinCheck::Fault);
+            let event = Event {
+                event: "pin",
+                addr: &self.rhost,
+                ..Event::default()
+            };
+            match check {
+                PinCheck::Accepted => {
+                    event.accepted();
+                    self.pin_passed = true;
+                    (true, None)
+                }
+                PinCheck::Wrong => {
+                    Event {
+                        reason: "wrong-pin",
+                        ..event
+                    }
+                    .refused();
+                    tokio::time::sleep(crate::pin::FAIL_DELAY).await;
+                    (false, None)
+                }
+                PinCheck::Blocked(left) => {
+                    Event {
+                        reason: "blocked",
+                        ..event
+                    }
+                    .refused();
+                    (false, Some(left.as_secs().max(1)))
+                }
+                PinCheck::Fault => {
+                    let detail = match self.context.pin.state() {
+                        crate::pin::PinState::Fault(text) => text,
+                        _ => "the check stopped".to_owned(),
+                    };
+                    Event {
+                        reason: "pin-file",
+                        detail: Some(&detail),
+                        ..event
+                    }
+                    .fault();
+                    tokio::time::sleep(crate::pin::FAIL_DELAY).await;
+                    (false, None)
+                }
+            }
+        };
+        let answer = ConnectionMessage::PinResult {
+            accepted,
+            retry_after,
+        };
+        Ok(self
+            .outgoing
+            .send(Frame::connection(&answer)?)
+            .await
+            .is_ok())
+    }
+
     /// Starts a login on a new channel, or refuses it.
     async fn open_login(&mut self, channel: ChannelId) -> Result<bool, Violation> {
+        if !self.pin_passed {
+            return self
+                .refuse(
+                    channel,
+                    CloseReason::AccessDenied,
+                    "The PIN of this host is necessary.",
+                )
+                .await;
+        }
         if self.user.get().is_some() {
             return self
                 .refuse(

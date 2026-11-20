@@ -1,11 +1,11 @@
 ---
 id: F059
 title: A machine PIN before the web login
-status: planned
+status: done
 phase: P06
 tags: [security]
 decisions: [ADR-042, ADR-043]
-files: [crates/farglassd/src/connection.rs, crates/farglassd/src/main.rs, crates/farglass-proto/src/message.rs, web/src/LoginScreen.tsx, web/src/login.ts, README.md, docs/threats.md]
+files: [crates/farglassd/src/pin.rs, crates/farglassd/src/connection.rs, crates/farglassd/src/main.rs, crates/farglassd/src/server.rs, crates/farglass-proto/src/message.rs, web/src/PinScreen.tsx, web/src/App.tsx, web/src/proto/connection.ts, spikes/e2e/pin.mjs, README.md, docs/threats.md]
 ---
 
 ## Goal
@@ -23,3 +23,4 @@ An optional PIN of 4 to 6 digits, one for the whole host, stops random input bef
 - docs/threats.md: the PIN in the login controls
 
 ## Acceptance
+farglassd --set-pin writes STATE_DIR/pin (v1:salt:iterated SHA-256, mode 0600, owner of the state directory); --clear-pin removes it. With the file, the hello of a connection with no user has pin=true, and open_login is refused (AccessDenied) until ConnectionMessage::Pin is correct. A wrong PIN waits 1 s; five block the /64 or address for 15 min; a full table keeps blocks. A damaged or unreadable file requires the PIN and refuses each one (ADR-042). A cookie user gets no PIN. Each result goes to farglass::security once, with no PIN. The shell shows PinScreen before LoginScreen. Logs have no ANSI codes when stderr is not a terminal. Tests: pin.rs unit tests (8), farglassd login.rs (2), vitest (3), e2e pin passes.

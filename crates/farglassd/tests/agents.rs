@@ -70,6 +70,7 @@ impl Browser {
                     version: PROTOCOL_VERSION,
                     user: None,
                     locked: None,
+                    pin: None,
                 })
                 .unwrap(),
             )
@@ -487,6 +488,7 @@ async fn shell_violations_stop_the_connection() {
                 version: PROTOCOL_VERSION,
                 user: None,
                 locked: None,
+                pin: None,
             })
             .unwrap(),
         )

@@ -532,6 +532,36 @@ Text sessions, for example SSH, continue in all cases.
 
 `--session none` starts no session. Use it for development with no root, with an agent that you start yourself.
 
+### Machine PIN
+
+A host can ask for a PIN of 4 to 6 digits before the login screen.
+The PIN is the same for each user of the host.
+It stops random input: without the PIN, a browser cannot send a username, a password, a passkey, or a recovery code.
+The PIN is off by default.
+
+To set the PIN, or to change it:
+
+```sh
+echo 482913 | sudo -u farglass /usr/libexec/farglass/farglassd --set-pin
+```
+
+To remove the PIN:
+
+```sh
+sudo -u farglass /usr/libexec/farglass/farglassd --clear-pin
+```
+
+farglassd keeps a salted hash of the PIN in `/var/lib/farglass/pin`, mode 0600, and reads it at each check.
+A new PIN applies at once, with no restart.
+After a wrong PIN, the answer comes 1 second later.
+Five wrong PINs block the address (IPv6 by /64) for 15 minutes.
+A browser with a valid session cookie gets no PIN screen.
+If the file cannot be read, farglassd asks for the PIN and refuses each one (ADR-042).
+Each result goes to the security log once: `event=pin result=accepted` or `event=pin result=refused reason=wrong-pin`.
+
+NOTE: The PIN is a filter, not a second factor.
+4 to 6 digits give no protection without the block, and the password and the passkey stay necessary.
+
 ### Security log
 
 farglassd and farglass-login write each security event to the journal with the target `farglass::security` (ADR-043).

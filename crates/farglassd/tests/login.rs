@@ -144,6 +144,7 @@ impl Browser {
             version: PROTOCOL_VERSION,
             user: None,
             locked: None,
+            pin: None,
         };
         browser.send(Frame::connection(&ours).unwrap()).await;
         browser
@@ -863,4 +864,142 @@ async fn a_session_cookie_of_a_user_outside_the_group_gives_the_login_screen() {
     });
     let browser = Browser::connect_as(&context, Some(identity)).await;
     assert_eq!(browser.hello_user, None, "a fault kept the session");
+}
+
+#[tokio::test]
+async fn the_machine_pin_comes_before_each_login_channel() {
+    let service = LoginService::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pin");
+    farglassd::pin::write_pin(&path, "4829").unwrap();
+    let context = limited(&service, |c| {
+        c.pin = Arc::new(farglassd::pin::PinStore::new(Some(path.clone())));
+    });
+    let (to_server, mut from_server, _task) = raw_connection(&context, None);
+    let ConnectionMessage::Hello { pin, .. } = recv_frame(&mut from_server).await.parse().unwrap()
+    else {
+        panic!("no hello");
+    };
+    assert_eq!(pin, Some(true));
+    let hello = ConnectionMessage::Hello {
+        version: PROTOCOL_VERSION,
+        user: None,
+        locked: None,
+        pin: None,
+    };
+    to_server
+        .send(Ok(Frame::connection(&hello).unwrap()))
+        .await
+        .unwrap();
+
+    // No PIN: the login channel is refused.
+    to_server
+        .send(Ok(Frame::open(ch(1), &Open::Login).unwrap()))
+        .await
+        .unwrap();
+    let close = recv_frame(&mut from_server).await;
+    assert_eq!(close.channel(), ch(1));
+    assert_eq!(
+        close.parse::<Close>().unwrap().reason,
+        CloseReason::AccessDenied
+    );
+
+    let pin = |text: &str| {
+        Ok(Frame::connection(&ConnectionMessage::Pin {
+            pin: text.to_owned(),
+        })
+        .unwrap())
+    };
+    to_server.send(pin("0000")).await.unwrap();
+    assert_eq!(
+        recv_frame(&mut from_server)
+            .await
+            .parse::<ConnectionMessage>()
+            .unwrap(),
+        ConnectionMessage::PinResult {
+            accepted: false,
+            retry_after: None
+        }
+    );
+    to_server.send(pin("4829")).await.unwrap();
+    assert_eq!(
+        recv_frame(&mut from_server)
+            .await
+            .parse::<ConnectionMessage>()
+            .unwrap(),
+        ConnectionMessage::PinResult {
+            accepted: true,
+            retry_after: None
+        }
+    );
+    to_server
+        .send(Ok(Frame::open(ch(3), &Open::Login).unwrap()))
+        .await
+        .unwrap();
+    assert_eq!(
+        recv_frame(&mut from_server).await.frame_type(),
+        FrameType::Ready
+    );
+}
+
+#[tokio::test]
+async fn a_cookie_user_needs_no_pin_and_a_damaged_pin_file_refuses_each_pin() {
+    let service = LoginService::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pin");
+    std::fs::write(&path, "damaged").unwrap();
+    let context = limited(&service, |c| {
+        c.pin = Arc::new(farglassd::pin::PinStore::new(Some(path.clone())));
+    });
+    let user = Browser::connect_as(
+        &context,
+        Some(Identity {
+            uid: 4242,
+            name: "alice".to_owned(),
+        }),
+    )
+    .await;
+    assert_eq!(user.hello_user.as_deref(), Some("alice"));
+
+    let (to_server, mut from_server, _task) = raw_connection(&context, None);
+    let hello = from_server.recv().await.unwrap();
+    let ConnectionMessage::Hello { pin, .. } = hello.parse().unwrap() else {
+        panic!("no hello");
+    };
+    assert_eq!(pin, Some(true), "a damaged file must close the gate");
+    let ours = ConnectionMessage::Hello {
+        version: PROTOCOL_VERSION,
+        user: None,
+        locked: None,
+        pin: None,
+    };
+    to_server
+        .send(Ok(Frame::connection(&ours).unwrap()))
+        .await
+        .unwrap();
+    to_server
+        .send(Ok(Frame::connection(&ConnectionMessage::Pin {
+            pin: "1234".to_owned(),
+        })
+        .unwrap()))
+        .await
+        .unwrap();
+    let answer = tokio::time::timeout(WAIT, from_server.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        answer.parse::<ConnectionMessage>().unwrap(),
+        ConnectionMessage::PinResult {
+            accepted: false,
+            retry_after: None
+        }
+    );
+}
+
+async fn recv_frame(from: &mut mpsc::Receiver<Frame>) -> Frame {
+    tokio::time::timeout(WAIT, from.recv())
+        .await
+        .unwrap()
+        .unwrap()
 }

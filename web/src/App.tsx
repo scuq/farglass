@@ -1,7 +1,8 @@
-import { createSignal, Match, onCleanup, Switch } from "solid-js";
+import { createSignal, Match, onCleanup, Show, Switch } from "solid-js";
 import { ContextMenuHost } from "./menu/ContextMenuHost";
 import { Desktop } from "./wm/Desktop";
 import { LoginScreen } from "./LoginScreen";
+import { PinScreen } from "./PinScreen";
 import type { Connection } from "./proto";
 import { connectBest, markWebTransportFailed } from "./proto/webtransport";
 import { reconnectDelay } from "./reconnect";
@@ -132,22 +133,26 @@ export function App(props: AppServices) {
         <Match when={stage().kind === "login" && stage()} keyed>
           {(current) => {
             const { connection, notice, locked } = current as Extract<Stage, { kind: "login" }>;
+            // The machine PIN comes before the login screen (F059).
+            const [pinNeeded, setPinNeeded] = createSignal(connection.pin);
             return (
               <>
                 {notice ? <p class="notice" role="status">{notice}</p> : null}
-                <LoginScreen
-                  connection={connection}
-                  locked={locked}
-                  onswitch={() => void switchUser(connection)}
-                  onlogin={(user, ticket) => {
-                    connection.user = user;
-                    setStage({ kind: "desktop", connection, user });
-                    if (ticket) {
-                      // The cookie lets a reload, a new tab, and a new connection skip the login.
-                      void (props.storeSession ?? storeSession)(ticket);
-                    }
-                  }}
-                />
+                <Show when={!pinNeeded()} fallback={<PinScreen connection={connection} onaccepted={() => setPinNeeded(false)} />}>
+                  <LoginScreen
+                    connection={connection}
+                    locked={locked}
+                    onswitch={() => void switchUser(connection)}
+                    onlogin={(user, ticket) => {
+                      connection.user = user;
+                      setStage({ kind: "desktop", connection, user });
+                      if (ticket) {
+                        // The cookie lets a reload, a new tab, and a new connection skip the login.
+                        void (props.storeSession ?? storeSession)(ticket);
+                      }
+                    }}
+                  />
+                </Show>
               </>
             );
           }}

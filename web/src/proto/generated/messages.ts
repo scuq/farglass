@@ -18,7 +18,24 @@ user?: string,
  * From farglassd: the session of this user is locked, and the connection has no user.
  * The shell shows the lock screen. A login of this user on a channel of kind login unlocks the session.
  */
-locked?: string, } | { "type": "logged-out" } | { "type": "locked" } | { "type": "unlocked" } | { "type": "lock" } | { "type": "activity" };
+locked?: string, 
+/**
+ * From farglassd: the host has a machine PIN (F059). The connection has no user, and
+ * the shell must send [`ConnectionMessage::Pin`] before it opens a login channel.
+ */
+pin?: boolean, } | { "type": "pin", 
+/**
+ * The digits that the user typed.
+ */
+pin: string, } | { "type": "pin-result", 
+/**
+ * `true` if the PIN is correct. The shell can then open a login channel.
+ */
+accepted: boolean, 
+/**
+ * With too many wrong PINs from the address: the time in seconds until the next try.
+ */
+retry_after?: number, } | { "type": "logged-out" } | { "type": "locked" } | { "type": "unlocked" } | { "type": "lock" } | { "type": "activity" };
 
 /**
  * The payload of an open frame. It selects the kind of the channel.
