@@ -280,7 +280,8 @@
   padding: 0.35rem 0.5rem;
   font: inherit;
 }
-.settings-codes {
+.settings-codes,
+.settings-confirm {
   margin-top: 1rem;
   padding: 0.75rem 1rem;
   border: 1px solid var(--focus);

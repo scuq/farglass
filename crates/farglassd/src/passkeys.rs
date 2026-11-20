@@ -117,12 +117,12 @@ impl PasskeyStore {
             || PasskeyError::new("The server cannot read your passkeys. Tell the administrator.");
         match std::fs::read(self.path(uid)) {
             Ok(bytes) => serde_json::from_slice(&bytes).map_err(|error| {
-                tracing::error!(uid, %error, "the passkey file of the user is damaged");
+                passkey_fault(uid, "damaged", &error.to_string());
                 unreadable()
             }),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(UserFile::default()),
             Err(error) => {
-                tracing::error!(uid, %error, "the passkey file of the user cannot be read");
+                passkey_fault(uid, "read-error", &error.to_string());
                 Err(unreadable())
             }
         }
@@ -144,7 +144,11 @@ impl PasskeyStore {
             std::fs::rename(&temporary, &path)
         };
         write().map_err(|error| {
-            tracing::error!(uid, %error, dir = %self.dir.display(), "the passkey file was not written");
+            passkey_fault(
+                uid,
+                "write-error",
+                &format!("{}: {error}", self.dir.display()),
+            );
             PasskeyError::new("The server could not save the passkeys. Tell the administrator.")
         })
     }
@@ -433,56 +437,104 @@ pub struct PasskeysTask {
     pub to_shell: tokio::sync::mpsc::Sender<farglass_proto::Frame>,
 }
 
+/// The time for which a proof lets the channel change the passkeys (F053).
+pub const PROOF_LIFETIME: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
+/// The wrong proofs on one channel before farglassd closes it.
+pub const MAX_WRONG_PROOFS: u32 = 3;
+
 impl PasskeysTask {
     /// Answers the requests until the shell closes the channel. Ends with a close frame.
+    ///
+    /// A user with a passkey, or with a file that cannot be read, must give a fresh
+    /// passkey or a recovery code before a registration, a removal, or new codes
+    /// (F053). The proof is valid on this channel for [`PROOF_LIFETIME`].
     pub async fn run(mut self) {
         use farglass_proto::message::{Close, CloseReason, Ready};
         use farglass_proto::{Frame, FrameType};
         let ready = Frame::ready(self.channel, &Ready {});
         self.send_frame(ready).await;
         let uid = self.user.uid;
-        let origin = self.origin.clone().unwrap_or_default();
         // The registration that waits for the credential of the browser, with the name of the passkey.
         let mut pending: Option<(PasskeyRegistration, String)> = None;
+        // The change that waits for a proof, and its challenge.
+        let mut waiting: Option<(PasskeyRequest, Challenge)> = None;
+        let mut fresh_until: Option<std::time::Instant> = None;
+        let mut wrong = 0_u32;
         while let Some(request) = self.requests.recv().await {
-            let store = self.store.clone();
             let events = match request {
                 PasskeyRequest::List => vec![self.list()],
-                PasskeyRequest::Register { name } => {
-                    let name = name.trim().chars().take(64).collect::<String>();
-                    let name = if name.is_empty() {
-                        "Passkey".to_owned()
-                    } else {
-                        name
-                    };
-                    match store.start_registration(uid, &self.user.name, &origin) {
-                        Ok((options, state, _)) => {
-                            pending = Some((state, name));
-                            vec![PasskeyEvent::Create { options }]
-                        }
-                        Err(error) => vec![PasskeyEvent::Error { message: error.0 }],
-                    }
-                }
                 PasskeyRequest::Finish { credential } => match pending.take() {
                     None => vec![PasskeyEvent::Error {
                         message: "No registration is running.".to_owned(),
                     }],
-                    Some((state, name)) => {
-                        match store.finish_registration(uid, &name, &origin, &state, credential) {
-                            Ok(Some(codes)) => vec![PasskeyEvent::Codes { codes }, self.list()],
-                            Ok(None) => vec![self.list()],
-                            Err(error) => vec![PasskeyEvent::Error { message: error.0 }],
+                    Some((state, name)) => self.finish(&state, &name, credential),
+                },
+                PasskeyRequest::Proof { .. } | PasskeyRequest::ProofCode { .. } => {
+                    let Some((change, challenge)) = waiting.take() else {
+                        continue;
+                    };
+                    let valid = match request {
+                        PasskeyRequest::Proof { credential } => {
+                            self.store
+                                .verify(uid, self.origin.as_deref(), &challenge, credential)
                         }
+                        PasskeyRequest::ProofCode { code } => self.store.use_code(uid, &code),
+                        _ => false,
+                    };
+                    let event = farglass_login::audit::Event {
+                        event: "passkey-proof",
+                        user: Some(&self.user.name),
+                        uid: Some(uid),
+                        ..Default::default()
+                    };
+                    if valid {
+                        event.accepted();
+                        fresh_until = Some(std::time::Instant::now() + PROOF_LIFETIME);
+                        self.change(change, &mut pending)
+                    } else {
+                        wrong += 1;
+                        farglass_login::audit::Event {
+                            reason: "wrong-proof",
+                            ..event
+                        }
+                        .refused();
+                        if wrong >= MAX_WRONG_PROOFS {
+                            self.send_frame(Frame::close(
+                                self.channel,
+                                &Close {
+                                    reason: CloseReason::AccessDenied,
+                                    message: Some(
+                                        "Too many wrong answers. Open Settings again.".to_owned(),
+                                    ),
+                                },
+                            ))
+                            .await;
+                            return;
+                        }
+                        vec![PasskeyEvent::Error {
+                            message: "The passkey or the recovery code was not accepted. Nothing changed."
+                                .to_owned(),
+                        }]
                     }
-                },
-                PasskeyRequest::Remove { id } => match store.remove(uid, &id) {
-                    Ok(()) => vec![self.list()],
-                    Err(error) => vec![PasskeyEvent::Error { message: error.0 }],
-                },
-                PasskeyRequest::NewCodes => match store.new_codes(uid) {
-                    Ok(codes) => vec![PasskeyEvent::Codes { codes }, self.list()],
-                    Err(error) => vec![PasskeyEvent::Error { message: error.0 }],
-                },
+                }
+                change @ (PasskeyRequest::Register { .. }
+                | PasskeyRequest::Remove { .. }
+                | PasskeyRequest::NewCodes) => {
+                    let fresh = fresh_until.is_some_and(|until| std::time::Instant::now() < until);
+                    // `required` is also true for a file that cannot be read (ADR-042).
+                    if fresh || !self.store.required(uid) {
+                        self.change(change, &mut pending)
+                    } else {
+                        let challenge = self.store.challenge(uid, self.origin.as_deref());
+                        let event = PasskeyEvent::Confirm {
+                            options: challenge.options.clone(),
+                            elsewhere: challenge.elsewhere.clone(),
+                        };
+                        waiting = Some((change, challenge));
+                        vec![event]
+                    }
+                }
             };
             for event in events {
                 self.send_frame(Frame::json(self.channel, FrameType::Control, &event))
@@ -491,6 +543,93 @@ impl PasskeysTask {
         }
         self.send_frame(Frame::close(self.channel, &Close::new(CloseReason::Done)))
             .await;
+    }
+
+    /// Does a change that passed the check: a registration start, a removal, or new codes.
+    fn change(
+        &self,
+        request: PasskeyRequest,
+        pending: &mut Option<(PasskeyRegistration, String)>,
+    ) -> Vec<PasskeyEvent> {
+        let uid = self.user.uid;
+        let origin = self.origin.clone().unwrap_or_default();
+        let result = match request {
+            PasskeyRequest::Register { name } => {
+                let name = name.trim().chars().take(64).collect::<String>();
+                let name = if name.is_empty() {
+                    "Passkey".to_owned()
+                } else {
+                    name
+                };
+                return match self.store.start_registration(uid, &self.user.name, &origin) {
+                    Ok((options, state, _)) => {
+                        *pending = Some((state, name));
+                        vec![PasskeyEvent::Create { options }]
+                    }
+                    Err(error) => vec![PasskeyEvent::Error { message: error.0 }],
+                };
+            }
+            PasskeyRequest::Remove { id } => self
+                .store
+                .remove(uid, &id)
+                .map(|()| ("remove", vec![self.list()])),
+            PasskeyRequest::NewCodes => self.store.new_codes(uid).map(|codes| {
+                (
+                    "new-codes",
+                    vec![PasskeyEvent::Codes { codes }, self.list()],
+                )
+            }),
+            _ => return Vec::new(),
+        };
+        self.logged(result)
+    }
+
+    /// Ends a registration that passed the check.
+    fn finish(
+        &self,
+        state: &PasskeyRegistration,
+        name: &str,
+        credential: serde_json::Value,
+    ) -> Vec<PasskeyEvent> {
+        let origin = self.origin.clone().unwrap_or_default();
+        let result = self
+            .store
+            .finish_registration(self.user.uid, name, &origin, state, credential)
+            .map(|codes| {
+                let mut events: Vec<PasskeyEvent> = codes
+                    .map(|codes| PasskeyEvent::Codes { codes })
+                    .into_iter()
+                    .collect();
+                events.push(self.list());
+                ("add", events)
+            });
+        self.logged(result)
+    }
+
+    /// Logs a change of the passkeys and returns its events.
+    fn logged(&self, result: Result<(&str, Vec<PasskeyEvent>), PasskeyError>) -> Vec<PasskeyEvent> {
+        let event = farglass_login::audit::Event {
+            event: "passkey-change",
+            user: Some(&self.user.name),
+            uid: Some(self.user.uid),
+            ..Default::default()
+        };
+        match result {
+            Ok((reason, events)) => {
+                farglass_login::audit::Event { reason, ..event }.accepted();
+                events
+            }
+            Err(error) => {
+                // A read or write fault of the file logs its own fault event in `load` or `save`.
+                farglass_login::audit::Event {
+                    reason: "failed",
+                    detail: Some(&error.0),
+                    ..event
+                }
+                .refused();
+                vec![PasskeyEvent::Error { message: error.0 }]
+            }
+        }
     }
 
     fn list(&self) -> PasskeyEvent {
@@ -513,6 +652,18 @@ impl PasskeysTask {
             let _ = self.to_shell.send(frame).await;
         }
     }
+}
+
+/// Logs a fault of the passkey file of `uid` (ADR-042, ADR-043).
+fn passkey_fault(uid: u32, reason: &str, detail: &str) {
+    farglass_login::audit::Event {
+        event: "passkey-file",
+        reason,
+        uid: Some(uid),
+        detail: Some(detail),
+        ..Default::default()
+    }
+    .fault();
 }
 
 /// Gives the file new recovery codes and returns them.
@@ -644,5 +795,104 @@ mod tests {
             .permissions()
             .mode();
         assert_eq!(mode & 0o777, 0o600);
+    }
+
+    /// Starts a passkeys task for uid 1000 on `store`. Returns the request queue and the frames to the shell.
+    fn task(
+        store: std::sync::Arc<PasskeyStore>,
+    ) -> (
+        tokio::sync::mpsc::Sender<PasskeyRequest>,
+        tokio::sync::mpsc::Receiver<farglass_proto::Frame>,
+    ) {
+        let (requests, receiver) = tokio::sync::mpsc::channel(4);
+        let (to_shell, from_task) = tokio::sync::mpsc::channel(16);
+        let task = PasskeysTask {
+            store,
+            user: crate::login::Identity {
+                uid: 1000,
+                name: "alice".to_owned(),
+            },
+            origin: Some("https://localhost:8443".to_owned()),
+            channel: farglass_proto::ChannelId::new(1),
+            requests: receiver,
+            to_shell,
+        };
+        tokio::spawn(task.run());
+        (requests, from_task)
+    }
+
+    async fn next(
+        from: &mut tokio::sync::mpsc::Receiver<farglass_proto::Frame>,
+    ) -> farglass_proto::Frame {
+        tokio::time::timeout(std::time::Duration::from_secs(5), from.recv())
+            .await
+            .unwrap()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_user_with_no_passkey_adds_one_with_no_proof() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(PasskeyStore::new(dir.path().to_owned()));
+        let (requests, mut from) = task(store);
+        assert_eq!(
+            next(&mut from).await.frame_type(),
+            farglass_proto::FrameType::Ready
+        );
+        requests
+            .send(PasskeyRequest::Register {
+                name: "Key".to_owned(),
+            })
+            .await
+            .unwrap();
+        let event: PasskeyEvent = next(&mut from).await.parse().unwrap();
+        assert!(matches!(event, PasskeyEvent::Create { .. }), "{event:?}");
+    }
+
+    #[tokio::test]
+    async fn a_change_with_a_file_that_cannot_be_read_needs_a_proof_that_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("1000.json"), b"{ not json").unwrap();
+        let store = std::sync::Arc::new(PasskeyStore::new(dir.path().to_owned()));
+        let (requests, mut from) = task(store);
+        next(&mut from).await;
+        for change in [
+            PasskeyRequest::Remove {
+                id: "abc".to_owned(),
+            },
+            PasskeyRequest::NewCodes,
+            PasskeyRequest::Register {
+                name: "Mallory".to_owned(),
+            },
+        ] {
+            requests.send(change).await.unwrap();
+            let event: PasskeyEvent = next(&mut from).await.parse().unwrap();
+            assert!(
+                matches!(event, PasskeyEvent::Confirm { options: None, .. }),
+                "{event:?}"
+            );
+            requests
+                .send(PasskeyRequest::ProofCode {
+                    code: "0000-0000-0000-0000".to_owned(),
+                })
+                .await
+                .unwrap();
+            let frame = next(&mut from).await;
+            if frame.frame_type() == farglass_proto::FrameType::Close {
+                let close: farglass_proto::message::Close = frame.parse().unwrap();
+                assert_eq!(
+                    close.reason,
+                    farglass_proto::message::CloseReason::AccessDenied
+                );
+                break;
+            }
+            let event: PasskeyEvent = frame.parse().unwrap();
+            assert!(matches!(event, PasskeyEvent::Error { .. }), "{event:?}");
+        }
+        assert_eq!(
+            std::fs::read(dir.path().join("1000.json")).unwrap(),
+            b"{ not json",
+            "nothing changed the file"
+        );
     }
 }

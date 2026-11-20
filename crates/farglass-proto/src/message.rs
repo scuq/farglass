@@ -1144,6 +1144,17 @@ pub enum PasskeyRequest {
     },
     /// Makes new recovery codes. The old codes stop working.
     NewCodes,
+    /// Answers [`PasskeyEvent::Confirm`] with the credential of `navigator.credentials.get` (F053).
+    Proof {
+        /// The `PublicKeyCredential` as JSON.
+        #[ts(type = "unknown")]
+        credential: serde_json::Value,
+    },
+    /// Answers [`PasskeyEvent::Confirm`] with a recovery code (F053). The code then stops working.
+    ProofCode {
+        /// The recovery code.
+        code: String,
+    },
 }
 
 /// A message of farglassd on a passkeys channel (F034).
@@ -1164,6 +1175,18 @@ pub enum PasskeyEvent {
         /// The options.
         #[ts(type = "unknown")]
         options: serde_json::Value,
+    },
+    /// A change of the passkeys needs a fresh passkey or a recovery code first (F053).
+    /// The shell answers with [`PasskeyRequest::Proof`] or [`PasskeyRequest::ProofCode`].
+    /// After a valid proof, farglassd does the request that waited.
+    Confirm {
+        /// The `publicKey` options of `navigator.credentials.get`, or `None` if no passkey
+        /// belongs to this host name: only a recovery code works.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, type = "unknown")]
+        options: Option<serde_json::Value>,
+        /// The host names of the other passkeys of the user.
+        elsewhere: Vec<String>,
     },
     /// New recovery codes. farglassd keeps only their hashes: the shell shows them one time.
     Codes {

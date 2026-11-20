@@ -56,6 +56,7 @@ Controls:
 - The file of each user has mode 0600 in a directory with mode 0700, and farglassd writes it atomically.
 - A recovery code has 64 random bits and works one time. The file keeps only its SHA-256 hash.
 - Only a missing file means "no passkey". A file that cannot be read keeps the second factor required, and no change overwrites it (fixed in F035, finding 1).
+- A registration, a removal, or new recovery codes need a fresh passkey or a recovery code first, if the user has a passkey or a file that cannot be read (F053). The proof is valid for 5 minutes on one Settings window. Three wrong answers close the channel.
 
 ### Agent socket `/run/farglass/agent.sock`
 
@@ -99,7 +100,7 @@ Gap: finding 9.
 | 2 | Medium | The block of a user applies only when farglassd gives the username. The login screen never does, thus an attacker with many addresses gets five guesses at each one. | Fixed in F051 |
 | 3 | Medium | A connection waits for its hello with no time limit, and 32 logins that do not answer hold all login places. An attacker with no password can stop all logins and use up the file descriptors. | Fixed in F051 |
 | 4 | Medium | Each script of a page in the host browser can send redirection messages. The agent keeps media, sources, and init segments with no limit, and the client places a video on each window whose title starts with the title that the page gives. | F052 |
-| 5 | Low | A person at an unlocked tab, or with a stolen cookie, can remove all passkeys with no new check. | F053 |
+| 5 | Low | A person at an unlocked tab, or with a stolen cookie, can remove all passkeys with no new check. | Fixed in F053 |
 | 6 | Low | A connection that misses a lock or logout event, after 64 events in its queue, keeps its channels. | F054 |
 | 7 | Low | A connection from a cookie continues after the cookie ends. | F054 |
 | 8 | Low | Output in a terminal (OSC 52) can write the clipboard of the client computer. | F055 |

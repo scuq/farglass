@@ -603,6 +603,10 @@ Each code works one time.
 Settings > Passkeys makes new codes, and the old codes then stop working.
 The removal of the last passkey also removes the codes, and the login then asks only for the password.
 
+A user with a passkey must confirm each change first: a new passkey, a removal, or new recovery codes.
+The Settings page asks for the passkey or a recovery code, and the confirmation is valid for 5 minutes in that Settings window.
+Three wrong answers close the page. Thus a person at an unlocked tab, or with a stolen cookie, cannot remove the second factor.
+
 farglassd keeps the passkeys of each user in `STATE_DIR/passkeys/UID.json` with mode 0600, by default in `/var/lib/farglass/passkeys`.
 The file keeps only the SHA-256 hash of each recovery code.
 To remove all passkeys of a user, for example after the loss of the passkey and of the codes, remove the file of the user as root.
@@ -612,7 +616,7 @@ It does not work on a different host name of the same host, and an IP address ca
 The login screen then names the host name of the passkeys, and a recovery code works on each host name.
 Chromium, Firefox, and Safari use a passkey only on HTTPS with a valid certificate, or on `localhost`.
 With the self-signed certificate of farglassd, use a certificate of the administrator first.
-`npm --prefix spikes/e2e run passkey` adds a passkey with a virtual authenticator of Chromium, logs in with it and with a recovery code, and checks that a used code fails.
+`npm --prefix spikes/e2e run passkey` adds a passkey with a virtual authenticator of Chromium, confirms a change with it, logs in with it and with a recovery code, and checks that a used code fails.
 
 The tests of farglass-login need no root.
 They use a PAM directory with `pam_exec` that accepts the password `secret`:

@@ -522,7 +522,15 @@ credential: unknown, } | { "type": "remove",
 /**
  * The credential id in base64url.
  */
-id: string, } | { "type": "new-codes" };
+id: string, } | { "type": "new-codes" } | { "type": "proof", 
+/**
+ * The `PublicKeyCredential` as JSON.
+ */
+credential: unknown, } | { "type": "proof-code", 
+/**
+ * The recovery code.
+ */
+code: string, };
 
 /**
  * A message of farglassd on a passkeys channel (F034).
@@ -543,7 +551,16 @@ host: string, } | { "type": "create",
 /**
  * The options.
  */
-options: unknown, } | { "type": "codes", 
+options: unknown, } | { "type": "confirm", 
+/**
+ * The `publicKey` options of `navigator.credentials.get`, or `None` if no passkey
+ * belongs to this host name: only a recovery code works.
+ */
+options?: unknown, 
+/**
+ * The host names of the other passkeys of the user.
+ */
+elsewhere: Array<string>, } | { "type": "codes", 
 /**
  * The codes.
  */

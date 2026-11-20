@@ -10,6 +10,7 @@
 // - The user adds a passkey in Settings > Passkeys and gets recovery codes.
 // - The next login asks for the passkey after the password, and the passkey logs in.
 // - A recovery code logs in one time, and a second use fails.
+// - A change of the passkeys needs a fresh passkey first, and a wrong recovery code changes nothing (F053).
 // - farglassd keeps the passkeys in a file that only it can read.
 //
 // Exit status: 0 if all steps pass, 1 if a step fails.
@@ -113,7 +114,7 @@ try {
   await win.getByLabel("Name of the new passkey").fill("Test key");
   await win.getByRole("button", { name: "Add a passkey" }).click();
   await win.getByRole("heading", { name: "Your recovery codes" }).waitFor({ timeout: TIMEOUT_MS });
-  const codes = await win.locator(".settings-codes code").allTextContents();
+  let codes = await win.locator(".settings-codes code").allTextContents();
   check(codes.length === 8 && codes.every((code) => /^[0-9a-f]{4}(-[0-9a-f]{4}){3}$/.test(code)), `the first passkey gives 8 recovery codes (${codes[0]})`);
   await win.getByRole("button", { name: "I saved them" }).click();
   await win.getByRole("cell", { name: "Test key", exact: true }).waitFor({ timeout: TIMEOUT_MS });
@@ -121,6 +122,40 @@ try {
   check(true, "the list shows the passkey with its host name");
   const file = join(state, "passkeys", `${process.getuid()}.json`);
   check((statSync(file).mode & 0o777) === 0o600, "farglassd keeps the passkeys in a file with mode 0600");
+
+  // 2b. New recovery codes need a fresh passkey first (F053).
+  const newCodes = async (window) => {
+    page.once("dialog", (dialog) => void dialog.accept());
+    await window.getByRole("button", { name: "Make new recovery codes" }).click();
+  };
+  const readCodes = async (window) => {
+    await window.getByRole("heading", { name: "Your recovery codes" }).waitFor({ timeout: TIMEOUT_MS });
+    const list = await window.locator(".settings-codes code").allTextContents();
+    await window.getByRole("button", { name: "I saved them" }).click();
+    return list;
+  };
+  await newCodes(win);
+  await win.getByRole("heading", { name: "Confirm that it is you" }).waitFor({ timeout: TIMEOUT_MS });
+  await win.getByRole("button", { name: "Confirm with my passkey" }).click();
+  codes = await readCodes(win);
+  check(codes.length === 8, "new recovery codes need a fresh passkey first");
+  // In the next minutes, the same Settings window needs no new proof.
+  await newCodes(win);
+  codes = await readCodes(win);
+  check((await win.getByRole("heading", { name: "Confirm that it is you" }).count()) === 0, "after the proof, the same window needs no new proof");
+  // A new Settings window needs a new proof, and a wrong recovery code changes nothing.
+  await win.getByRole("button", { name: "Close" }).first().click();
+  await launch(page, "Settings");
+  const again = page.locator('.wm-window[aria-label="Settings"]');
+  await again.locator(".settings-nav").getByRole("button", { name: "Passkeys", exact: true }).click();
+  page.once("dialog", (dialog) => void dialog.accept());
+  await again.getByRole("button", { name: "Remove Test key" }).click();
+  await again.getByRole("heading", { name: "Confirm that it is you" }).waitFor({ timeout: TIMEOUT_MS });
+  await again.getByLabel("Recovery code").fill("0000-0000-0000-0000");
+  await again.getByRole("button", { name: "Confirm with the code" }).click();
+  await again.getByText("Nothing changed.", { exact: false }).waitFor({ timeout: TIMEOUT_MS });
+  await again.getByRole("cell", { name: "Test key", exact: true }).waitFor({ timeout: TIMEOUT_MS });
+  check(true, "a removal in a new window needs a proof, and a wrong recovery code changes nothing");
 
   // 3. The next login asks for the passkey after the password.
   await logout(page, user);
@@ -152,6 +187,7 @@ try {
 } catch (error) {
   failed = true;
   console.error(`FAIL: ${error.message}`);
+  if (process.env.FARGLASS_SHOTS) await browser?.contexts()[0]?.pages()[0]?.screenshot({ path: join(process.env.FARGLASS_SHOTS, "passkey-failed.png") }).catch(() => {});
 } finally {
   await browser?.close();
   for (const child of children) {

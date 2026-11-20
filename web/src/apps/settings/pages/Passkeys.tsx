@@ -1,5 +1,5 @@
 import { createSignal, For, onCleanup, Show } from "solid-js";
-import { creationOptions, credentialJson, hasPasskeys, passkeyError } from "../../../passkey";
+import { creationOptions, credentialJson, hasPasskeys, passkeyError, requestOptions } from "../../../passkey";
 import type { PasskeyEvent, PasskeyInfo, PasskeyRequest } from "../../../proto";
 import type { AppContext } from "../../types";
 
@@ -18,6 +18,9 @@ export function PasskeysPage(props: { context: AppContext }) {
   const [busy, setBusy] = createSignal(false);
   const [name, setName] = createSignal("");
   const [closed, setClosed] = createSignal<string | null>(null);
+  /** A change waits for a fresh passkey or a recovery code (F053). */
+  const [confirm, setConfirm] = createSignal<{ options: unknown; elsewhere: readonly string[] } | null>(null);
+  let codeInput: HTMLInputElement | undefined;
 
   const channel = props.context.connection.openChannel(
     { kind: "passkeys" },
@@ -45,6 +48,9 @@ export function PasskeysPage(props: { context: AppContext }) {
         setError(event.message);
         setBusy(false);
         break;
+      case "confirm":
+        setConfirm({ options: event.options ?? null, elsewhere: event.elsewhere });
+        break;
       case "create":
         try {
           const credential = (await navigator.credentials.create({ publicKey: creationOptions(event.options) })) as PublicKeyCredential | null;
@@ -56,6 +62,36 @@ export function PasskeysPage(props: { context: AppContext }) {
         }
         break;
     }
+  };
+
+  /** Answers the confirm step with the passkey. */
+  const prove = async () => {
+    const step = confirm();
+    if (!step?.options) return;
+    try {
+      const credential = (await navigator.credentials.get({ publicKey: requestOptions(step.options) })) as PublicKeyCredential | null;
+      if (!credential) throw new DOMException("no credential", "NotAllowedError");
+      setConfirm(null);
+      send({ type: "proof", credential: credentialJson(credential) });
+    } catch (failure) {
+      setError(passkeyError(failure));
+    }
+  };
+
+  /** Answers the confirm step with a recovery code. */
+  const proveWithCode = (event: SubmitEvent) => {
+    event.preventDefault();
+    const code = codeInput?.value.trim() ?? "";
+    if (!code) return;
+    if (codeInput) codeInput.value = "";
+    setConfirm(null);
+    send({ type: "proof-code", code });
+  };
+
+  /** Stops a change that waits for the confirm step. */
+  const cancelConfirm = () => {
+    setConfirm(null);
+    setBusy(false);
   };
 
   const add = (event: SubmitEvent) => {
@@ -160,6 +196,39 @@ export function PasskeysPage(props: { context: AppContext }) {
         </Show>
       </Show>
       <Show when={error()}>{(text) => <p class="settings-error" role="alert">{text()}</p>}</Show>
+      <Show when={confirm()}>
+        {(step) => (
+          <section class="settings-confirm" role="dialog" aria-labelledby="confirm-title">
+            <h3 id="confirm-title">Confirm that it is you</h3>
+            <p>A change of your passkeys needs your passkey or a recovery code first.</p>
+            <Show when={step().options && hasPasskeys()}>
+              <button type="button" class="primary" onClick={() => void prove()}>
+                Confirm with my passkey
+              </button>
+            </Show>
+            <Show when={!step().options && step().elsewhere.length > 0}>
+              <p class="settings-note">Your passkeys belong to {step().elsewhere.join(" and ")}. Use a recovery code here.</p>
+            </Show>
+            <form class="settings-form" onSubmit={proveWithCode}>
+              <label for="confirm-code">Recovery code</label>
+              <input
+                id="confirm-code"
+                type="text"
+                autocomplete="off"
+                autocapitalize="off"
+                spellcheck={false}
+                ref={(element) => {
+                  codeInput = element;
+                }}
+              />
+              <button type="submit">Confirm with the code</button>
+            </form>
+            <button type="button" onClick={cancelConfirm}>
+              Cancel
+            </button>
+          </section>
+        )}
+      </Show>
       <Show when={codes()}>
         {(list) => (
           <section class="settings-codes" aria-labelledby="codes-title">
