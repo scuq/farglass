@@ -4,7 +4,7 @@ title: farglassctl skeleton with bash completion
 status: planned
 phase: P06
 tags: [packaging]
-decisions: [ADR-046]
+decisions: [ADR-047]
 files: []
 ---
 

@@ -4,7 +4,7 @@ title: Install test on each supported distribution
 status: planned
 phase: P06
 tags: [packaging]
-decisions: [ADR-046]
+decisions: [ADR-047]
 files: []
 ---
 

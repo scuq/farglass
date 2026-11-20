@@ -1,10 +1,10 @@
 ---
 id: ADR-046
 title: farglassctl installs signed release tarballs
-status: accepted
+status: superseded
 date: 2026-11-21
 tags: [packaging]
-superseded_by:
+superseded_by: ADR-047
 files: []
 ---
 
