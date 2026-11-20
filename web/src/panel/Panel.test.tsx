@@ -44,6 +44,68 @@ function key(type: "keydown" | "keyup", init: KeyboardEventInit, target: EventTa
   target.dispatchEvent(new KeyboardEvent(type, { bubbles: true, cancelable: true, ...init }));
 }
 
+describe("sound of the apps", () => {
+  test("the sound button shows with a sound sink, counts the packets, and mutes", async () => {
+    const decoded: unknown[] = [];
+    const gains: { value: number }[] = [];
+    class FakeContext {
+      audioWorklet = { addModule: async () => {} };
+      destination = {};
+      createGain() {
+        const gain = { gain: { value: 1 }, connect: (to: unknown) => to };
+        gains.push(gain.gain);
+        return gain;
+      }
+      resume = async () => {};
+      close = async () => {};
+    }
+    class FakeNode {
+      port = { onmessage: null, postMessage: () => {} };
+      connect = (to: unknown) => to;
+    }
+    class FakeDecoder {
+      state = "unconfigured";
+      configure() {
+        this.state = "configured";
+      }
+      decode(chunk: unknown) {
+        decoded.push(chunk);
+      }
+      close() {}
+    }
+    class FakeChunk {
+      constructor(readonly init: { timestamp: number }) {}
+    }
+    vi.stubGlobal("AudioContext", FakeContext);
+    vi.stubGlobal("AudioWorkletNode", FakeNode);
+    vi.stubGlobal("AudioDecoder", FakeDecoder);
+    vi.stubGlobal("EncodedAudioChunk", FakeChunk);
+    try {
+      const { host, server, channelOf } = await mountDesktop();
+      const audio = channelOf("audio");
+      server.push(readyFrame(audio));
+      expect(host.querySelector(".panel-sound")).toBeNull();
+      server.push(encodeJsonFrame(audio, FrameType.Control, { type: "format", codec: "opus", sample_rate: 48000, channels: 2, frame_samples: 960 }));
+      await settle();
+      await settle();
+      const button = host.querySelector<HTMLButtonElement>(".panel-sound")!;
+      expect(button.textContent).toBe("Sound");
+      server.push(dataFrame(audio, new Uint8Array([7, 0, 0, 0, 0xfc, 0xff, 0xfe])));
+      await settle();
+      expect(decoded).toHaveLength(1);
+      expect((decoded[0] as FakeChunk).init.timestamp).toBe(7 * 20_000);
+      expect(button.dataset.packets).toBe("1");
+      button.click();
+      await settle();
+      expect(button.getAttribute("aria-pressed")).toBe("true");
+      expect(button.textContent).toBe("Sound off");
+      expect(gains[0]!.value).toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe("apps of the host", () => {
   test("the launcher lists the desktop entries with their icons, and a click starts the app", async () => {
     URL.createObjectURL = vi.fn(() => "blob:calculator-icon");

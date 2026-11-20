@@ -247,6 +247,15 @@ A blinking cursor or typing never starts a video.
 A hardware encoder with VAAPI is not available yet.
 `npm --prefix spikes/e2e run video` starts `spikes/e2e/fixtures/animation.py`, and the browser must decode its moving area as video.
 
+The sound of the apps plays in your browser.
+The agent adds the audio sink `farglass` to the PipeWire server of the user.
+The apps of the web session get `PULSE_SINK=farglass` and `PIPEWIRE_NODE=farglass`, thus PulseAudio and PipeWire clients play to it.
+The agent encodes the sound as Opus at 48 kHz in stereo, 20 ms in each packet, and sends no packets after 1 s of silence.
+The browser decodes the packets with WebCodecs and plays them in an AudioWorklet with a jitter buffer: the sound starts after 60 ms, and the delay stays below 200 ms.
+The browser starts the sound only after a press or a key in the page.
+The Sound button in the panel turns the sound off and on.
+`npm --prefix spikes/e2e run sound` plays a tone from `spikes/e2e/fixtures/animation.py --tone`, and the browser must play it.
+
 To look at the events of a real app:
 
 ```sh

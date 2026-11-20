@@ -9,7 +9,7 @@ use ts_rs::{Config, TS};
 
 use crate::login::{LocalSession, LoginEvent, LoginReply};
 use crate::message::{
-    AppsEvent, AppsRequest, Bus, ClipboardMessage, ClipboardMime, Close, CloseReason,
+    AppsEvent, AppsRequest, AudioEvent, Bus, ClipboardMessage, ClipboardMime, Close, CloseReason,
     ConnectionMessage, DbusEvent, DbusRequest, HostApp, MAX_CLIPBOARD_LEN, Notification,
     NotifyAction, NotifyEvent, NotifyReply, Open, PolkitEvent, PolkitReply, PtyEvent, PtyRequest,
     Ready, StateEvent, StateRequest, SurfaceAck, SurfaceEvent, SurfaceInput, SurfaceRect,
@@ -105,6 +105,7 @@ fn messages() -> String {
     declare::<SurfaceEvent>(&cfg, &mut out);
     declare::<SurfaceRequest>(&cfg, &mut out);
     declare::<SurfaceAck>(&cfg, &mut out);
+    declare::<AudioEvent>(&cfg, &mut out);
     declare::<HostApp>(&cfg, &mut out);
     declare::<AppsRequest>(&cfg, &mut out);
     declare::<AppsEvent>(&cfg, &mut out);

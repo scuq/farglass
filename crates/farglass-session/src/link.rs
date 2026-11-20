@@ -9,9 +9,10 @@ use std::time::Duration;
 use bytes::Bytes;
 use farglass_proto::codec::{CodecError, FrameCodec};
 use farglass_proto::message::{
-    AppsEvent, AppsRequest, Bus, ClipboardMessage, ClipboardMime, Close, CloseReason, DbusEvent,
-    DbusRequest, LinkMessage, MAX_CLIPBOARD_LEN, NotifyReply, Open, PolkitReply, PtyEvent,
-    PtyRequest, Ready, StateEvent, StateRequest, SurfaceAck, SurfaceInput, SurfaceRequest,
+    AppsEvent, AppsRequest, AudioEvent, Bus, ClipboardMessage, ClipboardMime, Close, CloseReason,
+    DbusEvent, DbusRequest, LinkMessage, MAX_CLIPBOARD_LEN, NotifyReply, Open, PolkitReply,
+    PtyEvent, PtyRequest, Ready, StateEvent, StateRequest, SurfaceAck, SurfaceInput,
+    SurfaceRequest,
 };
 use farglass_proto::{ChannelId, Frame, FrameError, FrameType, PROTOCOL_VERSION, Side};
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -20,6 +21,7 @@ use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use tokio_util::codec::Framed;
 
+use crate::audio::{self, Audio};
 use crate::dbus::{self, Buses, DbusOptions, Filter, Subscriptions};
 use crate::launch::{LaunchOptions, Launcher};
 use crate::logind::Logind;
@@ -77,6 +79,8 @@ pub struct Session {
     pub surfaces: Arc<Surfaces>,
     /// The apps of the host for the launcher.
     pub launcher: Arc<Launcher>,
+    /// The sound of the apps.
+    pub audio: Arc<Audio>,
 }
 
 impl Default for Session {
@@ -91,6 +95,7 @@ impl Default for Session {
             notifications: Notifications::new(),
             surfaces: Surfaces::new(),
             launcher: Launcher::new(LaunchOptions::from_env()),
+            audio: Audio::new(),
         }
     }
 }
@@ -365,7 +370,7 @@ where
                             )),
                         }
                     }
-                    Kind::Apps => None,
+                    Kind::Apps | Kind::Audio { .. } => None,
                     Kind::Clipboard { incoming, .. } => match clipboard_frame(incoming, &frame) {
                         Ok(Some(clip)) => {
                             session.surfaces.set_clipboard(clip);
@@ -757,6 +762,11 @@ enum Kind {
     SurfaceInput,
     /// Lists and starts the apps of the host.
     Apps,
+    /// Gets the sound of the apps. Dropping the channel removes it.
+    Audio {
+        /// Dropping the guard removes the channel from the agent.
+        _viewer: Option<audio::AudioGuard>,
+    },
     /// Carries the clipboard between the Wayland apps and the shell.
     Clipboard {
         /// Dropping the guard removes the channel from the agent.
@@ -853,6 +863,32 @@ fn open(
             accept(Kind::Surfaces { _viewer: guard })
         }
         Ok(Open::SurfaceInput) => accept(Kind::SurfaceInput),
+        Ok(Open::Audio) => {
+            let event = if session.audio.available() {
+                AudioEvent::Format {
+                    codec: "opus".to_owned(),
+                    sample_rate: audio::SAMPLE_RATE,
+                    channels: u8::try_from(audio::CHANNELS).unwrap_or(2),
+                    frame_samples: u32::try_from(audio::FRAME).unwrap_or(960),
+                }
+            } else {
+                AudioEvent::Unavailable {
+                    message: "The session has no sound sink.".to_owned(),
+                }
+            };
+            let available = matches!(event, AudioEvent::Format { .. });
+            // The format goes before the first packet: the ready frame and this frame go before the events queue.
+            let _ = events.send(Frame::json(channel, FrameType::Control, &event)?);
+            let guard = available.then(|| {
+                let events = events.clone();
+                session.audio.add_viewer(move |packet| {
+                    if let Ok(frame) = Frame::data(channel, packet.to_bytes()) {
+                        let _ = events.send(frame);
+                    }
+                })
+            });
+            accept(Kind::Audio { _viewer: guard })
+        }
         Ok(Open::Apps) => {
             apps_request(session.launcher.clone(), channel, AppsRequest::List, events);
             accept(Kind::Apps)

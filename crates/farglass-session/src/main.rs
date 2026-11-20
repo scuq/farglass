@@ -77,6 +77,14 @@ async fn main() {
             }
         });
     }
+    // The sound sink of the session (F038). It lives as long as the agent.
+    let _sink = match session.audio.start_sink() {
+        Ok(sink) => Some(sink),
+        Err(error) => {
+            tracing::warn!(%error, "no sound sink, the apps play no sound in the browser");
+            None
+        }
+    };
     // The Wayland compositor of the session (F024). It lives as long as the agent.
     let _compositor = farglass_session::surfaces::socket_path().and_then(|socket| {
         match session.surfaces.start(&socket) {

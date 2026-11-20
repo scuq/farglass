@@ -1,6 +1,7 @@
-import { createSignal, For, onCleanup, untrack } from "solid-js";
+import { createSignal, For, onCleanup, Show, untrack } from "solid-js";
 import { setContextMenu } from "../menu/menu";
 import { windowMenu } from "../wm/menus";
+import { soundPlayer } from "../audio/player";
 import { windowIcon } from "../launcher/hostApps";
 import type { DesktopController } from "../wm/controller";
 import type { Win } from "../wm/model";
@@ -86,6 +87,20 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
         </For>
       </nav>
 
+      <Show when={soundPlayer()?.available()}>
+        <button
+          type="button"
+          class="panel-sound"
+          aria-pressed={String(soundPlayer()?.muted() ?? false) as "true" | "false"}
+          data-packets={soundPlayer()?.packets()}
+          data-playing={String(soundPlayer()?.state()?.playing ?? false)}
+          data-level={(soundPlayer()?.state()?.level ?? 0).toFixed(2)}
+          title="Turn the sound of the apps off or on"
+          onClick={() => soundPlayer()?.setMuted(!soundPlayer()?.muted())}
+        >
+          {soundPlayer()?.muted() ? "Sound off" : "Sound"}
+        </button>
+      </Show>
       <button type="button" class="panel-tile" onClick={() => c.tile()} title="Place the windows of the workspace in columns">
         Tile
       </button>

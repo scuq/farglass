@@ -19,12 +19,18 @@ use crate::dbus::Buses;
 pub const DESKTOP: &str = "farglass";
 
 /// Returns the variables of the desktop for the Wayland socket `socket`.
+/// The sound of PulseAudio and PipeWire clients goes to the sink of the browser (F038).
 #[must_use]
 pub fn variables(socket: &Path) -> Vec<(String, String)> {
     vec![
         ("WAYLAND_DISPLAY".to_owned(), socket.display().to_string()),
         ("XDG_SESSION_TYPE".to_owned(), "wayland".to_owned()),
         ("XDG_CURRENT_DESKTOP".to_owned(), DESKTOP.to_owned()),
+        ("PULSE_SINK".to_owned(), crate::audio::SINK_NAME.to_owned()),
+        (
+            "PIPEWIRE_NODE".to_owned(),
+            crate::audio::SINK_NAME.to_owned(),
+        ),
     ]
 }
 

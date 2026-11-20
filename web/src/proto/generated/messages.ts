@@ -43,7 +43,7 @@ bus: Bus, } | { "kind": "notify" } | { "kind": "surfaces" } | { "kind": "surface
 /**
  * The id of the surface from the surfaces channel.
  */
-id: number, } | { "kind": "surface-input" } | { "kind": "clipboard" } | { "kind": "apps" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" };
+id: number, } | { "kind": "surface-input" } | { "kind": "clipboard" } | { "kind": "audio" } | { "kind": "apps" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" };
 
 /**
  * The payload of a ready frame. The receiver of the open frame accepts the channel.
@@ -405,6 +405,31 @@ export type SurfaceAck = { "type": "ack",
  * The sequence of the end message.
  */
 seq: number, };
+
+/**
+ * A control message of the agent on an audio channel.
+ */
+export type AudioEvent = { "type": "format", 
+/**
+ * The codec, `opus`.
+ */
+codec: string, 
+/**
+ * The sample rate in Hz.
+ */
+sample_rate: number, 
+/**
+ * The channels.
+ */
+channels: number, 
+/**
+ * The samples of each channel in one packet.
+ */
+frame_samples: number, } | { "type": "unavailable", 
+/**
+ * The cause.
+ */
+message: string, };
 
 /**
  * An app of the host: a desktop entry that the launcher shows.

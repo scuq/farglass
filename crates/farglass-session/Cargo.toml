@@ -11,6 +11,8 @@ farglass-proto = { workspace = true, features = ["codec"] }
 farglass-surface.workspace = true
 bytes.workspace = true
 futures-util.workspace = true
+opus1.workspace = true
+pipewire.workspace = true
 nix = { workspace = true, features = ["signal", "user"] }
 zeroize.workspace = true
 pty-process.workspace = true

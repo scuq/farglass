@@ -128,6 +128,11 @@ pub enum Open {
     /// and then the bytes in data frames. The agent answers an offer of the shell with
     /// [`ClipboardMessage::Stored`]. The agent sends a content only after an app set the clipboard.
     Clipboard,
+    /// The sound of the apps of the session (F038).
+    ///
+    /// The agent sends [`AudioEvent`] control messages and, after [`AudioEvent::Format`],
+    /// one data frame for each packet: the packet number as u32, little-endian, then one Opus packet.
+    Audio,
     /// The apps of the host for the launcher: the desktop entries (F031).
     ///
     /// The agent sends [`AppsEvent::List`] at once. The shell sends [`AppsRequest`].
@@ -440,6 +445,28 @@ pub enum SurfaceInput {
         code: u32,
         /// Pressed or released.
         pressed: bool,
+    },
+}
+
+/// A control message of the agent on an audio channel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum AudioEvent {
+    /// The format of the packets that follow.
+    Format {
+        /// The codec, `opus`.
+        codec: String,
+        /// The sample rate in Hz.
+        sample_rate: u32,
+        /// The channels.
+        channels: u8,
+        /// The samples of each channel in one packet.
+        frame_samples: u32,
+    },
+    /// The session has no sound, for example with no PipeWire server.
+    Unavailable {
+        /// The cause.
+        message: String,
     },
 }
 
