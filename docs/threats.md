@@ -1,6 +1,7 @@
 # farglass threat list
 
 This list is the result of the security review of F035 (2026-11-20).
+A second, short review after F051 to F059 added findings 13 to 17 (2026-11-20).
 It covers the login, the session start, the channels of the shell, the web headers, the sockets, the passkey store, the video redirection, and the packages.
 Each finding has a feature or a decision.
 A path with a line number points to the code at the time of the review.
@@ -101,8 +102,9 @@ Controls:
 - farglassd runs as an unprivileged user with an empty capability set, a system call filter, and `ProtectSystem=strict`.
 - The session worker drops to the user with initgroups, setgid, and setuid, and an empty environment.
 - The TLS key has mode 0600.
+- farglass-login keeps 7 capabilities and runs with `ProtectProc=invisible`, `UMask=0077`, and `PrivateIPC=yes` (F056).
 
-Gap: finding 9.
+Gap: finding 17.
 
 ## Findings
 
@@ -120,3 +122,8 @@ Gap: finding 9.
 | 10 | Low | Each local user can open connections to the agent socket with no limit. | Fixed in F051 |
 | 11 | Info | A program of the user can unlock the web lock screen. The replacement of the agent is fixed in F057. The passkey step shows that the password was correct. `dev_user` gives each local user a session. The CSP permits inline style elements. | ADR-044 |
 | 12 | Info | `install-local.sh` puts the path of the repository in a shell string for `runuser`. | Fixed in F056 |
+| 13 | Medium | farglassd counted each agent link from the session worker under the uid root, thus the cap of 4 links of F051 let at most 4 web sessions on the host. | Fixed after F057 |
+| 14 | Low | farglassd has no cap on TCP connections and TLS handshakes for each address, and no rate limit on `POST /session` and `POST /transport`. Only the WebSocket connections with no user have a cap. | F060 |
+| 15 | Low | The first passkey needs no proof. A person at an unlocked tab, or with a stolen cookie, can add a passkey to an account with no passkey, and the user is then locked out until the administrator removes the file. | F061 |
+| 16 | Info | A failed login logs the typed username. A password typed in the username field goes into the journal. | F062 |
+| 17 | Info | The root test starts farglass-login directly, not in its systemd unit: no test proves that PAM works with the capability set of F056. | F063 |

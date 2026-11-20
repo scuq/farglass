@@ -558,11 +558,8 @@ pub async fn accept_loop(listener: UnixListener, registry: Arc<Registry>, allow_
             event("not-from-worker", peer).refused();
             continue;
         }
-        let Some(place) = LinkPlace::take(&links, peer) else {
-            event("uid-cap", peer).refused();
-            continue;
-        };
         let registry = registry.clone();
+        let links = links.clone();
         tokio::spawn(async move {
             let mut stream = stream;
             let uid = if peer == 0 {
@@ -583,6 +580,11 @@ pub async fn accept_loop(listener: UnixListener, registry: Arc<Registry>, allow_
                 }
             } else {
                 peer
+            };
+            // The place belongs to the uid of the session: a link from the worker has the peer root.
+            let Some(place) = LinkPlace::take(&links, uid) else {
+                event("uid-cap", uid).refused();
+                return;
             };
             event("", uid).accepted();
             registry.serve(stream, uid).await;
