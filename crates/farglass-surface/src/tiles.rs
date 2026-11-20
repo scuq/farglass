@@ -456,6 +456,21 @@ impl Encoder {
         if video_ended {
             out.u8(code::VIDEO_END);
         }
+        // The client cannot decode the video: the region goes as exact tiles from now on.
+        if !self.video
+            && let Some(stream) = self.stream.take()
+        {
+            end_video(
+                &mut out,
+                &mut stats,
+                &mut self.cache,
+                &mut self.lossy_since,
+                shown,
+                width,
+                height,
+                &stream,
+            );
+        }
 
         // A scroll: the client copies the rows that moved, and the tile diff then sends the new strip only.
         // With a video, the copy of the client is not exact in the region, thus no scroll.
@@ -567,7 +582,7 @@ impl Encoder {
                 {
                     match VideoStream::new(rect, block, now) {
                         Ok(mut stream) => {
-                            tracing::debug!(?rect, "a region of the surface goes as video");
+                            tracing::info!(?rect, "a region of the surface goes as video");
                             video_frame = stream.frame(image.pixels, width, now);
                             self.stream = Some(stream);
                         }
@@ -734,6 +749,17 @@ impl Encoder {
             bytes: out.0,
             stats,
         })
+    }
+
+    /// Turns the video off, for example for a client that cannot decode it.
+    /// A running video ends at the next lossless pass, and its region goes as exact tiles.
+    pub fn disable_video(&mut self) {
+        self.video = false;
+        if let Some(stream) = &mut self.stream {
+            stream.last_change = Instant::now()
+                .checked_sub(video::VIDEO_IDLE)
+                .unwrap_or_else(Instant::now);
+        }
     }
 
     /// Forgets what the client shows. The next frame sends each tile.
@@ -1480,6 +1506,46 @@ mod lossy_tests {
         assert_eq!(canvas.video_ends, 1);
         assert_eq!(encoder.video_rect(), None);
         assert_eq!(canvas.pixels, pixels, "the canvas is exact after the video");
+    }
+
+    #[test]
+    fn a_client_that_cannot_decode_gets_exact_tiles_and_no_more_video() {
+        let (width, height) = (640, 480);
+        let mut encoder = Encoder::new();
+        let mut canvas = Canvas::default();
+        canvas.apply(&hello(SLOTS));
+        let start = Instant::now();
+        let full = [Rect {
+            x: 0,
+            y: 0,
+            width: 640,
+            height: 480,
+        }];
+        let mut last = Vec::new();
+        for n in 0..60 {
+            if n == 30 {
+                assert!(encoder.video_rect().is_some());
+                encoder.disable_video();
+            }
+            last = video_frame(n);
+            let image = Image {
+                width,
+                height,
+                pixels: &last,
+            };
+            let now = start + Duration::from_millis(33) * u32::try_from(n).unwrap();
+            let encoded = encoder.encode_at(&image, &full, now).unwrap();
+            if n >= 30 {
+                assert_eq!(encoded.stats.video, 0, "frame {n}");
+            }
+            canvas.apply(&encoded.bytes);
+        }
+        assert_eq!(canvas.video_ends, 1);
+        assert_eq!(encoder.video_rect(), None);
+        // The moving area went as tiles after the end: the lossless pass makes it exact.
+        let encoded = encoder.refine(start + Duration::from_secs(10)).unwrap();
+        canvas.apply(&encoded.bytes);
+        assert_eq!(canvas.pixels, last);
     }
 
     #[test]

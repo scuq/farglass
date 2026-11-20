@@ -117,6 +117,10 @@ pub enum Open {
     Surface {
         /// The id of the surface from the surfaces channel.
         id: u32,
+        /// Reports whether the shell decodes the video messages (F037). A shell before this field sends none and gets tiles only.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(as = "Option<bool>", optional)]
+        video: bool,
     },
     /// The keyboard and pointer input to the Wayland apps, on its own stream.
     ///
@@ -402,6 +406,8 @@ pub enum SurfaceAck {
         /// The sequence of the end message.
         seq: u32,
     },
+    /// The client cannot decode the video region (F037). The agent ends it and sends tiles only on this channel.
+    NoVideo,
 }
 
 /// A message of the shell on a surface input channel.

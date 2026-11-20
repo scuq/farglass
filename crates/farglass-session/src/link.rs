@@ -339,6 +339,10 @@ where
                                 stream.ack(seq);
                                 None
                             }
+                            Ok(SurfaceAck::NoVideo) => {
+                                stream.no_video();
+                                None
+                            }
                             Err(error) => Some((
                                 CloseReason::ProtocolError,
                                 format!("The surface acknowledgment is not valid: {error}"),
@@ -905,12 +909,13 @@ fn open(
                 incoming: None,
             })
         }
-        Ok(Open::Surface { id }) => {
+        Ok(Open::Surface { id, video }) => {
             accept(Kind::Surface(crate::surface_stream::SurfaceStream::open(
                 &session.surfaces,
                 id,
                 channel,
                 events.clone(),
+                video,
             )))
         }
         Ok(Open::Dbus { bus }) => accept(Kind::Dbus {

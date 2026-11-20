@@ -43,7 +43,11 @@ bus: Bus, } | { "kind": "notify" } | { "kind": "surfaces" } | { "kind": "surface
 /**
  * The id of the surface from the surfaces channel.
  */
-id: number, } | { "kind": "surface-input" } | { "kind": "clipboard" } | { "kind": "audio" } | { "kind": "apps" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" };
+id: number, 
+/**
+ * Reports whether the shell decodes the video messages (F037). A shell before this field sends none and gets tiles only.
+ */
+video?: boolean, } | { "kind": "surface-input" } | { "kind": "clipboard" } | { "kind": "audio" } | { "kind": "apps" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" };
 
 /**
  * The payload of a ready frame. The receiver of the open frame accepts the channel.
@@ -404,7 +408,7 @@ export type SurfaceAck = { "type": "ack",
 /**
  * The sequence of the end message.
  */
-seq: number, };
+seq: number, } | { "type": "no-video" };
 
 /**
  * A control message of the agent on an audio channel.

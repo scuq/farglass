@@ -217,9 +217,18 @@ async fn a_client_that_does_not_acknowledge_gets_two_frames_and_then_the_newest_
     let surfaces = Surfaces::new();
     surfaces.handle(farglass_surface::Event::ToplevelNew { id: 1 });
     let mut link = link(surfaces.clone()).await;
-    link.send(Frame::open(ChannelId::new(3), &Open::Surface { id: 1 }).unwrap())
-        .await
-        .unwrap();
+    link.send(
+        Frame::open(
+            ChannelId::new(3),
+            &Open::Surface {
+                id: 1,
+                video: false,
+            },
+        )
+        .unwrap(),
+    )
+    .await
+    .unwrap();
     for shade in 1..=6 {
         surfaces.handle(commit(1, shade));
         tokio::time::sleep(Duration::from_millis(30)).await;

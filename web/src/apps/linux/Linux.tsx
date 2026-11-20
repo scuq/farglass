@@ -68,6 +68,10 @@ function SurfaceCanvas(props: {
     if (event.data.type === "video") {
       canvas.dataset.videoFrames = String(event.data.frames ?? 0);
     }
+    if (event.data.type === "video-failed") {
+      canvas.dataset.video = "failed";
+      channel.control({ type: "no-video" });
+    }
     // The acknowledgment of each frame lets the agent send the next one (F029).
     if (event.data.type === "end") {
       channel.control({ type: "ack", seq: event.data.seq ?? 0 });
@@ -78,7 +82,8 @@ function SurfaceCanvas(props: {
     }
   };
   const channel = props.connection.openChannel(
-    { kind: "surface", id: props.id },
+    // The video of a region needs WebCodecs in the worker (F037). With none, the agent sends tiles only.
+    { kind: "surface", id: props.id, video: typeof VideoDecoder !== "undefined" },
     {
       ondata: (data) => {
         const copy = data.slice().buffer;

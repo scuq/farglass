@@ -4,7 +4,7 @@
 //! a new commit adds its damage to the one that waits, thus a slow encoder
 //! sends the newest pixels only. The encoder runs on a blocking thread.
 
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use farglass_proto::{ChannelId, Frame, MAX_PAYLOAD_LEN};
@@ -21,6 +21,7 @@ pub struct SurfaceStream {
     task: JoinHandle<()>,
     acked: Arc<AtomicU32>,
     ack_notify: Arc<Notify>,
+    no_video: Arc<AtomicBool>,
 }
 
 /// The most frames that the client did not acknowledge. While the client lags, the commits wait and merge (F029).
@@ -52,6 +53,14 @@ fn merge(waiting: &mut Option<FrameUpdate>, update: FrameUpdate) {
 }
 
 impl SurfaceStream {
+    /// Turns the video off for this channel: the client cannot decode it (F037).
+    pub fn no_video(&self) {
+        if !self.no_video.swap(true, Ordering::AcqRel) {
+            tracing::warn!("the browser cannot decode the video of a surface, it gets tiles only");
+        }
+        self.ack_notify.notify_one();
+    }
+
     /// Takes the acknowledgment of the frame `seq`. A waiting commit can go now.
     pub fn ack(&self, seq: u32) {
         self.acked.fetch_max(seq, Ordering::AcqRel);
@@ -59,12 +68,14 @@ impl SurfaceStream {
     }
 
     /// Starts the stream of `surface` on `channel`. The data frames go to `frames`.
+    /// With `video`, a region that changes in each frame goes as H.264 (F037), unless `FARGLASS_VIDEO=0`.
     #[must_use]
     pub fn open(
         surfaces: &Arc<Surfaces>,
         surface: u32,
         channel: ChannelId,
         frames: mpsc::UnboundedSender<Frame>,
+        video: bool,
     ) -> Self {
         let waiting: Arc<Mutex<Option<FrameUpdate>>> = Arc::new(Mutex::new(None));
         let notify = Arc::new(Notify::new());
@@ -83,6 +94,10 @@ impl SurfaceStream {
         let ack_notify = Arc::new(Notify::new());
         let task_acked = acked.clone();
         let task_ack_notify = ack_notify.clone();
+        let no_video = Arc::new(AtomicBool::new(false));
+        let task_no_video = no_video.clone();
+        // FARGLASS_VIDEO=0 turns the video off, for example to find a fault.
+        let video = video && std::env::var_os("FARGLASS_VIDEO").is_none_or(|value| value != "0");
         let task = tokio::spawn(async move {
             let (acked, ack_notify) = (task_acked, task_ack_notify);
             let mut sent: u32 = 0;
@@ -90,7 +105,11 @@ impl SurfaceStream {
                 let _ = frames.send(hello);
             }
             let mut encoder = Encoder::new();
+            encoder.video = video;
             loop {
+                if !encoder.video || task_no_video.load(Ordering::Acquire) {
+                    encoder.disable_video();
+                }
                 // The lossless pass of the lossy tiles comes when they did not change for a time (F028).
                 let refine_at = encoder.next_refine();
                 let sleep = async {
@@ -144,6 +163,7 @@ impl SurfaceStream {
         Self {
             acked,
             ack_notify,
+            no_video,
             _watch: watch,
             task,
         }
