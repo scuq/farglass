@@ -20,9 +20,10 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
   const [sessionOpen, setSessionOpen] = createSignal(false);
 
   // A minimized window shows how busy its app is, and the details in its tooltip (F045).
-  const usage = (win: Win) => (win.minimized ? statsClient()?.usageOf(win.id) : undefined);
+  // The dot is for minimized windows only: an open window shows what its app does. The tooltip is for each window.
+  const usage = (win: Win) => statsClient()?.usageOf(win.id);
   const activity = (win: Win) => {
-    const each = usage(win);
+    const each = win.minimized ? usage(win) : undefined;
     return each ? (isBusy(each) ? "busy" : "idle") : undefined;
   };
   const tip = (win: Win) => {

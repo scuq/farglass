@@ -134,7 +134,7 @@ The panel at the top has these parts, from left to right:
   The calculator runs in your browser: `+ - * / % ^`, parentheses, `pi`, `e`, and `sqrt`, `abs`, `sin`, `cos`, `tan`, `ln`, `log`, `exp`, `round`, `floor`, and `ceil`.
 - The workspace buttons and a button for each window of the workspace. A click on the window with the focus minimizes it.
   The button of a minimized terminal or Linux app has a dot: it pulses while the app is busy, with 5 % CPU or 20 kB/s of network, and is hollow while the app is idle.
-  The pointer on the button shows the CPU, the memory, and the network of the app.
+  The pointer on the button of each terminal and Linux app, open or minimized, shows the CPU, the memory, and the network of the app.
   The agent reads them from the systemd scope of the app or the terminal, every 2 s, and only while a tab is open.
 - **Overview** shows all workspaces with their windows. Each window has a letter: press it to go to that window, also on a different workspace. Escape closes the overview.
 - **Tile** opens the layout picker. Each layout shows a preview with your windows: columns, grid, center, wide, and spotlight. The window with the focus gets the main place. Select a layout with the arrow keys or 1 to 5, and press Enter.
@@ -311,6 +311,7 @@ The settings app has these pages:
 - Network: the devices of NetworkManager with their state and addresses. The page does not change the network, because a change can stop the connection to farglass.
 - Users and sessions: the sessions of logind. End stops a session after a confirm step.
 - Resources: what the desktop costs. The CPU and the memory of farglassd and of the agent, the data rate of the connection of the tab, and a score: light, moderate, or heavy.
+  A table lists each open terminal and Linux app with its CPU, memory, and network, the most CPU first. A click on a window name goes to that window.
 - Power: Restart and Power off, each after a confirm step.
 
 Each change of the host goes through polkit, thus the host can ask for an administrator password in the shell.

@@ -63,6 +63,10 @@ export interface AppContext {
   isFocused(): boolean;
   /** Sets the context menu of an element of the app. Closing the window removes it. */
   contextMenu(element: Element, provider: MenuProvider): void;
+  /** The windows of the desktop: the id, the title, and the app. It is reactive. Optional for older hosts. */
+  windows?(): readonly { readonly id: string; readonly title: string; readonly app: string }[];
+  /** Gives a window the focus, also on a different workspace. */
+  activateWindow?(id: string): void;
 }
 
 /** The component of an app window: the default export of the app module. */

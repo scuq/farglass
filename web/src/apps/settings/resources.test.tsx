@@ -29,13 +29,23 @@ describe("resource score", () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "performance"] });
     const host = document.createElement("div");
     document.body.append(host);
-    dispose = render(() => <ResourcesPage context={{ connection } as unknown as AppContext} />, host);
+    const activated: string[] = [];
+    const windows = () => [
+      { id: "surface-3", title: "YouTube - Brave", app: "linux" },
+      { id: "t1", title: "scuq@host: ~", app: "terminal" },
+      { id: "e1", title: "Echo", app: "echo" },
+    ];
+    dispose = render(() => <ResourcesPage context={{ connection, windows, activateWindow: (id: string) => activated.push(id) } as unknown as AppContext} />, host);
     server.take();
     server.push(readyFrame(1));
     server.push(
       encodeJsonFrame(1, FrameType.Control, {
         type: "sample",
-        windows: [],
+        windows: [
+          { window: "t1", usage: { cpu: 0.5, memory: 8_000_000 } },
+          { window: "surface-3", usage: { cpu: 45, memory: 900_000_000, net: 2_500_000 } },
+          { window: "gone", usage: { cpu: 99, memory: 1 } },
+        ],
         agent: { cpu: 2.5, memory: 48_000_000 },
         server: { cpu: 1.25, memory: 30_000_000 },
       }),
@@ -47,6 +57,15 @@ describe("resource score", () => {
     expect(host.querySelector('[data-field="agent"]')?.textContent).toBe("CPU 2.5 %, memory 48 MB");
     expect(host.querySelector('[data-field="rate"]')?.textContent).toMatch(/^\d+ B\/s in, 200 kB\/s out$/);
     expect(host.querySelector("[data-score]")?.getAttribute("data-score")).toBe("moderate");
+    // Each open app with its use, the most CPU first; a row goes to its window.
+    const rows = [...host.querySelectorAll(".settings-apps tbody tr")].map((row) => [...row.querySelectorAll("td")].map((cell) => cell.textContent));
+    expect(rows).toEqual([
+      ["YouTube - Brave", "45.0 %", "900 MB", "2.5 MB/s"],
+      ["scuq@host: ~", "0.5 %", "8 MB", "–"],
+    ]);
+    expect(host.querySelector('[data-window="surface-3"]')?.getAttribute("data-busy")).toBe("true");
+    host.querySelector<HTMLButtonElement>('[data-window="t1"] button')!.click();
+    expect(activated).toEqual(["t1"]);
     stop();
   });
 });

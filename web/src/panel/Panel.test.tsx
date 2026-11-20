@@ -81,6 +81,7 @@ describe("activity of minimized windows", () => {
     expect(task("T idle").title).toContain("idle, CPU 0 %");
     // A window that shows needs no mark: its content shows what the app does.
     expect(task("T shown").dataset.activity).toBeUndefined();
+    expect(task("T shown").title).toBe("T shown: busy, CPU 90 %, memory 340 MB, network 1.2 MB/s");
   });
 });
 

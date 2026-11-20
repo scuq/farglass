@@ -1,6 +1,6 @@
-import { createSignal, onCleanup, Show } from "solid-js";
+import { createSignal, For, onCleanup, Show } from "solid-js";
 import type { Usage } from "../../../proto";
-import { formatBytes, statsClient } from "../../../stats";
+import { formatBytes, isBusy, statsClient } from "../../../stats";
 import type { AppContext } from "../../types";
 
 /** The levels of the resource score. */
@@ -36,6 +36,14 @@ export function ResourcesPage(props: { context: AppContext }) {
   onCleanup(() => clearInterval(timer));
 
   const sample = () => statsClient()?.sample() ?? null;
+  /** The terminals and Linux apps of the desktop with their use, the most CPU first. */
+  const apps = () => {
+    const titles = new Map((props.context.windows?.() ?? []).map((win) => [win.id, win.title]));
+    return (sample()?.windows ?? [])
+      .filter((each) => titles.has(each.window))
+      .map((each) => ({ id: each.window, title: titles.get(each.window)!, usage: each.usage }))
+      .toSorted((a, b) => b.usage.cpu - a.usage.cpu || b.usage.memory - a.usage.memory);
+  };
   const line = (usage: Usage | undefined) => (usage ? `CPU ${usage.cpu.toFixed(1)} %, memory ${formatBytes(usage.memory)}` : "Not known");
   const score = () => {
     const each = sample();
@@ -62,7 +70,36 @@ export function ResourcesPage(props: { context: AppContext }) {
         <dt>The connection of this tab</dt>
         <dd data-field="rate">{rate() ? `${formatBytes(rate()!.received)}/s in, ${formatBytes(rate()!.sent)}/s out` : "Measuring"}</dd>
       </dl>
-      <p class="settings-note">The numbers come every 2 s. The CPU is in percent of one core.</p>
+      <h3>Apps</h3>
+      <Show when={apps().length > 0} fallback={<p class="settings-note">No terminal and no Linux app is open.</p>}>
+        <table class="settings-apps">
+          <thead>
+            <tr>
+              <th scope="col">Window</th>
+              <th scope="col">CPU</th>
+              <th scope="col">Memory</th>
+              <th scope="col">Network</th>
+            </tr>
+          </thead>
+          <tbody>
+            <For each={apps()}>
+              {(row) => (
+                <tr data-window={row.id} data-busy={isBusy(row.usage) ? "true" : undefined}>
+                  <td>
+                    <button type="button" class="settings-link" onClick={() => props.context.activateWindow?.(row.id)} title="Go to the window">
+                      {row.title}
+                    </button>
+                  </td>
+                  <td>{row.usage.cpu.toFixed(1)} %</td>
+                  <td>{formatBytes(row.usage.memory)}</td>
+                  <td>{row.usage.net === undefined ? "–" : `${formatBytes(row.usage.net)}/s`}</td>
+                </tr>
+              )}
+            </For>
+          </tbody>
+        </table>
+      </Show>
+      <p class="settings-note">The numbers come every 2 s. The CPU is in percent of one core. An app is busy from 5 % CPU or 20 kB/s of network.</p>
     </div>
   );
 }

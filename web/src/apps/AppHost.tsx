@@ -19,7 +19,7 @@ function isLoadError(error: unknown): boolean {
 export function AppHost(props: {
   controller: Pick<
     DesktopController,
-    "connection" | "state" | "trackKey" | "setTitle" | "openApp" | "addHook" | "focusedId"
+    "connection" | "state" | "trackKey" | "setTitle" | "openApp" | "addHook" | "focusedId" | "desktop" | "activate"
   >;
   app: App | undefined;
   windowId: string;
@@ -71,6 +71,8 @@ export function AppHost(props: {
     onClose: (handler) => hooks.push(c.addHook(props.windowId, "close", handler)),
     onFocus: (handler) => hooks.push(c.addHook(props.windowId, "focus", handler)),
     isFocused: () => c.focusedId() === props.windowId,
+    windows: () => c.desktop().windows,
+    activateWindow: (id) => c.activate(id),
     contextMenu: (element, provider) => hooks.push(setContextMenu(element, provider)),
   };
 

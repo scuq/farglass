@@ -2,6 +2,7 @@ import { render } from "@solidjs/web";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { type Close, FrameType, parseJson } from "../proto";
 import { fakeConnection } from "../proto/testing";
+import { emptyDesktop } from "../wm/model";
 import { StateClient } from "../state";
 import { AppHost } from "./AppHost";
 import { APPS, registry } from "./registry";
@@ -36,6 +37,8 @@ async function host(component: () => Promise<{ default: AppComponent }>) {
     openApp: (id: string) => opened.push(id),
     addHook: () => () => {},
     focusedId: () => "w1",
+    desktop: () => emptyDesktop(),
+    activate: () => {},
   };
   const element = document.createElement("div");
   document.body.append(element);
