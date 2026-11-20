@@ -287,6 +287,7 @@ The agent changes nothing if the user manager has a display already, for example
 The settings app has these pages:
 
 - Appearance: the theme, the accent color, and the text size. Each tab and each login of the user gets them.
+- Focus: the rules of focus protection, each on or off. See [Focus protection](#focus-protection).
 - Date and time: the time of the host, the timezone, and the network time (timedate1).
 - System: the hostname, the display name, and the facts of the host (hostname1).
 - Network: the devices of NetworkManager with their state and addresses. The page does not change the network, because a change can stop the connection to farglass.
@@ -315,6 +316,21 @@ A click on the notification or on one of its buttons sends the action to the pro
 The pointer on a notification stops its time. A critical notification stays until you close it.
 
 `npm --prefix spikes/e2e run notify` tests the notifications in Chromium through gdbus.
+
+## Focus protection
+
+The desktop does not interrupt you while you work.
+A notification waits while you type or move the pointer, and shows when you stop for 1.5 s, or after 30 s at the latest.
+A critical notification shows at once.
+
+A new window of a Linux app gets the focus only if you asked for it:
+
+- You started the app in the launcher, in the last 30 s.
+- Your last input was a click or Enter, in the last 10 s, with no typing after it. For example, Enter after a command in a terminal.
+- The window is a dialog of the window with the focus.
+
+Each other window opens behind the window with the focus, and its button in the panel has a mark until you look at it.
+The Focus page of the settings turns each rule off or on.
 
 ## Write an app
 

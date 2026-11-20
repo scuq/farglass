@@ -3,6 +3,7 @@ import { DbusClient } from "../../dbus";
 import type { AppContext } from "../types";
 import { AppearancePage } from "./pages/Appearance";
 import { DateTimePage } from "./pages/DateTime";
+import { FocusPage } from "./pages/Focus";
 import { NetworkPage } from "./pages/Network";
 import { PowerPage } from "./pages/Power";
 import { SystemPage } from "./pages/System";
@@ -12,6 +13,7 @@ import "./settings.css";
 /** The pages of the settings app, in the order of the list. */
 export const PAGES = [
   { id: "appearance", label: "Appearance" },
+  { id: "focus", label: "Focus" },
   { id: "datetime", label: "Date and time" },
   { id: "system", label: "System" },
   { id: "network", label: "Network" },
@@ -73,6 +75,9 @@ export default function Settings(props: { context: AppContext }) {
         <Switch>
           <Match when={page() === "appearance"}>
             <AppearancePage context={props.context} />
+          </Match>
+          <Match when={page() === "focus"}>
+            <FocusPage context={props.context} />
           </Match>
           <Match when={page() === "datetime"}>
             <DateTimePage dbus={dbus} />

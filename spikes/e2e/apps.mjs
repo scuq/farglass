@@ -17,7 +17,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
-import { buildAll, start, TIMEOUT_MS } from "./lib.mjs";
+import { buildAll, start, TIMEOUT_MS, raise } from "./lib.mjs";
 
 const SHOTS = process.env.FARGLASS_SHOTS;
 const CALCULATOR = "/usr/bin/gnome-calculator";
@@ -101,6 +101,8 @@ try {
   await code.waitFor({ timeout: 60_000 });
   await until(page, async () => /Visual Studio Code/.test((await code.getAttribute("aria-label")) ?? ""), 60_000, "VS Code shows its window");
   await page.waitForTimeout(2000);
+  await raise(page, calculator);
+  await raise(page, code);
   check(true, "gnome-calculator and VS Code show their windows");
 
   // 1. Each window moves by the own title bar of the app.

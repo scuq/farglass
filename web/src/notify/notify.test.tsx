@@ -46,6 +46,55 @@ const critical = (id: number): Notification => {
 };
 const cards = (host: HTMLElement) => [...host.querySelectorAll<HTMLElement>(".notification")];
 
+describe("focus protection", () => {
+  test("a notification waits while the user is busy and shows at the pause, and a critical one shows at once", async () => {
+    const { server, connection } = await fakeConnection("alice");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    let busy = true;
+    let pause = () => {};
+    const host = document.createElement("div");
+    document.body.append(host);
+    dispose = render(
+      () => (
+        <Notifications
+          connection={connection}
+          hold={{ enabled: () => true, busy: () => busy, onPause: (handler) => ((pause = handler), () => {}) }}
+        />
+      ),
+      host,
+    );
+    server.take();
+    server.push(readyFrame(1));
+    push(server, { type: "show", notification: note(1) });
+    await settle();
+    expect(cards(host)).toEqual([]);
+    push(server, { type: "show", notification: critical(2) });
+    await settle();
+    expect(cards(host).map((card) => card.getAttribute("aria-label"))).toEqual(["Mail 2"]);
+    busy = false;
+    pause();
+    await settle();
+    expect(cards(host).map((card) => card.getAttribute("aria-label"))).toEqual(["Mail 2", "Mail 1"]);
+  });
+
+  test("a notification that waits shows after the longest hold, and a close removes a waiting one", async () => {
+    const { server, connection } = await fakeConnection("alice");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    const host = document.createElement("div");
+    document.body.append(host);
+    dispose = render(() => <Notifications connection={connection} hold={{ enabled: () => true, busy: () => true, onPause: () => () => {} }} />, host);
+    server.take();
+    server.push(readyFrame(1));
+    push(server, { type: "show", notification: note(1) });
+    push(server, { type: "show", notification: note(2) });
+    push(server, { type: "close", id: 2 });
+    await settle();
+    expect(cards(host)).toEqual([]);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(cards(host).map((card) => card.getAttribute("aria-label"))).toEqual(["Mail 1"]);
+  });
+});
+
 describe("Notifications", () => {
   test("a notification shows, and its time ends with an expire reply", async () => {
     const { host, server } = await mount();

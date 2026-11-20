@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import { buildAll, start, TIMEOUT_MS } from "./lib.mjs";
+import { buildAll, start, TIMEOUT_MS, raise } from "./lib.mjs";
 
 const SHOTS = process.env.FARGLASS_SHOTS;
 const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "animation.py");
@@ -81,6 +81,7 @@ try {
   children.push(spawn("python3", [FIXTURE], { env, stdio: "ignore" }));
   const window = page.locator('.wm-window[aria-label="Animation"]');
   await window.waitFor({ timeout: 60_000 });
+  await raise(page, window);
   check(true, "the animation window shows");
 
   // 1. The area goes as video, and the browser decodes it.

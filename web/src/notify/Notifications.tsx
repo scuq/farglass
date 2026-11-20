@@ -1,6 +1,17 @@
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import type { Connection, Notification, NotifyEvent, NotifyReply } from "../proto";
+import { HOLD_MAX_MS } from "../wm/focus";
 import { Timers } from "./timers";
+
+/** What the notifications need for focus protection (F041). */
+export interface NotificationHold {
+  /** Reports whether notifications wait while the user is busy. */
+  enabled(): boolean;
+  /** Reports whether the user types or moves the pointer now. */
+  busy(): boolean;
+  /** Calls `handler` at the start of each pause. Returns the function that stops the calls. */
+  onPause(handler: () => void): () => void;
+}
 import "./notify.css";
 
 /** The largest number of notifications on the screen. The others wait for a free place. */
@@ -13,8 +24,11 @@ const DEFAULT_ACTION = "default";
  * The desktop notifications of the session, at the top right. The component
  * keeps a notify channel open. The agent sends each open notification and each
  * change. The time to show starts when the notification is on the screen.
+ *
+ * With `hold`, a new notification waits while the user types or moves the pointer,
+ * and shows at the next pause, or after {@link HOLD_MAX_MS}. A critical one shows at once.
  */
-export function Notifications(props: { connection: Connection }) {
+export function Notifications(props: { connection: Connection; hold?: NotificationHold }) {
   // The logic uses a plain list: Solid commits a signal write on the next microtask,
   // and several events can come in the same task. The signal is a copy for the view.
   let items: Notification[] = [];
@@ -48,11 +62,36 @@ export function Notifications(props: { connection: Connection }) {
     commit();
   };
 
+  // The notifications that wait for a pause of the user, in their order.
+  let held: Notification[] = [];
+  let holdTimer: ReturnType<typeof setTimeout> | undefined;
+  const release = () => {
+    clearTimeout(holdTimer);
+    holdTimer = undefined;
+    if (held.length === 0) return;
+    items = [...items, ...held];
+    held = [];
+    commit();
+  };
+  if (props.hold) onCleanup(props.hold.onPause(release));
+  onCleanup(() => clearTimeout(holdTimer));
+
   const onEvent = (event: NotifyEvent) => {
     switch (event.type) {
       case "show": {
         const { notification } = event;
+        const waiting = held.findIndex((item) => item.id === notification.id);
+        if (waiting >= 0) {
+          held = held.with(waiting, notification);
+          if (notification.urgency === "critical") release();
+          break;
+        }
         const index = items.findIndex((item) => item.id === notification.id);
+        if (index < 0 && notification.urgency !== "critical" && props.hold?.enabled() && props.hold.busy()) {
+          held = [...held, notification];
+          holdTimer ??= setTimeout(release, HOLD_MAX_MS);
+          break;
+        }
         if (index >= 0) {
           // A replacement: the same place, and the time starts again.
           items = items.with(index, notification);
@@ -65,6 +104,7 @@ export function Notifications(props: { connection: Connection }) {
         break;
       }
       case "close":
+        held = held.filter((item) => item.id !== event.id);
         remove(event.id);
         break;
     }

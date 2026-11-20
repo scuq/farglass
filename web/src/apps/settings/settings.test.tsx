@@ -137,8 +137,21 @@ describe("settings", () => {
     const { element, host } = await mount(() => undefined);
     element.querySelector<HTMLButtonElement>('[data-page="appearance"]')!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
     await host.pump();
-    expect(element.querySelector('[aria-current="page"]')?.textContent).toBe("Date and time");
-    expect(host.state).toContainEqual({ type: "set", key: "settings.page.w1", value: "datetime" });
+    expect(element.querySelector('[aria-current="page"]')?.textContent).toBe("Focus");
+    expect(host.state).toContainEqual({ type: "set", key: "settings.page.w1", value: "focus" });
+  });
+
+  test("the focus page turns each rule of focus protection off and on in the state store", async () => {
+    const { element, host } = await mount(() => undefined, "focus");
+    const hold = element.querySelector<HTMLInputElement>('input[name="hold-notifications"]')!;
+    const quiet = element.querySelector<HTMLInputElement>('input[name="quiet-windows"]')!;
+    expect([hold.checked, quiet.checked]).toEqual([true, true]);
+    hold.click();
+    await host.pump();
+    expect(host.state.at(-1)).toEqual({ type: "set", key: "focus-protection", value: { holdNotifications: false, quietWindows: true } });
+    quiet.click();
+    await host.pump();
+    expect(host.state.at(-1)).toEqual({ type: "set", key: "focus-protection", value: { holdNotifications: false, quietWindows: false } });
   });
 
   test("the system page shows the facts and checks a hostname before the call", async () => {

@@ -18,6 +18,8 @@ export interface Win {
   readonly minimized: boolean;
   /** The workspace, from 0. */
   readonly workspace: number;
+  /** The window opened behind with no focus, and the user did not look at it yet (F041). */
+  readonly attention?: boolean;
 }
 
 /** The state of the desktop. */
@@ -69,11 +71,15 @@ function update(desktop: Desktop, id: string, change: (win: Win) => Win): Deskto
   return { ...desktop, windows: desktop.windows.map((win) => (win.id === id ? change(win) : win)) };
 }
 
-/** Opens a new window on the current workspace, on top, with the focus. */
+/**
+ * Opens a new window on the current workspace, on top, with the focus. With `focus: false`, the
+ * window opens under the window with the focus, is the last in the order of use, and has a mark (F041).
+ */
 export function openWindow(
   desktop: Desktop,
   init: { id: string; app: string; title: string; w: number; h: number },
   area: Rect,
+  options: { focus?: boolean } = {},
 ): Desktop {
   const onWorkspace = desktop.windows.filter((win) => win.workspace === desktop.workspace && !win.minimized).length;
   const step = (onWorkspace % 8) * CASCADE;
@@ -87,6 +93,15 @@ export function openWindow(
     minimized: false,
     workspace: desktop.workspace,
   };
+  const top = focused(desktop);
+  if (options.focus === false && top) {
+    const below = desktop.windows.findIndex((other) => other.id === top);
+    return {
+      ...desktop,
+      windows: [...desktop.windows.slice(0, below), { ...win, attention: true }, ...desktop.windows.slice(below)],
+      recent: [...desktop.recent, win.id],
+    };
+  }
   return { ...desktop, windows: [...desktop.windows, win], recent: [win.id, ...desktop.recent] };
 }
 
@@ -111,7 +126,8 @@ export function focusWindow(desktop: Desktop, id: string): Desktop {
   if (!win) {
     return desktop;
   }
-  const shown = { ...win, minimized: false };
+  const { attention: _seen, ...rest } = win;
+  const shown = { ...rest, minimized: false };
   return {
     ...desktop,
     windows: [...desktop.windows.filter((other) => other.id !== id), shown],

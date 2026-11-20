@@ -13,7 +13,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
-import { buildAll, root, start, TIMEOUT_MS } from "./lib.mjs";
+import { buildAll, root, start, TIMEOUT_MS, raise } from "./lib.mjs";
 
 const SHOTS = process.env.FARGLASS_SHOTS;
 const MEASURE = process.env.FARGLASS_MEASURE === "1";
@@ -141,6 +141,7 @@ try {
   // 1. The client plays the same stream in a video element in the window of the host browser.
   const window = shell.locator('.wm-window[aria-label*="YouTube"]');
   await window.waitFor({ timeout: 60_000 });
+  await raise(shell, window);
   const video = window.locator("video[data-redirect]");
   await video.waitFor({ timeout: 30_000 });
   await shell.waitForFunction(() => {

@@ -116,3 +116,16 @@ export async function launch(page, title) {
   await page.getByRole("button", { name: "Apps" }).click();
   await page.getByRole("option", { name: new RegExp(`^${title}`) }).click();
 }
+
+/**
+ * Brings a window to the front with its task button in the panel, as a user does. A window
+ * of an app that the test starts opens in the background: the user did not ask for it (F041).
+ */
+export async function raise(page, window) {
+  const title = await window.getAttribute("aria-label");
+  const task = page.locator(".panel-tasks .wm-task").filter({ hasText: title }).first();
+  if ((await task.getAttribute("aria-pressed")) !== "true") {
+    await task.click();
+  }
+  await page.waitForTimeout(200);
+}

@@ -32,8 +32,8 @@ export interface SurfaceInfo {
 
 /** What the manager needs of the window manager. */
 export interface SurfaceWindows {
-  /** Opens a window with the id `id` for the app `linux`, if it is not open. */
-  openSurface(id: string, title: string, w: number, h: number): void;
+  /** Opens a window with the id `id` for the app `linux`, if it is not open. `hint` names the app and the window that it belongs to. */
+  openSurface(id: string, title: string, w: number, h: number, hint?: { appId?: string | null; parent?: string | null }): void;
   close(id: string): void;
   /** The ids of the open windows of the app `linux`. */
   surfaceWindows(): string[];
@@ -89,7 +89,10 @@ export class SurfaceManager {
     for (const info of this.#map.values()) {
       if (!info.popup && info.mapped && !open.has(windowId(info.id))) {
         const content = info.geometry ?? { x: 0, y: 0, width: info.width / info.scale, height: info.height / info.scale };
-        this.#windows.openSurface(windowId(info.id), info.title || info.appId || "Linux app", content.width, content.height + TITLE_BAR);
+        this.#windows.openSurface(windowId(info.id), info.title || info.appId || "Linux app", content.width, content.height + TITLE_BAR, {
+          appId: info.appId,
+          parent: info.parent === null ? null : windowId(info.parent),
+        });
       }
     }
     if (this.#synced) {

@@ -3,7 +3,7 @@ id: F050
 title: VAAPI encoder for the video region
 status: planned
 phase: P07
-tags: []
+tags: [optional]
 decisions: [ADR-007]
 files: [crates/farglass-surface/src/video.rs]
 ---

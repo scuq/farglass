@@ -8,6 +8,7 @@ import { APPS } from "../apps/registry";
 import type { Connection } from "../proto";
 import { StateClient } from "../state";
 import { clampRect, type Rect, type SnapZone } from "./geometry";
+import { DEFAULT_FOCUS, FOCUS_KEY, type FocusSettings, InputWatch, parseFocusSettings } from "./focus";
 import { actionFor, isLauncherKey, SuperTap } from "./keys";
 import {
   closeWindow,
@@ -72,8 +73,17 @@ export interface DesktopController {
   place(id: string, rect: Rect, zone: SnapZone | null): void;
   setPreview(zone: SnapZone | null): void;
   openApp(appId: string): void;
-  /** Opens a window with the id `id` for the app `linux`, if no window has the id. */
-  openSurface(id: string, title: string, w: number, h: number): void;
+  /**
+   * Opens a window with the id `id` for the app `linux`, if no window has the id. With focus
+   * protection, it gets the focus only if the user asked for it (F041): `hint` names its app and the window that it belongs to.
+   */
+  openSurface(id: string, title: string, w: number, h: number, hint?: { appId?: string | null; parent?: string | null }): void;
+  /** The input of the user, for focus protection. */
+  readonly input: InputWatch;
+  /** The settings of focus protection. */
+  readonly focusSettings: Accessor<FocusSettings>;
+  /** Records a start from the launcher: a window with one of `names` as app id gets the focus. */
+  expectLaunch(names: readonly string[]): void;
   /** Returns the ids of the windows of the app `linux`. */
   surfaceWindows(): string[];
   /** Calls `handler` after the desktop came from the state store, at once if it came already. */
@@ -95,6 +105,9 @@ export function createDesktopController(connection: Connection): DesktopControll
   const [launcherOpen, setLauncherOpen] = createSignal(false);
   const store = new StateClient(connection);
   const superTap = new SuperTap();
+  const input = new InputWatch();
+  const [focusSettings, setFocusSettings] = createSignal<FocusSettings>(DEFAULT_FOCUS);
+  store.watch(FOCUS_KEY, (value) => setFocusSettings(parseFocusSettings(value)));
   let loaded = false;
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   // The desktop after the last change, until it is saved. A reload or a close of the tab saves it at once.
@@ -239,9 +252,18 @@ export function createDesktopController(connection: Connection): DesktopControll
       apply((state) => withApp(state, appId));
       queueMicrotask(() => focusElement(focusedId()));
     },
-    openSurface(id, title, w, h) {
-      apply((state) => (state.windows.some((win) => win.id === id) ? state : openWindow(state, { id, app: "linux", title, w, h }, area())));
+    openSurface(id, title, w, h, hint = {}) {
+      if (desktop().windows.some((win) => win.id === id)) return;
+      const asked =
+        !focusSettings().quietWindows ||
+        input.launched(hint.appId) ||
+        input.requested() ||
+        (hint.parent != null && hint.parent === focusedId());
+      apply((state) => (state.windows.some((win) => win.id === id) ? state : openWindow(state, { id, app: "linux", title, w, h }, area(), { focus: asked })));
     },
+    input,
+    focusSettings,
+    expectLaunch: (names) => input.expectLaunch(names),
     whenLoaded(handler) {
       if (loaded) {
         handler();
@@ -345,6 +367,7 @@ export function createDesktopController(connection: Connection): DesktopControll
     window.removeEventListener("keyup", onKeyUp, true);
     window.removeEventListener("blur", onBlur);
     resize.disconnect();
+    input.stop();
     clearTimeout(saveTimer);
     store.close();
   });

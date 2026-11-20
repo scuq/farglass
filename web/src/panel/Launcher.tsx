@@ -26,7 +26,7 @@ const HOST_ICON = APPS.linux?.icon;
  * An app of the host starts on the compositor of the session. The launcher
  * closes when it started, or shows why it did not.
  */
-export function Launcher(props: { onopen: (appId: string) => void; onclose: () => void }) {
+export function Launcher(props: { onopen: (appId: string) => void; onclose: () => void; onlaunch?: (names: readonly string[]) => void }) {
   const [query, setQuery] = createSignal("");
   const [active, setActive] = createSignal(0);
   const [failure, setFailure] = createSignal<string | null>(null);
@@ -69,6 +69,8 @@ export function Launcher(props: { onopen: (appId: string) => void; onclose: () =
     if (!apps || starting()) return;
     setFailure(null);
     setStarting(entry.id);
+    // The window of the app gets the focus: the user asked for it (F041).
+    props.onlaunch?.(apps.apps().find((app) => app.id === entry.host)?.names ?? []);
     apps.launch(entry.host).then(
       () => {
         setStarting(null);

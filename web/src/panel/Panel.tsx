@@ -44,6 +44,7 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
             c.openApp(appId);
           }}
           onclose={() => c.setLauncherOpen(false)}
+          onlaunch={(names) => c.expectLaunch(names)}
         />
       </Popover>
 
@@ -77,6 +78,8 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
               }}
               aria-pressed={String(c.focusedId() === win().id) as "true" | "false"}
               data-minimized={String(win().minimized)}
+              data-attention={win().attention ? "true" : undefined}
+              title={win().attention ? "Opened in the background" : undefined}
               onClick={() => (c.focusedId() === win().id ? c.minimize(win().id) : c.activate(win().id))}
             >
               {windowIcon(win()) ? <img class="panel-task-icon" src={windowIcon(win())} alt="" /> : null}

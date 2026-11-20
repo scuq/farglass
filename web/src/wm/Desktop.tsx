@@ -35,7 +35,14 @@ export function Desktop(props: { connection: Connection; user: string; onlogout:
     <div class="wm">
       <Panel controller={controller} user={props.user} onlogout={props.onlogout} onlock={() => props.connection.lock()} />
       <Surface controller={controller} />
-      <Notifications connection={props.connection} />
+      <Notifications
+        connection={props.connection}
+        hold={{
+          enabled: () => controller.focusSettings().holdNotifications,
+          busy: () => controller.input.busy(),
+          onPause: (handler) => controller.input.onPause(handler),
+        }}
+      />
       <PolkitDialog connection={props.connection} />
     </div>
   );
