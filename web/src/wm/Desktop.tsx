@@ -3,6 +3,7 @@ import { APPEARANCE_KEY, applyAppearance, parseAppearance } from "../appearance"
 import { Notifications } from "../notify/Notifications";
 import { startSound } from "../audio/player";
 import { startHostApps } from "../launcher/hostApps";
+import { startStats } from "../stats";
 import { startSurfaceManager, stopSurfaceManager } from "../surface/manager";
 import { KeyHints } from "../keys/KeyHints";
 import { Panel } from "../panel/Panel";
@@ -33,6 +34,8 @@ export function Desktop(props: { connection: Connection; user: string; onlogout:
   const startTour = () => controller.setTourOpen(true);
   window.addEventListener(TOUR_EVENT, startTour);
   onCleanup(() => window.removeEventListener(TOUR_EVENT, startTour));
+  // The use of the host by the apps of each window (F045) and by farglass (F046).
+  onCleanup(startStats(props.connection));
   // The sound of the apps (F038).
   onCleanup(startSound(props.connection));
   // The appearance from the settings app, also when a different tab changes it.

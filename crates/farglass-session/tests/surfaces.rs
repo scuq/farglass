@@ -65,7 +65,7 @@ async fn the_channel_gets_the_windows_and_its_requests_go_to_the_compositor() {
     let commands = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let sink = commands.clone();
     surfaces.set_commands(move |command| sink.lock().unwrap().push(command));
-    surfaces.handle(farglass_surface::Event::ToplevelNew { id: 1 });
+    surfaces.handle(farglass_surface::Event::ToplevelNew { id: 1, pid: None });
     let mut link = link(surfaces.clone()).await;
     assert_eq!(
         next_event(&mut link, |_| true).await,
@@ -215,7 +215,7 @@ async fn frames_in(link: &mut Framed<UnixStream, FrameCodec>, time: Duration) ->
 #[tokio::test]
 async fn a_client_that_does_not_acknowledge_gets_two_frames_and_then_the_newest_only() {
     let surfaces = Surfaces::new();
-    surfaces.handle(farglass_surface::Event::ToplevelNew { id: 1 });
+    surfaces.handle(farglass_surface::Event::ToplevelNew { id: 1, pid: None });
     let mut link = link(surfaces.clone()).await;
     link.send(
         Frame::open(

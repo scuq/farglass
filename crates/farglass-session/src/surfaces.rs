@@ -52,6 +52,8 @@ struct Toplevel {
     title: Option<String>,
     app_id: Option<String>,
     parent: Option<u32>,
+    /// The process of the client (F045).
+    pid: Option<u32>,
 }
 
 #[derive(Default)]
@@ -304,6 +306,16 @@ impl Surfaces {
         }
     }
 
+    /// Returns the process of the client of each top-level window: the id of the window and the process id (F045).
+    #[must_use]
+    pub fn processes(&self) -> Vec<(u32, u32)> {
+        self.lock()
+            .toplevels
+            .iter()
+            .filter_map(|(id, toplevel)| toplevel.pid.map(|pid| (*id, pid)))
+            .collect()
+    }
+
     /// Gives a request of the shell to the compositor.
     pub fn request(&self, request: SurfaceRequest) {
         let command = match request {
@@ -352,8 +364,14 @@ impl Surfaces {
         let message = {
             let mut inner = self.lock();
             match event {
-                Event::ToplevelNew { id } => {
-                    inner.toplevels.insert(id, Toplevel::default());
+                Event::ToplevelNew { id, pid } => {
+                    inner.toplevels.insert(
+                        id,
+                        Toplevel {
+                            pid,
+                            ..Toplevel::default()
+                        },
+                    );
                     SurfaceEvent::Toplevel {
                         id,
                         title: None,
@@ -367,12 +385,14 @@ impl Surfaces {
                     app_id,
                     parent,
                 } => {
+                    let pid = inner.toplevels.get(&id).and_then(|t| t.pid);
                     inner.toplevels.insert(
                         id,
                         Toplevel {
                             title: title.clone(),
                             app_id: app_id.clone(),
                             parent,
+                            pid,
                         },
                     );
                     SurfaceEvent::Toplevel {
@@ -500,7 +520,7 @@ mod tests {
     #[test]
     fn a_new_channel_gets_each_window_and_the_last_commit_with_full_damage() {
         let surfaces = Surfaces::new();
-        surfaces.handle(Event::ToplevelNew { id: 1 });
+        surfaces.handle(Event::ToplevelNew { id: 1, pid: None });
         surfaces.handle(Event::ToplevelChanged {
             id: 1,
             title: Some("Calculator".into()),
@@ -529,7 +549,7 @@ mod tests {
         let commands = Arc::new(Mutex::new(Vec::new()));
         let sink = commands.clone();
         surfaces.set_commands(move |command| sink.lock().unwrap().push(command));
-        surfaces.handle(Event::ToplevelNew { id: 3 });
+        surfaces.handle(Event::ToplevelNew { id: 3, pid: None });
         surfaces.handle(commit(3));
         surfaces.handle(Event::ToplevelClosed { id: 3 });
         assert!(surfaces.pixels(3).is_none());

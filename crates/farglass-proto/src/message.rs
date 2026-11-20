@@ -142,6 +142,10 @@ pub enum Open {
     /// The agent sends [`RedirectEvent`] control messages. An [`RedirectEvent::Append`]
     /// is followed by data frames with its `size` bytes. The shell sends [`RedirectRequest`].
     Redirect,
+    /// The use of the host by the apps of each window, and by farglass (F045, F046).
+    ///
+    /// The agent sends a [`StatsEvent`] every 2 s while the channel is open.
+    Stats,
     /// The apps of the host for the launcher: the desktop entries (F031).
     ///
     /// The agent sends [`AppsEvent::List`] at once. The shell sends [`AppsRequest`].
@@ -568,6 +572,46 @@ pub enum RedirectRequest {
         media: String,
         /// Reports whether the client shows it.
         showing: bool,
+    },
+}
+
+/// The use of the host by one process or by the processes of one window.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+pub struct Usage {
+    /// The CPU in percent of one core, over the last interval.
+    pub cpu: f64,
+    /// The memory in bytes.
+    #[ts(type = "number")]
+    pub memory: u64,
+    /// The network in bytes each second, received and sent. None if the agent cannot know it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub net: Option<f64>,
+}
+
+/// The use of the host by the apps of one window (F045).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+pub struct WindowUsage {
+    /// The window of the shell: `surface-ID` for a Linux app, or the id of a terminal window.
+    pub window: String,
+    /// The use.
+    pub usage: Usage,
+}
+
+/// A message of the agent on a stats channel.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum StatsEvent {
+    /// The use over the last interval.
+    Sample {
+        /// The apps of each window.
+        windows: Vec<WindowUsage>,
+        /// The agent.
+        agent: Usage,
+        /// farglassd. None if the agent cannot read it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        server: Option<Usage>,
     },
 }
 

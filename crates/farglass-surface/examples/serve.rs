@@ -47,7 +47,7 @@ fn main() {
                         .and_then(|mut file| file.write_all(&ppm));
                 }
             }
-            Event::ToplevelNew { id } => {
+            Event::ToplevelNew { id, .. } => {
                 println!("{event:?}");
                 compositor.send(Command::Activate { id: Some(*id) });
             }

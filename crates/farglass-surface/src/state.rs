@@ -113,6 +113,8 @@ pub enum Event {
     ToplevelNew {
         /// The id of the window. The compositor uses each id one time only.
         id: u32,
+        /// The process of the client, from the credentials of its socket (F045).
+        pid: Option<u32>,
     },
     /// The title, the app id, or the parent of a top-level window changed.
     ToplevelChanged {
@@ -903,8 +905,13 @@ impl XdgShellHandler for State {
         surface.with_pending_state(|state| {
             state.decoration_mode = Some(zxdg_toplevel_decoration_v1::Mode::ServerSide);
         });
+        let pid = surface
+            .wl_surface()
+            .client()
+            .and_then(|client| client.get_credentials(&self.display).ok())
+            .and_then(|credentials| u32::try_from(credentials.pid).ok());
         self.toplevels.insert(id, surface);
-        self.emit(Event::ToplevelNew { id });
+        self.emit(Event::ToplevelNew { id, pid });
     }
 
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {

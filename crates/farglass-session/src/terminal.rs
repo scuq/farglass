@@ -14,6 +14,7 @@ use std::io::{self, Read as _};
 use std::os::unix::process::ExitStatusExt as _;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -134,6 +135,8 @@ pub enum AttachError {
 pub struct Terminals {
     options: TerminalOptions,
     tasks: HashMap<String, mpsc::UnboundedSender<Command>>,
+    /// The process of the program of each terminal, by terminal id (F045).
+    pids: Arc<Mutex<HashMap<String, u32>>>,
 }
 
 static NEXT_VIEWER: AtomicU64 = AtomicU64::new(1);
@@ -145,6 +148,7 @@ impl Terminals {
         Self {
             options,
             tasks: HashMap::new(),
+            pids: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -186,6 +190,12 @@ impl Terminals {
             return Err(AttachError::Limit);
         }
         let (child, pty, unit) = spawn(&self.options, rows, cols)?;
+        if let Some(pid) = child.id() {
+            self.pids
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(id.to_owned(), pid);
+        }
         let (task, commands) = mpsc::unbounded_channel();
         tokio::spawn(run(child, pty, unit, commands));
         let _ = task.send(Command::Attach {
@@ -199,10 +209,21 @@ impl Terminals {
         Ok(TerminalLink { viewer, task })
     }
 
+    /// Returns the process of the program of each terminal, by terminal id. The map stays current.
+    #[must_use]
+    pub fn pids(&self) -> Arc<Mutex<HashMap<String, u32>>> {
+        self.pids.clone()
+    }
+
     /// Returns the number of terminals that run or keep their scrollback.
     #[must_use]
     pub fn len(&mut self) -> usize {
         self.tasks.retain(|_, task| !task.is_closed());
+        let open: Vec<String> = self.tasks.keys().cloned().collect();
+        self.pids
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|id, _| open.contains(id));
         self.tasks.len()
     }
 

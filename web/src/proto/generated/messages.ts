@@ -47,7 +47,7 @@ id: number,
 /**
  * Reports whether the shell decodes the video messages (F037). A shell before this field sends none and gets tiles only.
  */
-video?: boolean, } | { "kind": "surface-input" } | { "kind": "clipboard" } | { "kind": "audio" } | { "kind": "redirect" } | { "kind": "apps" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" };
+video?: boolean, } | { "kind": "surface-input" } | { "kind": "clipboard" } | { "kind": "audio" } | { "kind": "redirect" } | { "kind": "stats" } | { "kind": "apps" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" };
 
 /**
  * The payload of a ready frame. The receiver of the open frame accepts the channel.
@@ -409,6 +409,53 @@ export type SurfaceAck = { "type": "ack",
  * The sequence of the end message.
  */
 seq: number, } | { "type": "no-video" };
+
+/**
+ * The use of the host by one process or by the processes of one window.
+ */
+export type Usage = { 
+/**
+ * The CPU in percent of one core, over the last interval.
+ */
+cpu: number, 
+/**
+ * The memory in bytes.
+ */
+memory: number, 
+/**
+ * The network in bytes each second, received and sent. None if the agent cannot know it.
+ */
+net?: number, };
+
+/**
+ * The use of the host by the apps of one window (F045).
+ */
+export type WindowUsage = { 
+/**
+ * The window of the shell: `surface-ID` for a Linux app, or the id of a terminal window.
+ */
+window: string, 
+/**
+ * The use.
+ */
+usage: Usage, };
+
+/**
+ * A message of the agent on a stats channel.
+ */
+export type StatsEvent = { "type": "sample", 
+/**
+ * The apps of each window.
+ */
+windows: Array<WindowUsage>, 
+/**
+ * The agent.
+ */
+agent: Usage, 
+/**
+ * farglassd. None if the agent cannot read it.
+ */
+server?: Usage, };
 
 /**
  * A control message of the agent on an audio channel.

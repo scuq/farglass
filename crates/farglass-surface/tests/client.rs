@@ -353,7 +353,7 @@ fn a_toplevel_gives_its_buffer_and_damage_and_the_shell_controls_size_focus_and_
     toplevel.set_title("Calculator".to_owned());
     toplevel.set_app_id("org.example.Calculator".to_owned());
     surface.commit();
-    let Event::ToplevelNew { id } = next(&events, &mut client, |e| {
+    let Event::ToplevelNew { id, .. } = next(&events, &mut client, |e| {
         matches!(e, Event::ToplevelNew { .. })
     }) else {
         unreachable!()
@@ -539,7 +539,7 @@ fn pointer_and_keyboard_input_reach_the_window() {
     let xdg = client.wm.get_xdg_surface(&surface, &client.qh, ());
     let _toplevel = xdg.get_toplevel(&client.qh, ());
     surface.commit();
-    let Event::ToplevelNew { id } = next(&events, &mut client, |e| {
+    let Event::ToplevelNew { id, .. } = next(&events, &mut client, |e| {
         matches!(e, Event::ToplevelNew { .. })
     }) else {
         unreachable!()
@@ -627,7 +627,7 @@ fn the_clipboard_goes_from_an_app_to_the_shell_and_back() {
     let xdg = client.wm.get_xdg_surface(&surface, &client.qh, ());
     let _toplevel = xdg.get_toplevel(&client.qh, ());
     surface.commit();
-    let Event::ToplevelNew { id } = next(&events, &mut client, |e| {
+    let Event::ToplevelNew { id, .. } = next(&events, &mut client, |e| {
         matches!(e, Event::ToplevelNew { .. })
     }) else {
         unreachable!()

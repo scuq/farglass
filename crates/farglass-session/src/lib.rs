@@ -17,6 +17,7 @@ pub mod notify;
 pub mod polkit;
 pub mod redirect;
 pub mod state;
+pub mod stats;
 pub mod surface_stream;
 pub mod surfaces;
 pub mod terminal;

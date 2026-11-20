@@ -29,6 +29,7 @@ use crate::notify::{self, Notifications};
 use crate::polkit::{HELPER, Polkit, ViewerGuard};
 use crate::redirect::{Redirect, RedirectGuard};
 use crate::state::StateStore;
+use crate::stats::{Stats, StatsGuard};
 use crate::surfaces::{self, Surfaces};
 use crate::terminal::{
     AttachError, Output, Sink, TerminalLink, TerminalOptions, Terminals, ViewerId,
@@ -84,19 +85,25 @@ pub struct Session {
     pub audio: Arc<Audio>,
     /// The video players of the host browsers.
     pub redirect: Arc<Redirect>,
+    /// The use of the host by the windows and by farglass.
+    pub stats: Arc<Stats>,
 }
 
 impl Default for Session {
     fn default() -> Self {
         let buses = Buses::new(DbusOptions::default());
+        let surfaces = Surfaces::new();
+        let terminals = Terminals::new(TerminalOptions::from_env());
+        let stats = Stats::new(surfaces.clone(), terminals.pids());
         Self {
             store: StateStore::default(),
-            terminals: Terminals::new(TerminalOptions::from_env()),
+            terminals,
+            stats,
             logind: Logind::new(buses.clone()),
             buses,
             polkit: Polkit::new(HELPER),
             notifications: Notifications::new(),
-            surfaces: Surfaces::new(),
+            surfaces,
             launcher: Launcher::new(LaunchOptions::from_env()),
             audio: Audio::new(),
             redirect: Redirect::new(),
@@ -113,6 +120,14 @@ impl Default for Session {
 /// [`LinkError`] if the connection fails or farglassd breaks the protocol.
 pub async fn connect(path: &Path, session: &mut Session) -> Result<(), LinkError> {
     let stream = UnixStream::connect(path).await?;
+    // farglassd is the peer of the socket: the resource score shows its use (F046).
+    session.stats.set_server(
+        stream
+            .peer_cred()
+            .ok()
+            .and_then(|credentials| credentials.pid())
+            .and_then(|pid| u32::try_from(pid).ok()),
+    );
     serve_with(stream, session).await
 }
 
@@ -378,7 +393,7 @@ where
                             )),
                         }
                     }
-                    Kind::Apps | Kind::Audio { .. } => None,
+                    Kind::Apps | Kind::Audio { .. } | Kind::Stats { .. } => None,
                     Kind::Redirect { .. } if frame.frame_type() == FrameType::Control => {
                         match frame.parse::<RedirectRequest>() {
                             Ok(request) => {
@@ -783,6 +798,11 @@ enum Kind {
     SurfaceInput,
     /// Lists and starts the apps of the host.
     Apps,
+    /// Gets the use of the host every 2 s. Dropping the channel removes it.
+    Stats {
+        /// Dropping the guard removes the channel from the agent.
+        _viewer: StatsGuard,
+    },
     /// Gets the video players of the host browsers. Dropping the channel removes it.
     Redirect {
         /// Dropping the guard removes the channel from the agent.
@@ -930,6 +950,15 @@ fn open(
                 }
             });
             accept(Kind::Redirect { _viewer: guard })
+        }
+        Ok(Open::Stats) => {
+            let events = events.clone();
+            let guard = session.stats.add_viewer(move |event| {
+                if let Ok(frame) = Frame::json(channel, FrameType::Control, event) {
+                    let _ = events.send(frame);
+                }
+            });
+            accept(Kind::Stats { _viewer: guard })
         }
         Ok(Open::Apps) => {
             apps_request(session.launcher.clone(), channel, AppsRequest::List, events);

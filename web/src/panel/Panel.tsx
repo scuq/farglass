@@ -3,6 +3,7 @@ import { setContextMenu } from "../menu/menu";
 import { windowMenu } from "../wm/menus";
 import { soundPlayer } from "../audio/player";
 import { windowIcon } from "../launcher/hostApps";
+import { describeUsage, isBusy, statsClient } from "../stats";
 import type { DesktopController } from "../wm/controller";
 import type { Win } from "../wm/model";
 import { Clock } from "./Clock";
@@ -17,6 +18,18 @@ import "./panel.css";
 export function Panel(props: { controller: DesktopController; user: string; onlogout: () => void; onlock: () => void }) {
   const c = props.controller;
   const [sessionOpen, setSessionOpen] = createSignal(false);
+
+  // A minimized window shows how busy its app is, and the details in its tooltip (F045).
+  const usage = (win: Win) => (win.minimized ? statsClient()?.usageOf(win.id) : undefined);
+  const activity = (win: Win) => {
+    const each = usage(win);
+    return each ? (isBusy(each) ? "busy" : "idle") : undefined;
+  };
+  const tip = (win: Win) => {
+    const each = usage(win);
+    if (each) return `${win.title}: ${isBusy(each) ? "busy" : "idle"}, ${describeUsage(each)}`;
+    return win.attention ? "Opened in the background" : undefined;
+  };
 
   const tasks = () =>
     c
@@ -84,7 +97,8 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
               aria-pressed={String(c.focusedId() === win().id) as "true" | "false"}
               data-minimized={String(win().minimized)}
               data-attention={win().attention ? "true" : undefined}
-              title={win().attention ? "Opened in the background" : undefined}
+              data-activity={activity(win())}
+              title={tip(win())}
               onClick={() => (c.focusedId() === win().id ? c.minimize(win().id) : c.activate(win().id))}
             >
               {windowIcon(win()) ? <img class="panel-task-icon" src={windowIcon(win())} alt="" /> : null}

@@ -44,6 +44,30 @@
   box-shadow: inset 0 -3px 0 var(--focus);
   font-weight: 600;
 }
+/* The activity of the app of a minimized window (F045): a dot, which pulses while the app is busy. */
+.wm-task[data-activity]::after {
+  content: "";
+  display: inline-block;
+  width: 0.5em;
+  height: 0.5em;
+  margin-left: 0.4em;
+  border-radius: 50%;
+  vertical-align: middle;
+  border: 1.5px solid var(--muted);
+}
+.wm-task[data-activity="busy"]::after {
+  background: var(--focus);
+  border-color: var(--focus);
+  animation: task-busy 1.2s ease-in-out infinite alternate;
+}
+@keyframes task-busy {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.35;
+  }
+}
 .wm-task[data-minimized="true"] {
   font-style: italic;
   opacity: 0.7;

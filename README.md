@@ -133,6 +133,9 @@ The panel at the top has these parts, from left to right:
   A calculation, for example `2 * (3 + 4)^2`, or a unit conversion, for example `10 km in mi`, `100 f to c`, or `2 GiB in MB`, is the first result. Enter copies its value.
   The calculator runs in your browser: `+ - * / % ^`, parentheses, `pi`, `e`, and `sqrt`, `abs`, `sin`, `cos`, `tan`, `ln`, `log`, `exp`, `round`, `floor`, and `ceil`.
 - The workspace buttons and a button for each window of the workspace. A click on the window with the focus minimizes it.
+  The button of a minimized terminal or Linux app has a dot: it pulses while the app is busy, with 5 % CPU or 20 kB/s of network, and is hollow while the app is idle.
+  The pointer on the button shows the CPU, the memory, and the network of the app.
+  The agent reads them from the systemd scope of the app or the terminal, every 2 s, and only while a tab is open.
 - **Overview** shows all workspaces with their windows. Each window has a letter: press it to go to that window, also on a different workspace. Escape closes the overview.
 - **Tile** opens the layout picker. Each layout shows a preview with your windows: columns, grid, center, wide, and spotlight. The window with the focus gets the main place. Select a layout with the arrow keys or 1 to 5, and press Enter.
 - The clock, with the date in its tooltip. It shows the time of the client.

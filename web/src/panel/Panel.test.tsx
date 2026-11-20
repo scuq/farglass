@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { dataFrame, encodeJsonFrame, FrameType, parseJson, readyFrame } from "../proto";
 import { fakeConnection } from "../proto/testing";
 import { Desktop } from "../wm/Desktop";
-import { emptyDesktop } from "../wm/model";
+import { emptyDesktop, minimizeWindow, openWindow } from "../wm/model";
 import { Clock } from "./Clock";
 
 let dispose: (() => void) | undefined;
@@ -43,6 +43,46 @@ function type(input: HTMLInputElement, value: string) {
 function key(type: "keydown" | "keyup", init: KeyboardEventInit, target: EventTarget = window) {
   target.dispatchEvent(new KeyboardEvent(type, { bubbles: true, cancelable: true, ...init }));
 }
+
+describe("activity of minimized windows", () => {
+  test("a minimized window shows if its app is busy or idle, with the numbers in the tooltip", async () => {
+    const { server, connection } = await fakeConnection("alice");
+    const host = document.createElement("div");
+    document.body.append(host);
+    dispose = render(() => <Desktop connection={connection} user="alice" onlogout={() => {}} />, host);
+    const opened = server.take().filter((f) => f.type === FrameType.Open);
+    const channelOf = (kind: string) => opened.find((f) => parseJson<{ kind: string }>(f).kind === kind)!.channel;
+    const state = channelOf("state");
+    server.push(readyFrame(state));
+    const area = { x: 0, y: 0, w: 1024, h: 768 };
+    let desktop = emptyDesktop();
+    for (const id of ["busy", "idle", "shown"]) desktop = openWindow(desktop, { id, app: "terminal", title: `T ${id}`, w: 300, h: 200 }, area);
+    desktop = minimizeWindow(minimizeWindow(desktop, "busy"), "idle");
+    server.push(encodeJsonFrame(state, FrameType.Control, { type: "value", key: "desktop", value: desktop }));
+    const stats = channelOf("stats");
+    server.push(readyFrame(stats));
+    const usage = (cpu: number) => ({ cpu, memory: 340_000_000, net: 1_200_000 * (cpu > 10 ? 1 : 0) });
+    server.push(
+      encodeJsonFrame(stats, FrameType.Control, {
+        type: "sample",
+        windows: [
+          { window: "busy", usage: usage(42) },
+          { window: "idle", usage: usage(0.2) },
+          { window: "shown", usage: usage(90) },
+        ],
+        agent: usage(1),
+      }),
+    );
+    await settle();
+    const task = (title: string) => byText(host, ".wm-task", title);
+    expect(task("T busy").dataset.activity).toBe("busy");
+    expect(task("T busy").title).toBe("T busy: busy, CPU 42 %, memory 340 MB, network 1.2 MB/s");
+    expect(task("T idle").dataset.activity).toBe("idle");
+    expect(task("T idle").title).toContain("idle, CPU 0 %");
+    // A window that shows needs no mark: its content shows what the app does.
+    expect(task("T shown").dataset.activity).toBeUndefined();
+  });
+});
 
 describe("sound of the apps", () => {
   test("the sound button shows with a sound sink, counts the packets, and mutes", async () => {
