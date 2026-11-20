@@ -131,11 +131,11 @@ export default function Linux(props: { context: AppContext }) {
     event.stopPropagation();
     if (pressed) held.add(code);
     else held.delete(code);
-    manager.input({ type: "key", code, pressed });
+    manager.input({ type: "key", id, code, pressed });
   };
   // A key that is down when the window loses the focus goes up, as on a local seat.
   const releaseAll = () => {
-    for (const code of held) manager.input({ type: "key", code, pressed: false });
+    for (const code of held) manager.input({ type: "key", id, code, pressed: false });
     held.clear();
   };
   onCleanup(releaseAll);

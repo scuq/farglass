@@ -498,12 +498,14 @@ fn pointer_and_keyboard_input_reach_the_window() {
         pressed: false,
     });
     compositor.send(Command::PointerAxis { dx: 0.0, dy: 15.0 });
-    compositor.send(Command::Activate { id: Some(id) });
+    // No activate: the key names its window, which gets the keyboard focus first.
     compositor.send(Command::Key {
+        id,
         code: 30,
         pressed: true,
     });
     compositor.send(Command::Key {
+        id,
         code: 30,
         pressed: false,
     });

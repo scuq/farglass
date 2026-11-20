@@ -419,8 +419,10 @@ pub enum SurfaceInput {
         /// The vertical distance.
         dy: f64,
     },
-    /// A key: a Linux key code, for example 30 for A. It goes to the window with the focus.
+    /// A key: a Linux key code, for example 30 for A, in the window `id`. The window gets the keyboard focus first if it does not have it.
     Key {
+        /// The window where the user typed the key.
+        id: u32,
         /// The key code.
         code: u32,
         /// Pressed or released.

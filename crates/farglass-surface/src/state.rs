@@ -207,8 +207,11 @@ pub enum Command {
         /// The vertical distance.
         dy: f64,
     },
-    /// A key of the keyboard: a Linux key code, for example `KEY_A` (30). It goes to the window with the focus.
+    /// A key of the keyboard: a Linux key code, for example `KEY_A` (30), in the window `id`.
+    /// If the window does not have the focus, it gets it first: a key goes where the user typed it.
     Key {
+        /// The window.
+        id: u32,
         /// The key code.
         code: u32,
         /// Pressed or released.
@@ -250,6 +253,8 @@ pub(crate) struct State {
     popups: HashMap<u32, PopupSurface>,
     next_id: u32,
     frame_callbacks: Vec<WlCallback>,
+    /// The window with the keyboard focus.
+    focused: Option<u32>,
     started: Instant,
     events: Box<dyn FnMut(Event) + Send>,
 }
@@ -345,6 +350,7 @@ fn setup(
         popups: HashMap::new(),
         next_id: 0,
         frame_callbacks: Vec::new(),
+        focused: None,
         started: Instant::now(),
         events,
         display: dh,
@@ -430,6 +436,30 @@ impl State {
         .filter(|id| *id != 0)
     }
 
+    /// Gives the focus to a window, or to no window: the activated state and the keyboard.
+    fn activate(&mut self, id: Option<u32>) {
+        self.focused = id;
+        for (each, toplevel) in &self.toplevels {
+            let active = Some(*each) == id;
+            let changed = toplevel.with_pending_state(|state| {
+                if active {
+                    state.states.set(xdg_toplevel::State::Activated)
+                } else {
+                    state.states.unset(xdg_toplevel::State::Activated)
+                }
+            });
+            if changed && toplevel.is_initial_configure_sent() {
+                toplevel.send_pending_configure();
+            }
+        }
+        let focus = id
+            .and_then(|id| self.toplevels.get(&id))
+            .map(|toplevel| toplevel.wl_surface().clone());
+        if let Some(keyboard) = self.seat.get_keyboard() {
+            keyboard.set_focus(self, focus, SERIAL_COUNTER.next_serial());
+        }
+    }
+
     /// The time in milliseconds for input events.
     fn now(&self) -> u32 {
         u32::try_from(self.started.elapsed().as_millis() % u128::from(u32::MAX)).unwrap_or(0)
@@ -458,27 +488,7 @@ impl State {
                     }
                 }
             }
-            Command::Activate { id } => {
-                for (each, toplevel) in &self.toplevels {
-                    let active = Some(*each) == id;
-                    let changed = toplevel.with_pending_state(|state| {
-                        if active {
-                            state.states.set(xdg_toplevel::State::Activated)
-                        } else {
-                            state.states.unset(xdg_toplevel::State::Activated)
-                        }
-                    });
-                    if changed && toplevel.is_initial_configure_sent() {
-                        toplevel.send_pending_configure();
-                    }
-                }
-                let focus = id
-                    .and_then(|id| self.toplevels.get(&id))
-                    .map(|toplevel| toplevel.wl_surface().clone());
-                if let Some(keyboard) = self.seat.get_keyboard() {
-                    keyboard.set_focus(self, focus, SERIAL_COUNTER.next_serial());
-                }
-            }
+            Command::Activate { id } => self.activate(id),
             Command::Close { id } => {
                 if let Some(toplevel) = self.toplevels.get(&id) {
                     toplevel.send_close();
@@ -547,7 +557,10 @@ impl State {
                     pointer.frame(self);
                 }
             }
-            Command::Key { code, pressed } => {
+            Command::Key { id, code, pressed } => {
+                if self.focused != Some(id) && self.toplevels.contains_key(&id) {
+                    self.activate(Some(id));
+                }
                 if let Some(keyboard) = self.seat.get_keyboard() {
                     let state = if pressed {
                         KeyState::Pressed

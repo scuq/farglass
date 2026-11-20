@@ -441,6 +441,10 @@ dx: number,
  */
 dy: number, } | { "type": "key", 
 /**
+ * The window where the user typed the key.
+ */
+id: number, 
+/**
  * The key code.
  */
 code: number, 

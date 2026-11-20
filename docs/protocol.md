@@ -398,7 +398,7 @@ The shell sends these messages. The coordinates are logical pixels of the surfac
 | `{"type":"leave"}` | The pointer left the surfaces. |
 | `{"type":"button","button":0,"pressed":true}` | A button: 0 primary, 1 middle, 2 secondary, 3 back, 4 forward, as in a DOM event. |
 | `{"type":"axis","dx":0,"dy":48}` | A scroll in logical pixels. |
-| `{"type":"key","code":30,"pressed":true}` | A key as a Linux key code (`linux/input-event-codes.h`). It goes to the window with the focus, and the keymap of the compositor gives the character. |
+| `{"type":"key","id":1,"code":30,"pressed":true}` | A key as a Linux key code (`linux/input-event-codes.h`) in the window `id`. If the window does not have the keyboard focus, it gets it first. The keymap of the compositor gives the character. |
 
 A press outside the open popups of a window closes them, and the press goes no further.
 

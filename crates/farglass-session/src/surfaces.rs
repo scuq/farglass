@@ -288,7 +288,7 @@ impl Surfaces {
                 pressed,
             },
             SurfaceInput::Axis { dx, dy } => Command::PointerAxis { dx, dy },
-            SurfaceInput::Key { code, pressed } => Command::Key { code, pressed },
+            SurfaceInput::Key { id, code, pressed } => Command::Key { id, code, pressed },
         };
         if let Some(commands) = &*self.commands.lock().unwrap_or_else(PoisonError::into_inner) {
             commands(command);
