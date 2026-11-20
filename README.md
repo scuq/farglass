@@ -256,6 +256,18 @@ The browser starts the sound only after a press or a key in the page.
 The Sound button in the panel turns the sound off and on.
 `npm --prefix spikes/e2e run sound` plays a tone from `spikes/e2e/fixtures/animation.py --tone`, and the browser must play it.
 
+A video of a web page in the host browser plays in your browser, with the decoder of your computer (video redirection).
+The extension in `extension/redirect` copies what the page gives to Media Source Extensions and the state of the video.
+Its native messaging host, `farglass-session`, gives the copy to the agent through `$XDG_RUNTIME_DIR/farglass-redirect.sock`.
+Your browser plays the same stream in a video element under the window of the host browser, at the time of the host.
+The host hides the video or draws it black, and the black pixels of that rectangle are transparent in your browser: the controls of the page stay on top.
+The agent then encodes nothing for the video.
+The launcher starts Chromium and Brave with the extension, and the agent writes the native messaging manifest in a web session.
+A browser that you start in a terminal needs `--load-extension=/usr/share/farglass/redirect-extension`.
+Google Chrome does not load an extension from the command line.
+Encrypted video (DRM) and Media Source Extensions in a worker stay as tiles.
+`npm --prefix spikes/e2e run redirect` tests it with a local page, and `npm --prefix spikes/e2e run youtube` tries a YouTube video (network needed).
+
 To look at the events of a real app:
 
 ```sh

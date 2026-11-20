@@ -47,7 +47,7 @@ id: number,
 /**
  * Reports whether the shell decodes the video messages (F037). A shell before this field sends none and gets tiles only.
  */
-video?: boolean, } | { "kind": "surface-input" } | { "kind": "clipboard" } | { "kind": "audio" } | { "kind": "apps" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" };
+video?: boolean, } | { "kind": "surface-input" } | { "kind": "clipboard" } | { "kind": "audio" } | { "kind": "redirect" } | { "kind": "apps" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" };
 
 /**
  * The payload of a ready frame. The receiver of the open frame accepts the channel.
@@ -434,6 +434,151 @@ frame_samples: number, } | { "type": "unavailable",
  * The cause.
  */
 message: string, };
+
+/**
+ * A rectangle of a redirected video.
+ */
+export type RedirectRect = { 
+/**
+ * The left edge.
+ */
+x: number, 
+/**
+ * The top edge.
+ */
+y: number, 
+/**
+ * The width.
+ */
+width: number, 
+/**
+ * The height.
+ */
+height: number, };
+
+/**
+ * A message of the agent on a redirect channel: what a page of the host browser does with a media source.
+ *
+ * `media` names one MediaSource of one tab. `source` names one SourceBuffer of it.
+ */
+export type RedirectEvent = { "type": "source", 
+/**
+ * The media source.
+ */
+media: string, 
+/**
+ * The SourceBuffer.
+ */
+source: string, 
+/**
+ * The MIME type with its codecs, for example `video/webm; codecs="vp9"`.
+ */
+mime: string, } | { "type": "append", 
+/**
+ * The media source.
+ */
+media: string, 
+/**
+ * The SourceBuffer.
+ */
+source: string, 
+/**
+ * The `timestampOffset` of the SourceBuffer at the append.
+ */
+offset: number, 
+/**
+ * The length of the data.
+ */
+size: number, } | { "type": "remove", 
+/**
+ * The media source.
+ */
+media: string, 
+/**
+ * The SourceBuffer.
+ */
+source: string, 
+/**
+ * The start in seconds.
+ */
+start: number, 
+/**
+ * The end in seconds.
+ */
+end: number, } | { "type": "abort", 
+/**
+ * The media source.
+ */
+media: string, 
+/**
+ * The SourceBuffer.
+ */
+source: string, } | { "type": "duration", 
+/**
+ * The media source.
+ */
+media: string, 
+/**
+ * The duration in seconds.
+ */
+value?: number, } | { "type": "end", 
+/**
+ * The media source.
+ */
+media: string, } | { "type": "state", 
+/**
+ * The media source.
+ */
+media: string, 
+/**
+ * The current time in seconds.
+ */
+time: number, 
+/**
+ * Reports whether the video is paused.
+ */
+paused: boolean, 
+/**
+ * The playback rate.
+ */
+rate: number, 
+/**
+ * The video element in the viewport, in CSS pixels.
+ */
+rect: RedirectRect, 
+/**
+ * The viewport in the window, in logical pixels of the window.
+ */
+viewport: RedirectRect, 
+/**
+ * The logical pixels of the window for each CSS pixel: the zoom of the page.
+ */
+zoom: number, 
+/**
+ * The title of the page: the window title of the browser starts with it.
+ */
+title: string, 
+/**
+ * Reports whether the tab shows and the video is in the viewport.
+ */
+visible: boolean, } | { "type": "gone", 
+/**
+ * The media source.
+ */
+media: string, };
+
+/**
+ * A message of the shell on a redirect channel.
+ */
+export type RedirectRequest = { "type": "showing", 
+/**
+ * The media source.
+ */
+media: string, 
+/**
+ * Reports whether the client shows it.
+ */
+showing: boolean, };
 
 /**
  * An app of the host: a desktop entry that the launcher shows.

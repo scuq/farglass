@@ -15,6 +15,7 @@ pub mod link;
 pub mod logind;
 pub mod notify;
 pub mod polkit;
+pub mod redirect;
 pub mod state;
 pub mod surface_stream;
 pub mod surfaces;

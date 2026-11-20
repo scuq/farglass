@@ -137,6 +137,11 @@ pub enum Open {
     /// The agent sends [`AudioEvent`] control messages and, after [`AudioEvent::Format`],
     /// one data frame for each packet: the packet number as u32, little-endian, then one Opus packet.
     Audio,
+    /// The video players of the host browser, for video redirection (F040).
+    ///
+    /// The agent sends [`RedirectEvent`] control messages. An [`RedirectEvent::Append`]
+    /// is followed by data frames with its `size` bytes. The shell sends [`RedirectRequest`].
+    Redirect,
     /// The apps of the host for the launcher: the desktop entries (F031).
     ///
     /// The agent sends [`AppsEvent::List`] at once. The shell sends [`AppsRequest`].
@@ -451,6 +456,118 @@ pub enum SurfaceInput {
         code: u32,
         /// Pressed or released.
         pressed: bool,
+    },
+}
+
+/// A rectangle of a redirected video.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, TS)]
+pub struct RedirectRect {
+    /// The left edge.
+    pub x: f64,
+    /// The top edge.
+    pub y: f64,
+    /// The width.
+    pub width: f64,
+    /// The height.
+    pub height: f64,
+}
+
+/// A message of the agent on a redirect channel: what a page of the host browser does with a media source.
+///
+/// `media` names one MediaSource of one tab. `source` names one SourceBuffer of it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum RedirectEvent {
+    /// The page added a SourceBuffer.
+    Source {
+        /// The media source.
+        media: String,
+        /// The SourceBuffer.
+        source: String,
+        /// The MIME type with its codecs, for example `video/webm; codecs="vp9"`.
+        mime: String,
+    },
+    /// The page appended `size` bytes to a SourceBuffer. Data frames with the bytes follow.
+    Append {
+        /// The media source.
+        media: String,
+        /// The SourceBuffer.
+        source: String,
+        /// The `timestampOffset` of the SourceBuffer at the append.
+        offset: f64,
+        /// The length of the data.
+        size: u32,
+    },
+    /// The page removed a time range of a SourceBuffer.
+    Remove {
+        /// The media source.
+        media: String,
+        /// The SourceBuffer.
+        source: String,
+        /// The start in seconds.
+        start: f64,
+        /// The end in seconds.
+        end: f64,
+    },
+    /// The page aborted the current segment of a SourceBuffer.
+    Abort {
+        /// The media source.
+        media: String,
+        /// The SourceBuffer.
+        source: String,
+    },
+    /// The page set the duration. None is infinite.
+    Duration {
+        /// The media source.
+        media: String,
+        /// The duration in seconds.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        value: Option<f64>,
+    },
+    /// The page called endOfStream.
+    End {
+        /// The media source.
+        media: String,
+    },
+    /// The state of the video element of a media source.
+    State {
+        /// The media source.
+        media: String,
+        /// The current time in seconds.
+        time: f64,
+        /// Reports whether the video is paused.
+        paused: bool,
+        /// The playback rate.
+        rate: f64,
+        /// The video element in the viewport, in CSS pixels.
+        rect: RedirectRect,
+        /// The viewport in the window, in logical pixels of the window.
+        viewport: RedirectRect,
+        /// The logical pixels of the window for each CSS pixel: the zoom of the page.
+        zoom: f64,
+        /// The title of the page: the window title of the browser starts with it.
+        title: String,
+        /// Reports whether the tab shows and the video is in the viewport.
+        visible: bool,
+    },
+    /// The media source is gone: its video element changed its source or left the page.
+    Gone {
+        /// The media source.
+        media: String,
+    },
+}
+
+/// A message of the shell on a redirect channel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum RedirectRequest {
+    /// The client shows the video of a media source, or no longer shows it. While it shows it, the host draws the video black.
+    Showing {
+        /// The media source.
+        media: String,
+        /// Reports whether the client shows it.
+        showing: bool,
     },
 }
 

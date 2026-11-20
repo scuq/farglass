@@ -10,6 +10,7 @@
 import { createSignal } from "solid-js";
 import type { Channel, Connection, SurfaceEvent, SurfaceInput, SurfaceRect, SurfaceRequest } from "../proto";
 import { ClipboardBridge } from "./clipboard";
+import { RedirectManager } from "./redirect";
 
 /** The facts of one surface: a top-level window or a popup. */
 export interface SurfaceInfo {
@@ -60,10 +61,13 @@ export class SurfaceManager {
   readonly #moveHandlers = new Map<number, () => void>();
   /** The clipboard between the apps and the client computer (F030). */
   readonly clipboard: ClipboardBridge;
+  /** The videos of the host browser that the client plays (F040). */
+  readonly redirect: RedirectManager;
 
   constructor(connection: Connection, windows: SurfaceWindows) {
     this.#windows = windows;
     this.clipboard = new ClipboardBridge(connection);
+    this.redirect = new RedirectManager(connection);
     this.#channel = connection.openChannel({ kind: "surfaces" }, { oncontrol: (message) => this.#event(message as SurfaceEvent) });
     this.#input = connection.openChannel({ kind: "surface-input" });
     windows.whenLoaded(() => {
@@ -129,6 +133,7 @@ export class SurfaceManager {
 
   close(): void {
     this.clipboard.close();
+    this.redirect.close();
     this.#channel.close();
     this.#input.close();
   }

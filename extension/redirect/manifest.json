@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "farglass video redirection",
+  "version": "0.1.0",
+  "description": "Plays the videos of web pages in the browser of the farglass client, with its own decoder.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnGyKaiYP7JHuwiv2ee4PcGY2za983pB+TToXQLJxHY422YXOKCEQueY28Bq2LRWFCJ5PczsDG98weaCVmRm7wq8iosVv0eVdlqyL8If9z3T9jhTvxr7IdW0LZJkflvA4OcCynAZi5vg5jSoohxRiJVf4YEfIr8STnokqTVLdsSdEOUEM47zSY7ZlENcbNMrKueY0gjWkdWRZtlejz6cuv/mqfLy6gkeJc2gJ0YzUCJsp27tnoz/UMg9kC1BHEk6XCkVR+mDoda18bS1Nc+2TjBwvUS2X6je2J7viNCSMS+Reu66EUUuPlpmXNwBuDE70MLIFUum/s9DE9bkAi39gHQIDAQAB",
+  "minimum_chrome_version": "111",
+  "permissions": ["nativeMessaging"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    { "matches": ["<all_urls>"], "js": ["page.js"], "run_at": "document_start", "world": "MAIN" },
+    { "matches": ["<all_urls>"], "js": ["relay.js"], "run_at": "document_start" }
+  ]
+}

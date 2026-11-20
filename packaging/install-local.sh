@@ -67,6 +67,10 @@ install_all() {
     mkdir -p "$WEB"
     cp -R "$REPO/web/dist/." "$WEB/"
     chmod -R u=rwX,go=rX "$WEB"
+    # The extension of video redirection: the launcher gives it to Chromium and Brave.
+    rm -rf /usr/share/farglass/redirect-extension
+    cp -R "$REPO/extension/redirect" /usr/share/farglass/redirect-extension
+    chmod -R u=rwX,go=rX /usr/share/farglass/redirect-extension
 
     install -D -m 0644 "$REPO/packaging/pam.d/farglass" /etc/pam.d/farglass
     install -D -m 0644 "$REPO/packaging/pam.d/farglass-session" /etc/pam.d/farglass-session

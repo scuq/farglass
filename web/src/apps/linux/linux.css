@@ -12,7 +12,16 @@
 }
 .linux-app canvas {
   position: absolute;
+  z-index: 1;
   image-rendering: pixelated;
+}
+
+/* A video of the host browser that the client plays (F040): under the canvas, which is transparent where the host draws it black. */
+.linux-app .linux-redirect {
+  position: absolute;
+  z-index: 0;
+  object-fit: contain;
+  pointer-events: none;
 }
 .linux-app .linux-waiting {
   margin: 1rem;

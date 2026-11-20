@@ -11,7 +11,7 @@
     "echo": "node echo.mjs",
     "login": "node login.mjs",
     "wm": "node wm.mjs",
-    "test": "node echo.mjs && node login.mjs && node wm.mjs && node term.mjs && node notify.mjs && node settings.mjs && node transport.mjs && node surface.mjs && node apps.mjs && node clipboard.mjs && node launcher.mjs && node video.mjs && node sound.mjs",
+    "test": "node echo.mjs && node login.mjs && node wm.mjs && node term.mjs && node notify.mjs && node settings.mjs && node transport.mjs && node surface.mjs && node apps.mjs && node clipboard.mjs && node launcher.mjs && node video.mjs && node sound.mjs && node redirect.mjs",
     "term": "node term.mjs",
     "notify": "node notify.mjs",
     "settings": "node settings.mjs",
@@ -21,7 +21,9 @@
     "clipboard": "node clipboard.mjs",
     "launcher": "node launcher.mjs",
     "video": "node video.mjs",
-    "sound": "node sound.mjs"
+    "sound": "node sound.mjs",
+    "redirect": "node redirect.mjs",
+    "youtube": "node youtube.mjs"
   },
   "devDependencies": {
     "playwright": "^1.65.1"

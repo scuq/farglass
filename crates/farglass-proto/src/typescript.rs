@@ -12,8 +12,8 @@ use crate::message::{
     AppsEvent, AppsRequest, AudioEvent, Bus, ClipboardMessage, ClipboardMime, Close, CloseReason,
     ConnectionMessage, DbusEvent, DbusRequest, HostApp, MAX_CLIPBOARD_LEN, Notification,
     NotifyAction, NotifyEvent, NotifyReply, Open, PolkitEvent, PolkitReply, PtyEvent, PtyRequest,
-    Ready, StateEvent, StateRequest, SurfaceAck, SurfaceEvent, SurfaceInput, SurfaceRect,
-    SurfaceRequest, Urgency,
+    Ready, RedirectEvent, RedirectRect, RedirectRequest, StateEvent, StateRequest, SurfaceAck,
+    SurfaceEvent, SurfaceInput, SurfaceRect, SurfaceRequest, Urgency,
 };
 use crate::{
     ChannelId, FrameError, FrameType, HEADER_LEN, MAX_PAYLOAD_LEN, PROTOCOL_VERSION,
@@ -106,6 +106,9 @@ fn messages() -> String {
     declare::<SurfaceRequest>(&cfg, &mut out);
     declare::<SurfaceAck>(&cfg, &mut out);
     declare::<AudioEvent>(&cfg, &mut out);
+    declare::<RedirectRect>(&cfg, &mut out);
+    declare::<RedirectEvent>(&cfg, &mut out);
+    declare::<RedirectRequest>(&cfg, &mut out);
     declare::<HostApp>(&cfg, &mut out);
     declare::<AppsRequest>(&cfg, &mut out);
     declare::<AppsEvent>(&cfg, &mut out);

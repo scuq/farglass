@@ -21,8 +21,29 @@ const RETRY_MIN: Duration = Duration::from_millis(250);
 /// The longest wait before the agent connects again.
 const RETRY_MAX: Duration = Duration::from_secs(5);
 
+fn main() {
+    // Chromium starts the native messaging host of video redirection with the origin of the extension (F040).
+    if std::env::args()
+        .nth(1)
+        .is_some_and(|arg| arg.starts_with("chrome-extension://"))
+    {
+        let code = match farglass_session::redirect::socket_path() {
+            Some(socket) => match farglass_session::redirect::native_host(&socket) {
+                Ok(()) => 0,
+                Err(error) => {
+                    eprintln!("farglass-session: no agent for video redirection: {error}");
+                    1
+                }
+            },
+            None => 1,
+        };
+        std::process::exit(code);
+    }
+    agent();
+}
+
 #[tokio::main]
-async fn main() {
+async fn agent() {
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
@@ -76,6 +97,20 @@ async fn main() {
                 tracing::warn!(%error, "the agent does not serve the desktop notifications");
             }
         });
+    }
+    // Video redirection (F040): the native messaging host of the host browser connects to this socket.
+    if let Some(socket) = farglass_session::redirect::socket_path() {
+        match session.redirect.listen(&socket) {
+            Ok(()) => tracing::info!(socket = %socket.display(), "video redirection listens"),
+            Err(error) => tracing::warn!(%error, "no video redirection"),
+        }
+        // In a web session, the browsers of the user find the native messaging host.
+        if std::env::var_os("XDG_SESSION_ID").is_some()
+            && let Ok(program) = std::env::current_exe()
+            && let Err(error) = farglass_session::redirect::install_manifests(&program)
+        {
+            tracing::warn!(%error, "the native messaging host of video redirection is not installed");
+        }
     }
     // The sound sink of the session (F038). It lives as long as the agent.
     let _sink = match session.audio.start_sink() {

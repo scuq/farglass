@@ -11,8 +11,8 @@ use farglass_proto::codec::{CodecError, FrameCodec};
 use farglass_proto::message::{
     AppsEvent, AppsRequest, AudioEvent, Bus, ClipboardMessage, ClipboardMime, Close, CloseReason,
     DbusEvent, DbusRequest, LinkMessage, MAX_CLIPBOARD_LEN, NotifyReply, Open, PolkitReply,
-    PtyEvent, PtyRequest, Ready, StateEvent, StateRequest, SurfaceAck, SurfaceInput,
-    SurfaceRequest,
+    PtyEvent, PtyRequest, Ready, RedirectRequest, StateEvent, StateRequest, SurfaceAck,
+    SurfaceInput, SurfaceRequest,
 };
 use farglass_proto::{ChannelId, Frame, FrameError, FrameType, PROTOCOL_VERSION, Side};
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -27,6 +27,7 @@ use crate::launch::{LaunchOptions, Launcher};
 use crate::logind::Logind;
 use crate::notify::{self, Notifications};
 use crate::polkit::{HELPER, Polkit, ViewerGuard};
+use crate::redirect::{Redirect, RedirectGuard};
 use crate::state::StateStore;
 use crate::surfaces::{self, Surfaces};
 use crate::terminal::{
@@ -81,6 +82,8 @@ pub struct Session {
     pub launcher: Arc<Launcher>,
     /// The sound of the apps.
     pub audio: Arc<Audio>,
+    /// The video players of the host browsers.
+    pub redirect: Arc<Redirect>,
 }
 
 impl Default for Session {
@@ -96,6 +99,7 @@ impl Default for Session {
             surfaces: Surfaces::new(),
             launcher: Launcher::new(LaunchOptions::from_env()),
             audio: Audio::new(),
+            redirect: Redirect::new(),
         }
     }
 }
@@ -375,6 +379,19 @@ where
                         }
                     }
                     Kind::Apps | Kind::Audio { .. } => None,
+                    Kind::Redirect { .. } if frame.frame_type() == FrameType::Control => {
+                        match frame.parse::<RedirectRequest>() {
+                            Ok(request) => {
+                                session.redirect.request(request);
+                                None
+                            }
+                            Err(error) => Some((
+                                CloseReason::ProtocolError,
+                                format!("The redirect request is not valid: {error}"),
+                            )),
+                        }
+                    }
+                    Kind::Redirect { .. } => None,
                     Kind::Clipboard { incoming, .. } => match clipboard_frame(incoming, &frame) {
                         Ok(Some(clip)) => {
                             session.surfaces.set_clipboard(clip);
@@ -766,6 +783,11 @@ enum Kind {
     SurfaceInput,
     /// Lists and starts the apps of the host.
     Apps,
+    /// Gets the video players of the host browsers. Dropping the channel removes it.
+    Redirect {
+        /// Dropping the guard removes the channel from the agent.
+        _viewer: RedirectGuard,
+    },
     /// Gets the sound of the apps. Dropping the channel removes it.
     Audio {
         /// Dropping the guard removes the channel from the agent.
@@ -892,6 +914,22 @@ fn open(
                 })
             });
             accept(Kind::Audio { _viewer: guard })
+        }
+        Ok(Open::Redirect) => {
+            let events = events.clone();
+            let guard = session.redirect.add_viewer(move |event, data| {
+                if let Ok(frame) = Frame::json(channel, FrameType::Control, event) {
+                    let _ = events.send(frame);
+                }
+                if let Some(data) = data {
+                    for chunk in data.chunks(farglass_proto::MAX_PAYLOAD_LEN) {
+                        if let Ok(frame) = Frame::data(channel, chunk.to_vec()) {
+                            let _ = events.send(frame);
+                        }
+                    }
+                }
+            });
+            accept(Kind::Redirect { _viewer: guard })
         }
         Ok(Open::Apps) => {
             apps_request(session.launcher.clone(), channel, AppsRequest::List, events);

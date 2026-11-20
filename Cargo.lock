@@ -802,6 +802,7 @@ dependencies = [
 name = "farglass-session"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
  "bytes",
  "farglass-proto",
  "farglass-surface",
@@ -810,6 +811,7 @@ dependencies = [
  "opus1",
  "pipewire",
  "pty-process",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror",

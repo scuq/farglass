@@ -12,6 +12,8 @@ farglass-surface.workspace = true
 bytes.workspace = true
 futures-util.workspace = true
 opus1.workspace = true
+base64.workspace = true
+serde.workspace = true
 pipewire.workspace = true
 nix = { workspace = true, features = ["signal", "user"] }
 zeroize.workspace = true

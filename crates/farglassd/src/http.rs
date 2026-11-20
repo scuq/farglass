@@ -35,8 +35,10 @@ pub const TRANSPORT_PATH: &str = "/transport";
 /// `style-src-elem` permits inline `<style>` elements: xterm.js makes them for
 /// each terminal, and its DOM renderer needs them (ADR-027). Inline `style`
 /// attributes in markup stay blocked.
+///
+/// `media-src blob:` permits the MediaSource of a redirected video (F040).
 const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; \
-style-src-elem 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; \
+style-src-elem 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self'; \
 worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
 /// The headers that all responses get, with their values.

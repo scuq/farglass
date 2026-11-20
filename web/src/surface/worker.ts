@@ -6,6 +6,7 @@
  * Messages out: `{ type: "size", width, height }`, `{ type: "end", seq }`, and
  * `{ type: "video", frames }` with the count of decoded video frames, and
  * `{ type: "video-failed" }` if this browser cannot decode the video (F037).
+ * `{ key }` sets the rectangle where black is transparent, or none (F040).
  */
 
 import { avcCodec, SurfaceDecoder, VideoFlag } from "./decoder";
@@ -89,6 +90,46 @@ function startVideo(codec: string): void {
   }
 }
 
+/**
+ * The rectangle of a redirected video, in buffer pixels (F040). The host draws the video
+ * black, and the black pixels in this rectangle are transparent: the video element of the
+ * client under the canvas shows through, and the controls of the page stay on top.
+ */
+type KeyRect = { x: number; y: number; width: number; height: number };
+let keyRect: KeyRect | null = null;
+
+/** Returns the part of the rectangle (x, y, w, h) in the key rectangle, or none. */
+function keyPart(x: number, y: number, w: number, h: number): KeyRect | null {
+  if (!keyRect) return null;
+  const x0 = Math.max(x, keyRect.x);
+  const y0 = Math.max(y, keyRect.y);
+  const x1 = Math.min(x + w, keyRect.x + keyRect.width);
+  const y1 = Math.min(y + h, keyRect.y + keyRect.height);
+  return x1 > x0 && y1 > y0 ? { x: x0, y: y0, width: x1 - x0, height: y1 - y0 } : null;
+}
+
+/** Makes the black pixels of `part` of the canvas transparent, or opaque again. */
+function rekey(part: KeyRect, transparent: boolean): void {
+  if (!context) return;
+  const image = context.getImageData(part.x, part.y, part.width, part.height);
+  const data = image.data;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 0) data[i + 3] = transparent ? 0 : 255;
+  }
+  context.putImageData(image, part.x, part.y);
+}
+
+function setKey(next: KeyRect | null): void {
+  const same = next && keyRect && next.x === keyRect.x && next.y === keyRect.y && next.width === keyRect.width && next.height === keyRect.height;
+  if (same || (!next && !keyRect)) return;
+  if (keyRect) rekey(keyRect, false);
+  keyRect = next;
+  if (canvas && keyRect) {
+    const part = keyPart(0, 0, canvas.width, canvas.height);
+    if (part) rekey(part, true);
+  }
+}
+
 const push = (bytes: Uint8Array) => {
   queue = queue.then(() => decoder.push(bytes)).catch((error: unknown) => console.error("surface stream", error));
 };
@@ -102,6 +143,19 @@ const decoder = new SurfaceDecoder({
     postMessage({ type: "size", width, height });
   },
   put(x, y, width, height, rgba) {
+    const part = keyPart(x, y, width, height);
+    if (part) {
+      // The cache keeps `rgba`: the transparent black goes into a copy.
+      const keyed = rgba.slice();
+      for (let row: number = part.y - y; row < part.y - y + part.height; row++) {
+        for (let column: number = part.x - x; column < part.x - x + part.width; column++) {
+          const i = (row * width + column) * 4;
+          if (keyed[i] === 0 && keyed[i + 1] === 0 && keyed[i + 2] === 0) keyed[i + 3] = 0;
+        }
+      }
+      context?.putImageData(new ImageData(keyed, width, height), x, y);
+      return;
+    }
     context?.putImageData(new ImageData(rgba, width, height), x, y);
   },
   move(x, y, width, height, dy) {
@@ -146,7 +200,13 @@ const decoder = new SurfaceDecoder({
   },
 });
 
-onmessage = (event: MessageEvent<{ canvas?: OffscreenCanvas; bytes?: ArrayBuffer }>) => {
+onmessage = (event: MessageEvent<{ canvas?: OffscreenCanvas; bytes?: ArrayBuffer; key?: KeyRect | null }>) => {
+  if ("key" in event.data) {
+    // The key changes after the frames that came before it.
+    const next = event.data.key ?? null;
+    queue = queue.then(() => setKey(next));
+    return;
+  }
   if (event.data.canvas) {
     canvas = event.data.canvas;
     context = canvas.getContext("2d", { alpha: true });

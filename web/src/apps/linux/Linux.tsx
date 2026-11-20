@@ -21,6 +21,8 @@ function SurfaceCanvas(props: {
   /** Reports whether the shell moves the window now: then the app gets no pointer input. */
   moving: () => boolean;
   onpressed: (press: { pointerId: number; clientX: number; clientY: number; canvas: HTMLCanvasElement } | null) => void;
+  /** The rectangle in buffer pixels where black is transparent: a redirected video shows through (F040). */
+  keyRect?: () => { x: number; y: number; width: number; height: number } | null;
 }) {
   const canvas = document.createElement("canvas");
   canvas.dataset.surface = String(props.id);
@@ -90,6 +92,10 @@ function SurfaceCanvas(props: {
         worker.postMessage({ bytes: copy }, [copy]);
       },
     },
+  );
+  createEffect(
+    () => JSON.stringify(props.keyRect?.() ?? null),
+    (key) => worker.postMessage({ key: JSON.parse(key) as unknown }),
   );
   createEffect(
     () => [props.left, props.top] as const,
@@ -214,6 +220,47 @@ export default function Linux(props: { context: AppContext }) {
   };
   props.context.onClose(() => manager.request({ type: "close", id }));
 
+  // The videos of the host browser in this window play in the client (F040). The container has
+  // the window geometry at (0, 0): a rectangle of the window is a rectangle of the container.
+  const players = () => manager.redirect.playersFor(info()?.title ?? "");
+  const shown = new Set<string>();
+  createEffect(players, (list) => {
+    const now = new Set<string>();
+    for (const { media, rect } of list) {
+      now.add(media.id);
+      if (element && media.video.parentElement !== element) element.prepend(media.video);
+      Object.assign(media.video.style, { left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.width}px`, height: `${rect.height}px` });
+      manager.redirect.setShowing(media.id, true);
+    }
+    for (const id of shown) {
+      if (!now.has(id)) {
+        manager.redirect.setShowing(id, false);
+        element?.querySelector(`video[data-redirect="${CSS.escape(id)}"]`)?.remove();
+      }
+    }
+    shown.clear();
+    for (const id of now) shown.add(id);
+  });
+  onCleanup(() => {
+    for (const id of shown) manager.redirect.setShowing(id, false);
+  });
+  /** The key rectangle of the first player, in buffer pixels, inside its rectangle. */
+  const keyRect = () => {
+    const first = players()[0];
+    const surface = info();
+    if (!first || !surface) return null;
+    const geometry = origin(surface.geometry);
+    const scale = surface.scale;
+    const x = Math.ceil((first.rect.x + geometry.x) * scale);
+    const y = Math.ceil((first.rect.y + geometry.y) * scale);
+    return {
+      x,
+      y,
+      width: Math.floor((first.rect.x + first.rect.width + geometry.x) * scale) - x,
+      height: Math.floor((first.rect.y + first.rect.height + geometry.y) * scale) - y,
+    };
+  };
+
   // The size of the content goes to the client, after a short quiet time.
   let timer: ReturnType<typeof setTimeout> | undefined;
   let sent = "";
@@ -294,6 +341,7 @@ export default function Linux(props: { context: AppContext }) {
             onpress={pressAt}
             moving={() => moving}
             onpressed={onpressed}
+            keyRect={keyRect}
             id={id}
             left={-origin(surface().geometry).x}
             top={-origin(surface().geometry).y}

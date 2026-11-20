@@ -469,6 +469,40 @@ pub fn exec_args(app: &DesktopApp) -> Result<Vec<String>, LaunchError> {
     Ok(args)
 }
 
+/// The browsers of the Chromium family that load the extension of video redirection (F040).
+const CHROMIUM_BROWSERS: [&str; 6] = [
+    "chromium",
+    "chromium-browser",
+    "brave-browser",
+    "brave-browser-stable",
+    "brave",
+    "google-chrome-stable",
+];
+
+/// Returns the directory of the extension of video redirection: `FARGLASS_REDIRECT_EXTENSION`, or the installed one.
+fn redirect_extension() -> PathBuf {
+    std::env::var_os("FARGLASS_REDIRECT_EXTENSION").map_or_else(
+        || PathBuf::from("/usr/share/farglass/redirect-extension"),
+        PathBuf::from,
+    )
+}
+
+/// Adds `--load-extension` with the extension of video redirection after the program, if the program
+/// is a Chromium browser and the extension is installed. Google Chrome ignores the option.
+fn with_redirect_extension(mut args: Vec<String>, extension: &Path) -> Vec<String> {
+    let at = args.iter().position(|arg| {
+        Path::new(arg)
+            .file_name()
+            .is_some_and(|name| CHROMIUM_BROWSERS.iter().any(|b| name == *b))
+    });
+    if let Some(at) = at
+        && extension.join("manifest.json").is_file()
+    {
+        args.insert(at + 1, format!("--load-extension={}", extension.display()));
+    }
+    args
+}
+
 /// Returns the name of a systemd unit with the text `text`: each byte that a unit name cannot have is `\xNN`, as `systemd-escape` does.
 fn unit_text(text: &str) -> String {
     text.bytes()
@@ -570,7 +604,7 @@ impl Launcher {
         let app = self
             .app(id)
             .ok_or_else(|| LaunchError::Unknown(id.to_owned()))?;
-        let args = exec_args(&app)?;
+        let args = with_redirect_extension(exec_args(&app)?, &redirect_extension());
         let mut command = if self.options.scope {
             let unit = format!(
                 "app-farglass-{}-{}.scope",
@@ -805,6 +839,37 @@ mod tests {
         assert_eq!(
             program_name(&args("env -u A B=1 /usr/bin/gnome-calculator")).as_deref(),
             Some("gnome-calculator")
+        );
+    }
+
+    #[test]
+    fn a_chromium_browser_gets_the_extension_of_video_redirection() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("manifest.json"), "{}").unwrap();
+        let args = |line: &str| line.split(' ').map(str::to_owned).collect::<Vec<_>>();
+        let load = format!("--load-extension={}", dir.path().display());
+        assert_eq!(
+            with_redirect_extension(
+                args("/usr/bin/brave-browser-stable --incognito"),
+                dir.path()
+            ),
+            [
+                "/usr/bin/brave-browser-stable",
+                load.as_str(),
+                "--incognito"
+            ]
+        );
+        assert_eq!(
+            with_redirect_extension(args("env A=1 chromium"), dir.path()),
+            ["env", "A=1", "chromium", load.as_str()]
+        );
+        assert_eq!(
+            with_redirect_extension(args("gnome-calculator"), dir.path()),
+            ["gnome-calculator"]
+        );
+        assert_eq!(
+            with_redirect_extension(args("chromium"), &dir.path().join("missing")),
+            ["chromium"]
         );
     }
 
