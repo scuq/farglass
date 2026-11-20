@@ -187,7 +187,7 @@ impl CertStore {
 
     /// Does the work of [`CertStore::open`] with `now` as the current time.
     pub fn open_at(source: TlsSource, now: OffsetDateTime) -> Result<Arc<Self>, TlsError> {
-        let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+        let provider = Arc::new(fast_provider());
         let loaded = load(&source, &provider, now)?;
         Ok(Arc::new(Self {
             source,
@@ -268,7 +268,7 @@ impl CertStore {
     /// [`TlsError::Rustls`] if the TLS library refuses the protocol versions.
     pub fn server_config(self: &Arc<Self>) -> Result<ServerConfig, TlsError> {
         let mut config = ServerConfig::builder_with_provider(self.provider.clone())
-            .with_protocol_versions(&[&version::TLS13, &version::TLS12])?
+            .with_protocol_versions(&[&version::TLS13])?
             .with_no_client_auth()
             .with_cert_resolver(self.clone());
         config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
@@ -495,6 +495,25 @@ fn write_atomic(path: &Path, contents: &[u8], mode: u32) -> io::Result<()> {
     file.write_all(contents)?;
     file.sync_all()?;
     fs::rename(&tmp, path)
+}
+
+/// Returns the crypto provider of farglassd (F064): TLS 1.3 suites and key exchanges that
+/// are fastest on usual hardware.
+///
+/// AES-128-GCM comes first: with AES instructions, it is the fastest suite.
+/// ChaCha20-Poly1305 follows for clients with no AES instructions. AES-256 is not offered.
+/// X25519 is the fastest key exchange; secp256r1 stays for clients without it.
+#[must_use]
+pub fn fast_provider() -> rustls::crypto::CryptoProvider {
+    use rustls::crypto::aws_lc_rs::{cipher_suite, default_provider, kx_group};
+    rustls::crypto::CryptoProvider {
+        cipher_suites: vec![
+            cipher_suite::TLS13_AES_128_GCM_SHA256,
+            cipher_suite::TLS13_CHACHA20_POLY1305_SHA256,
+        ],
+        kx_groups: vec![kx_group::X25519, kx_group::SECP256R1],
+        ..default_provider()
+    }
 }
 
 #[cfg(test)]

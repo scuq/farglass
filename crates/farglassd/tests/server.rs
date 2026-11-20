@@ -792,3 +792,53 @@ async fn http3_serves_the_routes_and_a_transport_offer_with_the_hash_of_its_cert
         .collect();
     assert_eq!(offer["hashes"], serde_json::json!([hash]));
 }
+
+#[tokio::test]
+async fn only_tls_1_3_with_aes_128_gcm_first_and_x25519() {
+    let server = TestServer::start().await;
+    let stream = server.connect(&["h2"]).await;
+    let (_, connection) = stream.get_ref();
+    assert_eq!(
+        connection.protocol_version(),
+        Some(rustls::ProtocolVersion::TLSv1_3)
+    );
+    assert_eq!(
+        connection
+            .negotiated_cipher_suite()
+            .map(|suite| suite.suite()),
+        Some(rustls::CipherSuite::TLS13_AES_128_GCM_SHA256)
+    );
+    assert_eq!(
+        connection
+            .negotiated_key_exchange_group()
+            .map(|group| group.name()),
+        Some(rustls::NamedGroup::X25519)
+    );
+
+    // A client with TLS 1.2 only gets no connection.
+    let mut roots = RootCertStore::empty();
+    roots.add(server.cert.clone()).unwrap();
+    let old = ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS12])
+        .with_root_certificates(roots.clone())
+        .with_no_client_auth();
+    let tcp = TcpStream::connect(server.addr).await.unwrap();
+    let refused = TlsConnector::from(Arc::new(old))
+        .connect(ServerName::try_from("localhost").unwrap(), tcp)
+        .await;
+    assert!(refused.is_err(), "a TLS 1.2 client got a connection");
+
+    // A client that offers only AES-256 gets no connection.
+    let mut provider = rustls::crypto::aws_lc_rs::default_provider();
+    provider.cipher_suites =
+        vec![rustls::crypto::aws_lc_rs::cipher_suite::TLS13_AES_256_GCM_SHA384];
+    let strong = ClientConfig::builder_with_provider(Arc::new(provider))
+        .with_protocol_versions(&[&rustls::version::TLS13])
+        .unwrap()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    let tcp = TcpStream::connect(server.addr).await.unwrap();
+    let refused = TlsConnector::from(Arc::new(strong))
+        .connect(ServerName::try_from("localhost").unwrap(), tcp)
+        .await;
+    assert!(refused.is_err(), "the server offered AES-256");
+}

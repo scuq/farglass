@@ -715,6 +715,12 @@ farglassd reads `/etc/farglass/farglassd.conf` if the file exists, or the file t
 
 ## TLS certificate
 
+farglassd speaks only TLS 1.3, on TCP and on QUIC (F064).
+It offers AES-128-GCM first, the fastest suite with AES instructions, then ChaCha20-Poly1305 for clients with no AES instructions.
+It does not offer AES-256: speed comes first, and AES-128 is secure.
+The key exchange is X25519, or secp256r1 for a client without X25519.
+A browser older than TLS 1.3 support (Chrome 70, Firefox 63, Safari 12.1) cannot connect.
+
 With no certificate in the configuration, farglassd makes a self-signed certificate.
 It keeps the certificate and the key in the directory `tls` of the state directory.
 The certificate is valid for 30 days.

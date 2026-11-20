@@ -26,6 +26,7 @@ Controls:
 - The Origin header must be `https://` and the host of the request, or an origin of the configuration (`crates/farglassd/src/origin.rs`). The WebSocket, `/session`, and WebTransport check it.
 - The session cookie is `__Host-farglass`: Secure, HttpOnly, and SameSite=Strict (`cookie.rs`).
 - A login ticket has 32 random bytes, works one time, and ends after 60 s. farglassd keeps only its hash. A WebTransport ticket ends after 30 s.
+- farglassd speaks only TLS 1.3 with AES-128-GCM or ChaCha20-Poly1305, and X25519 or secp256r1 (F064).
 - Each response has a CSP with `script-src 'self'` and `frame-ancestors 'none'`, COOP, COEP, CORP, `X-Frame-Options: DENY`, and no referrer (`http.rs`). HSTS comes only with a certificate of the administrator.
 - In `dev_user` mode, the host of the request must be a loopback name.
 
