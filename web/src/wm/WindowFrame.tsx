@@ -35,8 +35,14 @@ export function WindowFrame(props: {
   hidden: Accessor<boolean>;
   z: Accessor<number>;
   actions: FrameActions;
+  /** Returns the key of an action for the tooltip, for example "Alt+Shift+M" (F044). */
+  hint?: (action: "minimize" | "maximize" | "close-window") => string | undefined;
   children: JSX.Element;
 }) {
+  const tip = (label: string, action: "minimize" | "maximize" | "close-window") => {
+    const key = props.hint?.(action);
+    return key ? `${label} (${key})` : label;
+  };
   let element: HTMLElement | undefined;
   let frame = 0;
   let pending: Rect | null = null;
@@ -208,18 +214,18 @@ export function WindowFrame(props: {
       >
         {props.icon ? <img class="wm-icon" src={props.icon} alt="" draggable={false} /> : null}
         <span class="wm-title">{props.win().title}</span>
-        <button type="button" aria-label="Minimize" title="Minimize" onClick={() => props.actions.minimize(props.win().id)}>
+        <button type="button" aria-label="Minimize" title={tip("Minimize", "minimize")} onClick={() => props.actions.minimize(props.win().id)}>
           ▁
         </button>
         <button
           type="button"
           aria-label={props.win().snap === "maximized" ? "Restore" : "Maximize"}
-          title={props.win().snap === "maximized" ? "Restore" : "Maximize"}
+          title={tip(props.win().snap === "maximized" ? "Restore" : "Maximize", "maximize")}
           onClick={() => props.actions.toggleMaximize(props.win().id)}
         >
           {props.win().snap === "maximized" ? "❐" : "□"}
         </button>
-        <button type="button" aria-label="Close" title="Close" onClick={() => props.actions.close(props.win().id)}>
+        <button type="button" aria-label="Close" title={tip("Close", "close-window")} onClick={() => props.actions.close(props.win().id)}>
           ✕
         </button>
       </header>

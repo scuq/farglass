@@ -1,0 +1,70 @@
+/* The hints of the shortcuts and the tour (F044). */
+.key-hints {
+  position: fixed;
+  left: 50%;
+  bottom: 2rem;
+  translate: -50% 0;
+  z-index: 20000;
+  padding: 0.75rem 1rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.3);
+}
+.key-hints ul {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(14rem, auto));
+  gap: 0.35rem 1.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.key-hints li,
+.tour li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+kbd {
+  display: inline-block;
+  min-width: 1.5em;
+  padding: 0.1em 0.45em;
+  font: 600 0.9em/1.4 system-ui, sans-serif;
+  text-align: center;
+  background: var(--bar);
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+}
+.tour {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 20000;
+  width: 22rem;
+  padding: 1rem;
+  background: var(--bg);
+  border: 2px solid var(--focus);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.3);
+}
+.tour h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+}
+.tour-step {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.tour-keys {
+  margin: 0.75rem 0;
+  font-size: 1.15rem;
+}
+.tour-done {
+  color: var(--ok);
+}
+.tour-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}

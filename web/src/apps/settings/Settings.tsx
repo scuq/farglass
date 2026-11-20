@@ -4,6 +4,7 @@ import type { AppContext } from "../types";
 import { AppearancePage } from "./pages/Appearance";
 import { DateTimePage } from "./pages/DateTime";
 import { FocusPage } from "./pages/Focus";
+import { KeyboardPage } from "./pages/Keyboard";
 import { NetworkPage } from "./pages/Network";
 import { PowerPage } from "./pages/Power";
 import { SystemPage } from "./pages/System";
@@ -66,6 +67,9 @@ export default function Settings(props: { context: AppContext }) {
         <Switch>
           <Match when={page() === "appearance"}>
             <AppearancePage context={props.context} />
+          </Match>
+          <Match when={page() === "keyboard"}>
+            <KeyboardPage context={props.context} />
           </Match>
           <Match when={page() === "focus"}>
             <FocusPage context={props.context} />

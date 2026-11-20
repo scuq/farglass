@@ -14,7 +14,7 @@ export type MenuItem =
       readonly action: () => void;
       readonly disabled?: boolean;
       /** The keys of the same action, as a hint. */
-      readonly shortcut?: string;
+      readonly shortcut?: string | undefined;
     }
   | { readonly separator: true };
 

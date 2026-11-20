@@ -17,16 +17,16 @@ export function windowMenu(c: DesktopController, id: string): MenuItem[] {
   );
   return [
     { label: win.minimized ? "Show" : "Minimize", action: () => (win.minimized ? c.activate(id) : c.minimize(id)) },
-    { label: maximized ? "Restore" : "Maximize", action: () => c.toggleMaximize(id), shortcut: "Super+Up" },
-    { label: "Snap to the left half", action: () => c.snap(id, "left"), shortcut: "Super+Left" },
-    { label: "Snap to the right half", action: () => c.snap(id, "right"), shortcut: "Super+Right" },
+    { label: maximized ? "Restore" : "Maximize", action: () => c.toggleMaximize(id), shortcut: c.hint("maximize") },
+    { label: "Snap to the left half", action: () => c.snap(id, "left"), shortcut: c.hint("snap-left") },
+    { label: "Snap to the right half", action: () => c.snap(id, "right"), shortcut: c.hint("snap-right") },
     { separator: true },
     ...others.map((index) => ({
       label: `Move to workspace ${index + 1}`,
       action: () => c.moveToWorkspace(id, index),
     })),
     { separator: true },
-    { label: "Close", action: () => c.close(id) },
+    { label: "Close", action: () => c.close(id), shortcut: c.hint("close-window") },
   ];
 }
 
@@ -36,5 +36,5 @@ export function desktopMenu(c: DesktopController): MenuItem[] {
     .filter((app) => !app.hidden)
     .toSorted((a, b) => a.title.localeCompare(b.title))
     .map((app) => ({ label: `Open ${app.title}`, action: () => c.openApp(app.id) }));
-  return [...apps, { separator: true }, { label: "Tile the windows", action: () => c.tile(), shortcut: "Super+T" }];
+  return [...apps, { separator: true }, { label: "Tile the windows", action: () => c.tile(), shortcut: c.hint("tile") }];
 }

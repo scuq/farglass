@@ -207,7 +207,9 @@ describe("keys", () => {
 
   test("keys that apps use stay with the apps", () => {
     expect(key("Tab")).toBeNull();
-    expect(key("KeyT", { ctrlKey: true })).toBeNull();
+    // Ctrl+T reaches the shell only with Keyboard Lock, and acts only in a window of the shell.
+    expect(actionFor({ code: "KeyT", ctrlKey: true, altKey: false, metaKey: false, shiftKey: false }, "pc", false)).toBeNull();
+    expect(key("KeyT", { ctrlKey: true })).toEqual({ type: "new-terminal" });
     expect(key("ArrowLeft", { altKey: true })).toBeNull();
     expect(key("Digit1", { altKey: true })).toBeNull();
   });

@@ -1,10 +1,12 @@
-import { onCleanup } from "solid-js";
+import { onCleanup, Show } from "solid-js";
 import { APPEARANCE_KEY, applyAppearance, parseAppearance } from "../appearance";
 import { Notifications } from "../notify/Notifications";
 import { startSound } from "../audio/player";
 import { startHostApps } from "../launcher/hostApps";
 import { startSurfaceManager, stopSurfaceManager } from "../surface/manager";
+import { KeyHints } from "../keys/KeyHints";
 import { Panel } from "../panel/Panel";
+import { Tour, TOUR_EVENT } from "../tour/Tour";
 import { PolkitDialog } from "../polkit/PolkitDialog";
 import type { Connection } from "../proto";
 import { trackActivity } from "./activity";
@@ -27,6 +29,10 @@ export function Desktop(props: { connection: Connection; user: string; onlogout:
   onCleanup(() => stopSurfaceManager(props.connection));
   // The desktop entries of the host for the launcher, and the icons of their windows (F031).
   onCleanup(startHostApps(props.connection));
+  // The tour of the shortcuts starts from the settings (F044).
+  const startTour = () => controller.setTourOpen(true);
+  window.addEventListener(TOUR_EVENT, startTour);
+  onCleanup(() => window.removeEventListener(TOUR_EVENT, startTour));
   // The sound of the apps (F038).
   onCleanup(startSound(props.connection));
   // The appearance from the settings app, also when a different tab changes it.
@@ -44,6 +50,10 @@ export function Desktop(props: { connection: Connection; user: string; onlogout:
         }}
       />
       <PolkitDialog connection={props.connection} />
+      <KeyHints controller={controller} />
+      <Show when={controller.tourOpen()}>
+        <Tour controller={controller} />
+      </Show>
     </div>
   );
 }

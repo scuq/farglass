@@ -138,8 +138,6 @@ The panel at the top has these parts, from left to right:
 - The clock, with the date in its tooltip. It shows the time of the client.
 - Your username opens the session menu with **Log out**. **Lock** comes with the lock screen in a later version.
 
-A tap of the Super key opens the launcher when the shell has Keyboard Lock.
-Alt+F1 opens it on each client.
 
 A right click opens the menu of the shell:
 
@@ -166,21 +164,30 @@ To snap a window, drag it to an edge of the desktop:
 To change the size, drag an edge or a corner of the window.
 Press Escape during a drag to stop it.
 
-| Keys | Action |
-|---|---|
-| Alt+Tab, or Alt+` | Show the window switcher. Each Tab selects the next window. Release Alt to go to it. |
-| Ctrl+Alt+Left, Ctrl+Alt+Right | Show the workspace on the left or on the right |
-| Ctrl+Alt+Shift+Left, Ctrl+Alt+Shift+Right | Move the window to the workspace on the left or on the right |
-| Super+Up, Super+Down | Maximize or restore, minimize |
-| Super+Left, Super+Right | Snap to the left or the right half |
-| Super+1 to Super+4 | Show a workspace |
-| Super+T | Tile the windows of the workspace in columns |
-| Super+Tab, or Alt+Shift+G | Open or close the overview |
-| Super+Z, or Alt+Shift+L | Open or close the layout picker |
-| Super (tap), or Alt+F1 | Open or close the launcher |
+The shortcuts follow the conventions of your computer: the "Windows and Linux" scheme, or the "Mac" scheme on a Mac.
+The Keyboard page of the settings changes the scheme, lists each shortcut, and starts an interactive tour.
+Hold Alt+Shift, or Ctrl+Shift on a Mac, to see the shortcuts on the screen. The tooltips of the buttons and the menus show them too.
 
-NOTE: The operating system of the client keeps Alt+Tab and the Super key, unless the shell is in fullscreen mode with Keyboard Lock.
-Alt+` and the Ctrl+Alt keys reach the shell on each client.
+| Action | Windows and Linux | Mac |
+|---|---|---|
+| Open or close the launcher | Super (tap), or Alt+F1 | Ctrl+Shift+Space |
+| Switch windows. Release Alt or Option to go to the selected one | Alt+Tab, or Alt+` | Option+Tab |
+| Open the overview | Super+Tab, or Alt+Shift+G | Ctrl+Shift+G |
+| Open the layout picker | Super+Z, or Alt+Shift+L | Ctrl+Shift+L |
+| Maximize or restore, minimize | Super+Up, Super+Down, or Alt+Shift+M, Alt+Shift+H | Ctrl+Shift+M, Ctrl+Shift+H |
+| Snap to the left or the right half | Super+Left, Super+Right, or Alt+Shift+[, Alt+Shift+] | Ctrl+Shift+[, Ctrl+Shift+] |
+| Show the workspace on the left or the right | Ctrl+Alt+Left, Ctrl+Alt+Right | Ctrl+Shift+Left, Ctrl+Shift+Right |
+| Move the window to the workspace on the left or the right | Ctrl+Alt+Shift+Left, Ctrl+Alt+Shift+Right | Ctrl+Shift+, and Ctrl+Shift+. |
+| Show workspace 1 to 4 | Super+1 to Super+4, or Alt+Shift+1 to Alt+Shift+4 | Ctrl+Shift+1 to Ctrl+Shift+4 |
+| Tile the windows in columns | Super+T | The layout picker |
+| Open a new terminal | Alt+Shift+T | Ctrl+Shift+T |
+| Open a new window of the app with the focus | Alt+Shift+N | Ctrl+Shift+N |
+| Close the window with the focus | Alt+Shift+W | Ctrl+Shift+W |
+
+NOTE: The operating system of the client keeps Alt+Tab and the Super key, and the browser keeps Ctrl+T, Ctrl+N, and Ctrl+W, or Cmd+T, Cmd+N, and Cmd+W.
+In fullscreen with Keyboard Lock, they reach the shell, and Ctrl+T, Ctrl+N, and Ctrl+W, or Cmd+T, Cmd+N, and Cmd+W, act in the windows of the shell.
+A terminal and a Linux app keep them.
+No shortcut takes a key of the browser, an input method, a screen reader, AltGr, or Option characters on a Mac.
 
 ## Terminal
 

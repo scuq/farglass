@@ -52,6 +52,7 @@ export function Surface(props: { controller: DesktopController }) {
               focused={() => c.focusedId() === win().id}
               hidden={() => win().minimized || win().workspace !== c.desktop().workspace}
               actions={actions}
+              hint={c.hint}
             >
               {content}
             </WindowFrame>

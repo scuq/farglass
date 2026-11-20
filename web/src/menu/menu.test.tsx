@@ -226,7 +226,7 @@ describe("context menus of the shell", () => {
     const press = (key: string) => menu.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
     press("End");
     await settle();
-    expect(menu.querySelector("[data-active=true]")?.textContent).toBe("Close");
+    expect(menu.querySelector("[data-active=true]")?.textContent).toBe("CloseAlt+Shift+W");
     press("Enter");
     await settle();
     expect(host.querySelector('[data-window="a"]')).toBeNull();

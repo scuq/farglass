@@ -9,7 +9,10 @@ import type { Connection } from "../proto";
 import { StateClient } from "../state";
 import { clampRect, type Layout, type Rect, type SnapZone } from "./geometry";
 import { DEFAULT_FOCUS, FOCUS_KEY, type FocusSettings, InputWatch, parseFocusSettings } from "./focus";
-import { actionFor, isLauncherKey, SuperTap } from "./keys";
+import { type ActionId, DEFAULT_KEYBOARD, hintOf, KEYBOARD_KEY, type KeyboardSettings, parseKeyboardSettings, type SchemeId, schemeOf } from "../keys/scheme";
+import { hostApps } from "../launcher/hostApps";
+import { surfaceManagerFor, surfaceOf } from "../surface/manager";
+import { schemeActionFor, SuperTap, wmAction } from "./keys";
 import {
   closeWindow,
   type Desktop,
@@ -101,6 +104,16 @@ export interface DesktopController {
   setLayoutsOpen(open: boolean): void;
   /** Arranges the windows of the workspace in `layout`. */
   applyLayout(layout: Layout): void;
+  /** The keybinding settings and the scheme (F044). */
+  readonly keyboard: Accessor<KeyboardSettings>;
+  readonly scheme: Accessor<SchemeId>;
+  /** Returns the hint of an action in the scheme, for example "Alt+Shift+M". */
+  hint(action: ActionId): string | undefined;
+  /** Calls `handler` for each action that a key starts. Returns the function that stops the calls. */
+  onAction(handler: (action: ActionId) => void): () => void;
+  /** Reports whether the tour of the shortcuts runs. */
+  readonly tourOpen: Accessor<boolean>;
+  setTourOpen(open: boolean): void;
   /** Reports whether the overview of the workspaces is open (F043). */
   readonly overviewOpen: Accessor<boolean>;
   setOverviewOpen(open: boolean): void;
@@ -119,11 +132,16 @@ export function createDesktopController(connection: Connection): DesktopControll
   const [launcherOpen, setLauncherOpen] = createSignal(false);
   const [layoutsOpen, setLayoutsOpen] = createSignal(false);
   const [overviewOpen, setOverviewOpen] = createSignal(false);
+  const [tourOpen, setTourOpen] = createSignal(false);
+  const [keyboard, setKeyboard] = createSignal<KeyboardSettings>(DEFAULT_KEYBOARD);
+  const scheme = createMemo(() => schemeOf(keyboard()));
+  const actionHandlers = new Set<(action: ActionId) => void>();
   const store = new StateClient(connection);
   const superTap = new SuperTap();
   const input = new InputWatch();
   const [focusSettings, setFocusSettings] = createSignal<FocusSettings>(DEFAULT_FOCUS);
   store.watch(FOCUS_KEY, (value) => setFocusSettings(parseFocusSettings(value)));
+  store.watch(KEYBOARD_KEY, (value) => setKeyboard(parseKeyboardSettings(value)));
   let loaded = false;
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   // The desktop after the last change, until it is saved. A reload or a close of the tab saves it at once.
@@ -313,25 +331,62 @@ export function createDesktopController(connection: Connection): DesktopControll
     },
     overviewOpen,
     setOverviewOpen,
+    keyboard,
+    scheme,
+    hint: (action) => hintOf(action, scheme()),
+    onAction(handler) {
+      actionHandlers.add(handler);
+      return () => actionHandlers.delete(handler);
+    },
+    tourOpen,
+    setTourOpen,
     snap: (id, zone) => apply((state) => focusWindow(snapWindow(state, id, zone), id)),
     moveToWorkspace: (id, index) => apply((state) => moveToWorkspace(state, id, index)),
   };
 
+  /** Opens a new window of the app of the window `id`: a shell app, or the host app of a Linux window. */
+  const newWindowOf = (id: string | null) => {
+    const win = id ? windowById(desktop(), id) : undefined;
+    if (!win) return;
+    if (win.app !== "linux") {
+      if (APPS[win.app] && !APPS[win.app]!.hidden) controller.openApp(win.app);
+      return;
+    }
+    const info = surfaceManagerFor(connection)?.surfaces().get(surfaceOf(win.id));
+    const app = hostApps()?.appFor(info?.appId ?? null);
+    if (app) {
+      input.expectLaunch(app.names);
+      void hostApps()?.launch(app.id).catch(() => {});
+    }
+  };
+
   const onKeyDown = (event: KeyboardEvent) => {
     superTap.down(event);
-    if (isLauncherKey(event)) {
-      event.preventDefault();
-      setLauncherOpen(!launcherOpen());
+    // A terminal and a Linux app use Ctrl+T, Ctrl+N, and Ctrl+W: those chords act only in the windows of the shell.
+    const focusedApp = windowById(desktop(), focusedId() ?? "")?.app;
+    const shellFocused = focusedApp !== "terminal" && focusedApp !== "linux";
+    const actionId = schemeActionFor(event, scheme(), shellFocused);
+    if (!actionId) {
       return;
     }
-    const action = actionFor(event);
-    if (!action) {
-      return;
-    }
+    const action = wmAction(actionId);
     event.preventDefault();
     event.stopPropagation();
+    for (const handler of [...actionHandlers]) handler(actionId);
     const id = focusedId();
     switch (action.type) {
+      case "launcher":
+        setLauncherOpen(!launcherOpen());
+        return;
+      case "new-terminal":
+        controller.openApp("terminal");
+        return;
+      case "new-window":
+        newWindowOf(id);
+        return;
+      case "close-window":
+        if (id) controller.close(id);
+        return;
       case "switch": {
         const open = switcher();
         setSwitcher(open ? step(open, action.backward) : openSwitcher(switchable(desktop()), action.backward));
@@ -373,6 +428,7 @@ export function createDesktopController(connection: Connection): DesktopControll
     if (superTap.up(event)) {
       // A tap of Super opens or closes the launcher. It reaches the browser only with Keyboard Lock.
       event.preventDefault();
+      for (const handler of [...actionHandlers]) handler("launcher");
       setLauncherOpen(!launcherOpen());
       return;
     }
