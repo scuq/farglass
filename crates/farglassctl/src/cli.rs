@@ -31,6 +31,12 @@ pub enum Command {
         /// Open the port of farglassd in firewalld
         #[arg(long)]
         open_firewall: bool,
+        /// Show the steps and change nothing
+        #[arg(long)]
+        dry_run: bool,
+        /// Install a release with no signature, for example a test build. The SHA-256 is still checked
+        #[arg(long)]
+        allow_unsigned: bool,
     },
     /// Update farglass to a newer signed release
     Update {
@@ -40,12 +46,21 @@ pub enum Command {
         /// Update from the release files in DIR, not from GitHub
         #[arg(long, value_name = "DIR", value_hint = ValueHint::DirPath)]
         from: Option<PathBuf>,
+        /// Show the steps and change nothing
+        #[arg(long)]
+        dry_run: bool,
+        /// Update to a release with no signature, for example a test build
+        #[arg(long)]
+        allow_unsigned: bool,
     },
     /// Remove farglass. The configuration and the state stay, unless --purge
     Uninstall {
         /// Also remove /etc/farglass, /var/lib/farglass, and the user farglass
         #[arg(long)]
         purge: bool,
+        /// Show the steps and change nothing
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Show the units, the version, the address, the certificate, the PIN, and the users
     Status,
@@ -157,10 +172,10 @@ impl Command {
     #[must_use]
     pub fn needs_root(&self) -> bool {
         match self {
-            Self::Install { .. }
-            | Self::Update { .. }
-            | Self::Uninstall { .. }
-            | Self::Doctor
+            Self::Install { dry_run, .. }
+            | Self::Update { dry_run, .. }
+            | Self::Uninstall { dry_run, .. } => !dry_run,
+            Self::Doctor
             | Self::Pin(_)
             | Self::Logs { .. }
             | Self::Session(SessionCommand::Logout { .. }) => true,

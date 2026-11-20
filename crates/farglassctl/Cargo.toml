@@ -11,6 +11,14 @@ repository.workspace = true
 clap.workspace = true
 clap_complete.workspace = true
 nix.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+ureq.workspace = true
+flate2.workspace = true
+tar.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

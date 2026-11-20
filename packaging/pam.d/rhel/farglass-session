@@ -1,0 +1,15 @@
+#%PAM-1.0
+# farglass-session - the PAM service of the web session, for RHEL, Rocky Linux, AlmaLinux, and Fedora
+#
+# The session worker of farglass-login opens the session with this service.
+# farglass-login authenticated the user before with the service farglass.
+# Thus the auth stack refuses each request.
+# pam_systemd in password-auth creates the logind session of type web.
+
+auth       required     pam_deny.so
+account    include      password-auth
+session    required     pam_selinux.so close
+session    required     pam_loginuid.so
+session    required     pam_selinux.so open
+session    optional     pam_keyinit.so force revoke
+session    include      password-auth

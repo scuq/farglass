@@ -79,6 +79,9 @@ case "$MODE" in
         ;;
     ctl)
         target="$TRIPLE-unknown-linux-musl"
+        # ring, the crypto of rustls, has C code: musl-gcc of musl-tools builds it for each architecture.
+        command -v musl-gcc >/dev/null || die "musl-gcc is missing. Install musl-tools (Debian, Ubuntu) or musl-gcc (Fedora)."
+        export "CC_${TRIPLE}_unknown_linux_musl=musl-gcc"
         cargo build --release --locked -p farglassctl --target "$target" --manifest-path "$REPO/Cargo.toml"
         bin="$REPO/target/$target/release/farglassctl"
         file "$bin" | grep -q "statically linked" || die "farglassctl is not static: $(file "$bin")"

@@ -172,6 +172,9 @@ jobs:
           cd dist && sha256sum farglass-*.tar.gz farglassctl-linux-* > SHA256SUMS
           cat SHA256SUMS
       - uses: sigstore/cosign-installer@v3
+        with:
+          # The same version that farglassctl embeds (crates/farglassctl/src/release.rs).
+          cosign-release: v3.1.4
       - name: Sign SHA256SUMS (keyless)
         run: cosign sign-blob --yes --bundle dist/SHA256SUMS.sigstore.json dist/SHA256SUMS
       - name: Publish the release

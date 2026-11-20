@@ -93,9 +93,14 @@ impl TestServer {
     async fn connect(&self, alpn: &[&str]) -> TlsStream<TcpStream> {
         let mut roots = RootCertStore::empty();
         roots.add(self.cert.clone()).unwrap();
-        let mut config = ClientConfig::builder()
-            .with_root_certificates(roots)
-            .with_no_client_auth();
+        // The provider by name: the workspace also has ring, through ureq of farglassctl.
+        let mut config = ClientConfig::builder_with_provider(Arc::new(
+            rustls::crypto::aws_lc_rs::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
         config.alpn_protocols = alpn.iter().map(|p| p.as_bytes().to_vec()).collect();
 
         let tcp = TcpStream::connect(self.addr).await.unwrap();
@@ -818,9 +823,13 @@ async fn only_tls_1_3_with_aes_128_gcm_first_and_x25519() {
     // A client with TLS 1.2 only gets no connection.
     let mut roots = RootCertStore::empty();
     roots.add(server.cert.clone()).unwrap();
-    let old = ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS12])
-        .with_root_certificates(roots.clone())
-        .with_no_client_auth();
+    let old = ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::aws_lc_rs::default_provider(),
+    ))
+    .with_protocol_versions(&[&rustls::version::TLS12])
+    .unwrap()
+    .with_root_certificates(roots.clone())
+    .with_no_client_auth();
     let tcp = TcpStream::connect(server.addr).await.unwrap();
     let refused = TlsConnector::from(Arc::new(old))
         .connect(ServerName::try_from("localhost").unwrap(), tcp)

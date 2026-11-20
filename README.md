@@ -85,7 +85,31 @@ If farglassd stops, the agent connects again when farglassd starts.
 
 `farglassctl` installs and manages farglass on a host (ADR-047).
 It is one static binary with no dynamic library, for amd64 and arm64.
-`install`, `update`, and the user and session commands come with F067 and F068.
+The user and session commands come with F068.
+
+To install farglass on a host, download `farglassctl-linux-amd64` or `farglassctl-linux-arm64` of a release, then:
+
+```sh
+chmod +x farglassctl-linux-amd64
+sudo ./farglassctl-linux-amd64 install --user alice
+```
+
+`install` does these steps (F067):
+
+1. It reads the distribution from `/etc/os-release` and refuses an unsupported one.
+2. It downloads the newest release (or `--release TAG`) from GitHub, or takes the files of `--from DIR`.
+3. It downloads the static cosign v3.1.4, and runs it only with the SHA-256 that farglassctl embeds.
+4. cosign checks that the release workflow of this repository signed `SHA256SUMS` at a tag. farglassctl checks the SHA-256 of the tarball. A failed check installs nothing.
+5. It installs the runtime packages with apt or dnf, and the user `farglass` and the groups `farglass` and `farglass-users`.
+6. It installs the programs in `/usr/libexec/farglass`, the web files in `/usr/share/farglass`, the units, the PAM files of the distribution family, the bash completion, and itself as `/usr/local/sbin/farglassctl`.
+7. It writes `/etc/farglass/farglassd.conf` only if it does not exist.
+8. On SELinux it runs `restorecon`. If firewalld runs, `--open-firewall` opens port 8443 for TCP and UDP.
+9. It starts `farglass-login.socket` and `farglassd.service`.
+
+`--dry-run` shows the steps and changes nothing.
+`--allow-unsigned` installs a test build with no signature; the SHA-256 is still checked.
+`farglassctl update` does the same with a newer release, and keeps the configuration and the users.
+`farglassctl uninstall` keeps `/etc/farglass` and `/var/lib/farglass`; `--purge` removes them, the user `farglass`, and the groups.
 
 ```text
 farglassctl install [--release TAG] [--from DIR] [--user USER]... [--open-firewall]

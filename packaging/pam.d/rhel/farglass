@@ -1,0 +1,15 @@
+#%PAM-1.0
+# farglass - the PAM service of farglass-login, for RHEL, Rocky Linux, AlmaLinux, and Fedora
+#
+# farglassctl installs this file as /etc/pam.d/farglass on these distributions.
+# farglass-login sends each prompt of these modules to the login screen of the shell.
+
+# The password of the system account, with the stack of authselect.
+auth       include      password-auth
+
+# A second factor: a time-based one-time code (TOTP) from an authenticator app.
+#auth      required     pam_google_authenticator.so nullok
+
+# The account checks: an expired or locked account, and /etc/nologin.
+account    required     pam_nologin.so
+account    include      password-auth
