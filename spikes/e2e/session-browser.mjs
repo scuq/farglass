@@ -65,7 +65,7 @@ try {
       await page.waitForFunction((n) => document.querySelectorAll(".wm-window .term-app").length < n, count, { timeout: TIMEOUT_MS });
     }
     await raise(page, page.locator('.wm-window[aria-label="Echo"]'));
-    const time = await echo(page, `hello from the web session of ${user}`);
+    const time = await echo(page, `hello from the web session of ${user} ${Date.now()}`);
     console.log(`PASS: the agent in the web session answers, round trip ${time} ms`);
     if (expect === "polkit") {
       await launch(page, "Terminal");
