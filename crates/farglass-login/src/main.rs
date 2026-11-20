@@ -83,6 +83,11 @@ struct Args {
     #[arg(long, value_name = "NAME", default_value = "farglass-users")]
     allowed_group: String,
 
+    /// A user that can use the login socket besides root, the user farglass, and the user of farglass-login.
+    /// For a farglassd that runs as a different user, for example in a test
+    #[arg(long, value_name = "USER")]
+    peer_user: Vec<String>,
+
     /// How to start the web session after a login
     #[arg(long, value_enum, default_value = "systemd")]
     session: SessionMode,
@@ -200,6 +205,17 @@ async fn serve(args: Args) -> ExitCode {
         max_per_address: args.max_per_address.max(1),
         login_deadline: Duration::from_secs(args.login_deadline.max(1)),
         allowed_group: (!args.allowed_group.is_empty()).then(|| args.allowed_group.clone()),
+        peer_uids: args
+            .peer_user
+            .iter()
+            .filter_map(|name| match nix::unistd::User::from_name(name) {
+                Ok(Some(user)) => Some(user.uid.as_raw()),
+                _ => {
+                    tracing::error!(user = name, "the peer user does not exist");
+                    None
+                }
+            })
+            .collect(),
         host,
     };
     match &settings.allowed_group {

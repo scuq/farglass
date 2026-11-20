@@ -26,6 +26,7 @@
 set -eu
 
 TEST_USER=farglass-test
+TEST_GROUP=farglass-check
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 FAILED=0
 
@@ -58,6 +59,7 @@ cleanup() {
     sleep 1
     systemctl stop "farglass-session-$(id -u "$TEST_USER" 2>/dev/null || echo 0).service" 2>/dev/null || true
     userdel -r "$TEST_USER" 2>/dev/null || true
+    groupdel "$TEST_GROUP" 2>/dev/null || true
     rm -rf "$DIR"
 }
 trap cleanup EXIT INT TERM
@@ -79,10 +81,15 @@ cp /etc/pam.d/common-* "$DIR/pam.d/"
 
 useradd --create-home --shell /bin/sh "$TEST_USER"
 TEST_UID=$(id -u "$TEST_USER")
+# Only members of the allowed group log in (F058). The group goes at the end of the test.
+groupadd "$TEST_GROUP"
+usermod -aG "$TEST_GROUP" "$TEST_USER"
+usermod -aG "$TEST_GROUP" "$SUDO_USER"
 
 "$DIR/bin/farglass-login" --socket "$DIR/run/login.sock" --socket-mode 666 \
     --pam-dir "$DIR/pam.d" --fail-delay-ms 0 \
     --agent-program "$DIR/bin/farglass-session" --agent-socket "$DIR/run/agent.sock" \
+    --allowed-group "$TEST_GROUP" --peer-user "$SUDO_USER" \
     2> "$DIR/login.log" &
 PIDS="$PIDS $!"
 runuser -u "$SUDO_USER" -- env NO_COLOR=1 "$DIR/bin/farglassd" --listen 127.0.0.1:18447 \

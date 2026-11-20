@@ -50,6 +50,8 @@ pub struct Settings {
     pub login_deadline: Duration,
     /// Only members of this group can log in (F058). `None` lets each user log in, for tests.
     pub allowed_group: Option<String>,
+    /// More uids that can use the login socket, besides root, the user farglass, and the own user (F056).
+    pub peer_uids: Vec<u32>,
     /// The actions on the host: the logind sessions and the start of the web session.
     pub host: Arc<dyn Host>,
 }
@@ -66,6 +68,7 @@ impl Default for Settings {
             max_per_address: 4,
             login_deadline: LOGIN_DEADLINE,
             allowed_group: None,
+            peer_uids: Vec::new(),
             host: Arc::new(NoSessions),
         }
     }
@@ -177,7 +180,7 @@ impl Service {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let peer = stream.peer_cred().map(|cred| cred.uid()).ok();
         // Only farglassd connects: root, the user farglass, or the user of farglass-login (F056).
-        if !peer.is_some_and(peer_allowed) {
+        if !peer.is_some_and(|uid| peer_allowed(uid) || self.settings.peer_uids.contains(&uid)) {
             Event {
                 event: "login-socket",
                 reason: "peer",
