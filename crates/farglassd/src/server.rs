@@ -222,6 +222,7 @@ impl Server {
             self.allow_user_agents,
         ));
         let idle_loop = tokio::spawn(idle_loop(self.context.clone()));
+        let gone_loop = tokio::spawn(agent_gone_loop(self.context.clone(), AGENT_GRACE));
         let lock_loop = tokio::spawn(crate::lock::agent_loop(
             self.context.presence.clone(),
             self.context.registry.clone(),
@@ -246,6 +247,7 @@ impl Server {
                     agent_loop.abort();
                     idle_loop.abort();
                     lock_loop.abort();
+                    gone_loop.abort();
                     if let Some(endpoint) = &self.quic {
                         endpoint.close(0_u32.into(), b"shutdown");
                     }
@@ -298,6 +300,42 @@ impl Server {
                 }
                 drop(place);
             });
+        }
+    }
+}
+
+/// The time in which a new agent can replace an agent that stopped, before the logout of its user.
+pub const AGENT_GRACE: Duration = Duration::from_secs(10);
+
+/// Logs out the user of an agent that stopped and did not come back (F068).
+///
+/// The web session ended, for example through `farglassctl session logout` or
+/// `loginctl terminate-session`. The cookies of the user go, and each tab gets the
+/// logout: the browser shows the login screen, not a desktop with no agent.
+pub async fn agent_gone_loop(context: Arc<Context>, grace: Duration) {
+    let mut events = context.registry.subscribe();
+    loop {
+        match events.recv().await {
+            Ok(crate::agents::AgentEvent::Gone(uid)) => {
+                let context = context.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(grace).await;
+                    if context.registry.get(uid).is_none() {
+                        context.sessions.remove_user(uid);
+                        context.presence.announce_logout(uid);
+                        farglass_login::audit::Event {
+                            event: "logout",
+                            reason: "agent-gone",
+                            uid: Some(uid),
+                            ..Default::default()
+                        }
+                        .accepted();
+                    }
+                });
+            }
+            Ok(_) => {}
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
         }
     }
 }

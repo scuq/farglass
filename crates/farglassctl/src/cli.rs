@@ -180,10 +180,9 @@ impl Command {
             | Self::Logs { .. }
             | Self::Session(SessionCommand::Logout { .. }) => true,
             Self::User(command) => !matches!(command, UserCommand::List),
-            Self::Status
-            | Self::Session(SessionCommand::List)
-            | Self::Version
-            | Self::Completion { .. } => false,
+            // Status reads the state of farglassd, which only root and farglass can read.
+            Self::Status => true,
+            Self::Session(SessionCommand::List) | Self::Version | Self::Completion { .. } => false,
         }
     }
 }

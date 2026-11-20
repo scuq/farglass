@@ -54,6 +54,7 @@ pub async fn agent_loop(presence: std::sync::Arc<Presence>, registry: std::sync:
             Ok(AgentEvent::Connected(uid)) => hint(&registry, uid, presence.is_locked(uid)),
             Ok(AgentEvent::Lock(uid)) => lock(&presence, &registry, uid, "logind"),
             Ok(AgentEvent::Unlock(uid)) => unlock(&presence, &registry, uid, "logind"),
+            Ok(AgentEvent::Gone(_)) => {}
             Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
                 tracing::warn!(count, "lock requests of agents were lost");
             }

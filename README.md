@@ -85,7 +85,22 @@ If farglassd stops, the agent connects again when farglassd starts.
 
 `farglassctl` installs and manages farglass on a host (ADR-047).
 It is one static binary with no dynamic library, for amd64 and arm64.
-The user and session commands come with F068.
+The other commands manage a running host (F068):
+
+| Command | What it does |
+|---|---|
+| `user list` | The members of `farglass-users` and the disabled users, with their web session and passkeys |
+| `user add USER` | USER can log in |
+| `user remove USER` | USER cannot log in; a browser of the user gets the login screen at its next connection |
+| `user disable USER` | USER cannot log in, and the web sessions of USER end at once; `user enable USER` undoes it |
+| `session list` | The web sessions from logind |
+| `session logout USER` | Ends the web sessions of USER; the browsers show the login screen |
+| `pin set`, `pin clear` | Sets the machine PIN (read with no echo, two times), or removes it |
+| `status` | The version, the units, the port, the PIN, the users, and the number of web sessions |
+| `logs [--security] [--follow]` | The journal of farglassd and farglass-login, or only the security events |
+| `doctor` | Checks the installation, the libraries, the PAM files, the users, the port, and firewalld, with a hint for each fault |
+
+When the agent of a user stops and does not come back in 10 seconds, farglassd logs the user out: the cookies of the user go, and each tab shows the login screen.
 
 To install farglass on a host, download `farglassctl-linux-amd64` or `farglassctl-linux-arm64` of a release, then:
 

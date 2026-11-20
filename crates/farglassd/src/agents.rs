@@ -59,6 +59,8 @@ pub enum AgentEvent {
     Lock(u32),
     /// logind asks to unlock the session of the user.
     Unlock(u32),
+    /// The agent of the user stopped, and no new agent replaced it (F068).
+    Gone(u32),
 }
 
 /// The agents that are connected now, by uid.
@@ -196,6 +198,7 @@ impl Registry {
                 .is_some_and(|current| current.id == agent.id)
             {
                 agents.remove(&uid);
+                let _ = self.events.send(AgentEvent::Gone(uid));
             }
         }
         agent.stop("The agent of the session stopped.");

@@ -1077,3 +1077,38 @@ async fn a_connection_that_misses_user_events_ends() {
         "the connection did not end after missed events"
     );
 }
+
+#[tokio::test]
+async fn an_agent_that_stops_and_does_not_come_back_logs_its_user_out() {
+    let service = LoginService::start().await;
+    let context = limited(&service, |_| {});
+    tokio::spawn(farglassd::server::agent_gone_loop(
+        context.clone(),
+        Duration::from_millis(200),
+    ));
+    let identity = Identity {
+        uid: 4242,
+        name: "alice".to_owned(),
+    };
+    let token = context
+        .sessions
+        .redeem(&context.sessions.ticket(identity.clone()))
+        .unwrap();
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(
+        axum::http::header::COOKIE,
+        format!("{}={token}", farglassd::cookie::COOKIE_NAME)
+            .parse()
+            .unwrap(),
+    );
+    let agent = fake_agent(&context.registry, 4242).await;
+    let mut browser = Browser::connect_as(&context, Some(identity)).await;
+    // The web session ends: the agent stops.
+    drop(agent);
+    logged_out(&mut browser).await;
+    assert_eq!(
+        context.sessions.user(&headers),
+        None,
+        "the cookie still gives the user"
+    );
+}

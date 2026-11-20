@@ -23,13 +23,14 @@ use clap::{CommandFactory as _, Parser as _};
 
 mod cli;
 mod install;
+mod manage;
 mod os;
 mod plan;
 mod release;
 
 use std::path::{Path, PathBuf};
 
-use cli::{Cli, Command};
+use cli::{Cli, Command, PinCommand, SessionCommand, UserCommand};
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -45,7 +46,7 @@ fn main() -> ExitCode {
 fn run(cli: Cli) -> Result<(), String> {
     if cli.command.needs_root() && !nix::unistd::geteuid().is_root() {
         return Err(format!(
-            "`{}` changes the host. Run it as root, for example with sudo.",
+            "`{}` needs root. Run it with sudo.",
             cli.command.name()
         ));
     }
@@ -123,10 +124,29 @@ fn run(cli: Cli) -> Result<(), String> {
             }
             plan::apply(&steps)
         }
-        other => Err(format!(
-            "`{}` is not ready in this version of farglassctl.",
-            other.name()
-        )),
+        Command::Status => {
+            manage::status();
+            Ok(())
+        }
+        Command::Doctor => manage::doctor(),
+        Command::User(command) => match command {
+            UserCommand::List => {
+                manage::user_list();
+                Ok(())
+            }
+            UserCommand::Add { user } => manage::user_add(&user),
+            UserCommand::Remove { user } => manage::user_remove(&user),
+            UserCommand::Disable { user } => manage::user_disable(&user),
+            UserCommand::Enable { user } => manage::user_enable(&user),
+        },
+        Command::Session(SessionCommand::List) => {
+            manage::session_list();
+            Ok(())
+        }
+        Command::Session(SessionCommand::Logout { user }) => manage::session_logout(&user),
+        Command::Pin(PinCommand::Set) => manage::pin_set(),
+        Command::Pin(PinCommand::Clear) => manage::pin_clear(),
+        Command::Logs { security, follow } => manage::logs(security, follow),
     }
 }
 
