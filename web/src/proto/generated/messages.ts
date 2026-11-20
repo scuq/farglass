@@ -733,7 +733,12 @@ title: string,
 /**
  * Reports whether the tab shows and the video is in the viewport.
  */
-visible: boolean, } | { "type": "gone", 
+visible: boolean, 
+/**
+ * From the agent: the windows of the browser process that sent the media source (F052).
+ * The client places the video only on one of these windows.
+ */
+windows?: Array<number>, } | { "type": "gone", 
 /**
  * The media source.
  */

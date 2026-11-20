@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { dataFrame, encodeJsonFrame, FrameType, parseJson, readyFrame } from "../proto";
 import { fakeConnection } from "../proto/testing";
-import { hostTime, mustSeek, parseVideoMode, placement, RedirectManager } from "./redirect";
+import { hostTime, mustSeek, parseVideoMode, placement, RedirectManager, sameTitle } from "./redirect";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -101,7 +101,7 @@ describe("health", () => {
     expect(diagnosis().failed).toBeNull();
     vi.advanceTimersByTime(4000);
     expect(diagnosis().failed).toBe("no first frame");
-    expect(manager.playersFor("A video - Brave")).toEqual([]);
+    expect(manager.playersFor(4, "A video - Brave")).toEqual([]);
     manager.close();
     vi.useRealTimers();
   });
@@ -115,7 +115,20 @@ describe("video mode", () => {
     const { connection } = await fakeConnection("alice");
     const manager = new RedirectManager(connection);
     manager.setMode("host");
-    expect(manager.playersFor("Any - Brave")).toEqual([]);
+    expect(manager.playersFor(4, "Any - Brave")).toEqual([]);
     manager.close();
+  });
+});
+
+describe("placement (F052)", () => {
+  test("a window title matches the page title only with no more than the browser name", () => {
+    expect(sameTitle("A video", "A video")).toBe(true);
+    expect(sameTitle("A video - Chromium", "A video")).toBe(true);
+    expect(sameTitle("A video — Brave", "A video")).toBe(true);
+    expect(sameTitle("Song - Artist - YouTube - Chromium", "Song - Artist - YouTube")).toBe(true);
+    // A page cannot claim a window of a different page with a short title.
+    expect(sameTitle("A video of the bank - Chromium", "A")).toBe(false);
+    expect(sameTitle("Terminal", "Term")).toBe(false);
+    expect(sameTitle("Bank - Login - Chromium", "Bank")).toBe(false);
   });
 });

@@ -80,8 +80,12 @@ Controls:
 ### Video redirection
 
 Threat: a web page in the host browser sends false player messages.
-Controls: the native messaging manifest names the extension id. The socket of the agent is in the runtime directory of the user, mode 0700.
-Gap: finding 4.
+Controls:
+
+- The native messaging manifest names the extension id. The socket of the agent is in the runtime directory of the user, mode 0700.
+- page.js and relay.js talk through a MessagePort that page.js gives in a synchronous event before the page runs. relay.js takes only the first event (F052).
+- The agent keeps at most 32 media sources of one browser connection, 8 SourceBuffers of each, an init segment of 4 MiB, and 64 MiB in all (F052).
+- The client places a video only on a window of the browser process that sent it (the parent of the native messaging host), with the page title and only the browser name after it (F052).
 
 ### Packages
 
@@ -100,7 +104,7 @@ Gap: finding 9.
 | 1 | High | A read error of the passkey file other than "not found", for example with no free file descriptor, turned the second factor off. | Fixed in F035 |
 | 2 | Medium | The block of a user applies only when farglassd gives the username. The login screen never does, thus an attacker with many addresses gets five guesses at each one. | Fixed in F051 |
 | 3 | Medium | A connection waits for its hello with no time limit, and 32 logins that do not answer hold all login places. An attacker with no password can stop all logins and use up the file descriptors. | Fixed in F051 |
-| 4 | Medium | Each script of a page in the host browser can send redirection messages. The agent keeps media, sources, and init segments with no limit, and the client places a video on each window whose title starts with the title that the page gives. | F052 |
+| 4 | Medium | Each script of a page in the host browser can send redirection messages. The agent keeps media, sources, and init segments with no limit, and the client places a video on each window whose title starts with the title that the page gives. | Fixed in F052 |
 | 5 | Low | A person at an unlocked tab, or with a stolen cookie, can remove all passkeys with no new check. | Fixed in F053 |
 | 6 | Low | A connection that misses a lock or logout event, after 64 events in its queue, keeps its channels. | Fixed in F054 |
 | 7 | Low | A connection from a cookie continues after the cookie ends. | Fixed in F054 |

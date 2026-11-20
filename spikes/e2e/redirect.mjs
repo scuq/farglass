@@ -254,6 +254,20 @@ source.addEventListener("sourceopen", async () => {
   if (SHOTS) await shell.screenshot({ path: join(SHOTS, "redirect-black.png") });
   check(!sample.equals(await shell.screenshot({ clip: { x: 5, y: 880, width: 4, height: 4 } })), "the client video shows through on the black page");
 
+  // 5. A script of the page cannot send messages to the agent (F052): the old window.postMessage path
+  // and a second port event reach nothing.
+  const sources = () => shell.evaluate(() => globalThis.farglassRedirect().length);
+  const before = await sources();
+  await player.evaluate(() => {
+    const fake = { type: "source", media: "spoof", source: "s", mime: 'video/webm; codecs="vp8"' };
+    window.postMessage({ farglassRedirect: fake }, "*");
+    const channel = new MessageChannel();
+    document.dispatchEvent(new MessageEvent("farglass-redirect-port", { ports: [channel.port2] }));
+    channel.port1.postMessage(fake);
+  });
+  await shell.waitForTimeout(1500);
+  check((await sources()) === before && !/spoof/.test(agent.log()), "a script of the page cannot send a message to the agent");
+
   if (MEASURE) {
     const hostPid = Number(execFileSync("pgrep", ["-o", "-f", "--", `--user-data-dir=${profile}`]).toString().trim());
     const measure = async (label, style) => {

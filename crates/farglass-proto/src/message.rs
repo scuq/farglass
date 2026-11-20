@@ -598,6 +598,11 @@ pub enum RedirectEvent {
         title: String,
         /// Reports whether the tab shows and the video is in the viewport.
         visible: bool,
+        /// From the agent: the windows of the browser process that sent the media source (F052).
+        /// The client places the video only on one of these windows.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[ts(optional, as = "Option<Vec<u32>>")]
+        windows: Vec<u32>,
     },
     /// The media source is gone: its video element changed its source or left the page.
     Gone {

@@ -35,6 +35,18 @@ pub const EXTENSION_ID: &str = "alhjaabffmdgbbogejdgmenkjfkahfog";
 /// The largest message of the extension: 64 MiB, a large media segment in base64.
 const MAX_MESSAGE: usize = 64 << 20;
 
+/// The media sources of one browser connection at the same time (F052).
+pub const MAX_MEDIAS: usize = 32;
+
+/// The SourceBuffers of one media source (F052).
+pub const MAX_SOURCES: usize = 8;
+
+/// The largest initialization segment (F052). A real one has some kilobytes.
+pub const MAX_INIT: usize = 4 << 20;
+
+/// The bytes that the agent keeps of all media sources of one browser connection (F052).
+pub const MAX_KEPT: usize = 64 << 20;
+
 /// The appends that the agent keeps for each media source, for a shell that connects later.
 const KEEP_APPENDS: usize = 300;
 
@@ -247,12 +259,18 @@ struct Inner {
     viewers: HashMap<u64, Sink>,
     medias: BTreeMap<String, MediaLog>,
     browsers: HashMap<u64, mpsc::UnboundedSender<Vec<u8>>>,
+    /// The process of the host browser of each browser connection: the parent of its native messaging host.
+    pids: HashMap<u64, u32>,
 }
+
+/// Returns the windows of a process: the top-level windows whose Wayland client has that pid.
+pub type WindowsOf = Arc<dyn Fn(u32) -> Vec<u32> + Send + Sync>;
 
 /// The players of the host browsers and the redirect channels of the shell.
 pub struct Redirect {
     inner: Mutex<Inner>,
     next: AtomicU64,
+    windows: Mutex<Option<WindowsOf>>,
 }
 
 impl std::fmt::Debug for Redirect {
@@ -316,7 +334,73 @@ impl Redirect {
         Arc::new(Self {
             inner: Mutex::new(Inner::default()),
             next: AtomicU64::new(1),
+            windows: Mutex::new(None),
         })
+    }
+
+    /// Sets the function that gives the windows of a process (F052). Without it, no video has a window.
+    pub fn set_windows(&self, windows: WindowsOf) {
+        *self.windows.lock().unwrap_or_else(PoisonError::into_inner) = Some(windows);
+    }
+
+    /// Sets the process of the host browser of the connection `browser`.
+    pub fn set_browser_pid(&self, browser: u64, pid: u32) {
+        self.lock().pids.insert(browser, pid);
+    }
+
+    /// Returns the windows of the host browser of the connection `browser`. An unknown process gives none.
+    fn windows_of(&self, browser: u64) -> Vec<u32> {
+        let Some(pid) = self.lock().pids.get(&browser).copied() else {
+            return Vec::new();
+        };
+        let windows = self
+            .windows
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        windows.map_or_else(Vec::new, |windows| windows(pid))
+    }
+
+    /// Checks the caps of a new media source and a new SourceBuffer (F052).
+    fn check_caps(
+        inner: &Inner,
+        browser: u64,
+        media: &str,
+        new_source: bool,
+    ) -> Result<(), String> {
+        let prefix = format!("{browser}:");
+        if !inner.medias.contains_key(media)
+            && inner
+                .medias
+                .keys()
+                .filter(|key| key.starts_with(&prefix))
+                .count()
+                >= MAX_MEDIAS
+        {
+            return Err(format!("more than {MAX_MEDIAS} media sources"));
+        }
+        if new_source
+            && inner
+                .medias
+                .get(media)
+                .is_some_and(|log| log.sources.len() >= MAX_SOURCES)
+        {
+            return Err(format!("more than {MAX_SOURCES} SourceBuffers"));
+        }
+        Ok(())
+    }
+
+    /// Returns the bytes that the agent keeps of the media sources of the connection `browser`.
+    fn kept(inner: &Inner, browser: u64) -> usize {
+        let prefix = format!("{browser}:");
+        inner
+            .medias
+            .iter()
+            .filter(|(key, _)| key.starts_with(&prefix))
+            .map(|(_, log)| {
+                log.recent_bytes + log.init.values().map(|(_, data)| data.len()).sum::<usize>()
+            })
+            .sum()
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
@@ -354,6 +438,12 @@ impl Redirect {
     ///
     /// A message if the data of an append is not valid base64.
     pub fn take(&self, browser: u64, message: PlayerMessage) -> Result<(), String> {
+        // The windows first: `windows_of` takes the lock itself.
+        let windows = if matches!(message, PlayerMessage::State { .. }) {
+            self.windows_of(browser)
+        } else {
+            Vec::new()
+        };
         let mut data = None;
         let mut inner = self.lock();
         let event = match message {
@@ -364,6 +454,7 @@ impl Redirect {
                 mime,
             } => {
                 let media = key(browser, tab, &media);
+                Self::check_caps(&inner, browser, &media, true)?;
                 let log = inner.medias.entry(media.clone()).or_default();
                 log.sources.push((source.clone(), mime.clone()));
                 RedirectEvent::Source {
@@ -385,7 +476,23 @@ impl Redirect {
                         .map_err(|e| format!("The data of an append is not valid base64: {e}"))?,
                 );
                 let media = key(browser, tab, &media);
+                Self::check_caps(&inner, browser, &media, false)?;
+                let kept = Self::kept(&inner, browser);
                 let log = inner.medias.entry(media.clone()).or_default();
+                if !log.sources.iter().any(|(id, _)| *id == source) {
+                    return Err("an append to a SourceBuffer that the page did not add".to_owned());
+                }
+                if !log.init.contains_key(&source) && bytes.len() > MAX_INIT {
+                    return Err(format!(
+                        "an initialization segment of {} bytes",
+                        bytes.len()
+                    ));
+                }
+                if kept + bytes.len() > MAX_KEPT {
+                    // Keep less of the recent appends; the stream itself continues.
+                    log.recent.clear();
+                    log.recent_bytes = 0;
+                }
                 if log.init.contains_key(&source) {
                     log.recent_bytes += bytes.len();
                     log.recent
@@ -477,6 +584,7 @@ impl Redirect {
                     zoom,
                     title,
                     visible,
+                    windows,
                 };
                 // A state of a media source with no SourceBuffer yet: nothing to show.
                 match inner.medias.get_mut(&media) {
@@ -529,7 +637,11 @@ impl Redirect {
 
     /// Removes each media source of a browser connection that closed.
     fn browser_gone(&self, browser: u64) {
-        self.lock().browsers.remove(&browser);
+        {
+            let mut inner = self.lock();
+            inner.browsers.remove(&browser);
+            inner.pids.remove(&browser);
+        }
         self.remove_prefix(&format!("{browser}:"));
     }
 
@@ -584,6 +696,19 @@ impl Redirect {
     /// Serves one native messaging host until it closes.
     async fn serve(self: Arc<Self>, stream: tokio::net::UnixStream) {
         let browser = self.next.fetch_add(1, Ordering::Relaxed);
+        // The native messaging host is a child of the host browser: its parent owns the windows (F052).
+        match stream
+            .peer_cred()
+            .ok()
+            .and_then(|cred| cred.pid())
+            .and_then(|pid| parent_pid(u32::try_from(pid).ok()?))
+        {
+            Some(pid) => self.set_browser_pid(browser, pid),
+            None => tracing::warn!(
+                browser,
+                "the host browser of a native messaging host is not known: its videos show on no window"
+            ),
+        }
         let (mut reader, mut writer) = stream.into_split();
         let (out, mut out_rx) = mpsc::unbounded_channel::<Vec<u8>>();
         self.lock().browsers.insert(browser, out);
@@ -612,7 +737,7 @@ impl Redirect {
             match serde_json::from_slice::<PlayerMessage>(&text) {
                 Ok(message) => {
                     if let Err(error) = self.take(browser, message) {
-                        tracing::warn!(%error, "a message of the host browser is not valid");
+                        refused(&error);
                     }
                 }
                 Err(error) => tracing::debug!(%error, "an unknown message of the host browser"),
@@ -622,6 +747,25 @@ impl Redirect {
         self.browser_gone(browser);
         tracing::info!(browser, "a host browser left");
     }
+}
+
+/// Logs a refused message of a host browser in the form of the security log (ADR-043).
+///
+/// The agent does not link farglass-login, thus it writes the fields itself.
+fn refused(error: &str) {
+    tracing::warn!(
+        target: "farglass::security",
+        "event=redirect result=refused reason=message addr=- user=- uid={} detail={error:?}",
+        nix::unistd::getuid()
+    );
+}
+
+/// Returns the parent process of `pid`, from `/proc/PID/stat`.
+fn parent_pid(pid: u32) -> Option<u32> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    // The command name is in parentheses and can have spaces: the fields start after the last ')'.
+    let rest = &stat[stat.rfind(')')? + 1..];
+    rest.split_whitespace().nth(1)?.parse().ok()
 }
 
 /// Runs the native messaging host: copies stdin to the socket of the agent and the socket to stdout, until one side closes.
@@ -794,5 +938,88 @@ mod tests {
             json["allowed_origins"][0],
             format!("chrome-extension://{EXTENSION_ID}/")
         );
+    }
+
+    fn source(media: &str, source: &str) -> PlayerMessage {
+        PlayerMessage::Source {
+            tab: 7,
+            media: media.into(),
+            source: source.into(),
+            mime: "video/webm".into(),
+        }
+    }
+
+    fn state() -> PlayerMessage {
+        PlayerMessage::State {
+            tab: 7,
+            media: "m1".into(),
+            time: 0.0,
+            paused: false,
+            rate: 1.0,
+            rect: rect(),
+            viewport: rect(),
+            zoom: 1.0,
+            title: "A video".into(),
+            visible: true,
+        }
+    }
+
+    #[test]
+    fn a_browser_connection_has_caps_for_medias_sources_and_init_segments() {
+        let redirect = Redirect::new();
+        for i in 0..MAX_MEDIAS {
+            redirect.take(3, source(&format!("m{i}"), "s0")).unwrap();
+        }
+        assert!(redirect.take(3, source("one-more", "s0")).is_err());
+        // A different browser connection has its own caps.
+        redirect.take(4, source("m0", "s0")).unwrap();
+        for i in 1..MAX_SOURCES {
+            redirect.take(3, source("m0", &format!("s{i}"))).unwrap();
+        }
+        assert!(redirect.take(3, source("m0", "s-more")).is_err());
+
+        assert!(
+            redirect.take(3, append("unknown", b"x")).is_err(),
+            "an append needs a SourceBuffer of the page"
+        );
+        let huge = vec![0_u8; MAX_INIT + 1];
+        let message = PlayerMessage::Append {
+            tab: 7,
+            media: "m1".into(),
+            source: "s0".into(),
+            offset: 0.0,
+            data: base64::engine::general_purpose::STANDARD.encode(&huge),
+        };
+        assert!(redirect.take(3, message).is_err());
+        assert!(redirect.lock().medias["3:7:m1"].init.is_empty());
+    }
+
+    #[test]
+    fn a_state_names_only_the_windows_of_the_browser_process() {
+        let redirect = Redirect::new();
+        redirect.set_windows(Arc::new(
+            |pid| if pid == 500 { vec![11, 12] } else { vec![99] },
+        ));
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sink = seen.clone();
+        let _viewer = redirect.add_viewer(move |event, _| sink.lock().unwrap().push(event.clone()));
+        redirect.take(3, source("m1", "s0")).unwrap();
+        redirect.take(3, state()).unwrap();
+        // An unknown browser process: no window.
+        assert!(
+            matches!(seen.lock().unwrap().last(), Some(RedirectEvent::State { windows, .. }) if windows.is_empty())
+        );
+        redirect.set_browser_pid(3, 500);
+        redirect.take(3, state()).unwrap();
+        assert!(
+            matches!(seen.lock().unwrap().last(), Some(RedirectEvent::State { windows, .. }) if *windows == [11, 12])
+        );
+    }
+
+    #[test]
+    fn the_parent_of_this_process_is_known() {
+        let me = std::process::id();
+        assert_eq!(parent_pid(me), Some(std::os::unix::process::parent_id()));
+        assert_eq!(parent_pid(u32::MAX), None);
     }
 }

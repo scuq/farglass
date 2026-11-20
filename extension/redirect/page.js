@@ -7,11 +7,19 @@
 // before. While the client shows a video, the host draws it black, thus the
 // client sees it through the window and the host has nothing to encode.
 //
-// Messages out (window.postMessage, to relay.js): { farglassRedirect: message }.
-// Messages in: { farglassRedirectBack: { type: "showing", media, showing } }.
+// Messages go through a MessagePort to relay.js (F052), not through
+// window.postMessage: a script of the page cannot read or send them.
+// Messages in: { type: "showing", media, showing }.
 
 (() => {
-  if (window.__farglassRedirect || typeof MediaSource === "undefined") return;
+  // The port goes to relay.js first, before any check: a page script must not get the first event.
+  const channel = new MessageChannel();
+  document.dispatchEvent(new MessageEvent("farglass-redirect-port", { ports: [channel.port2] }));
+  const port = channel.port1;
+  if (window.__farglassRedirect || typeof MediaSource === "undefined") {
+    port.close();
+    return;
+  }
   window.__farglassRedirect = true;
 
   const page = Math.random().toString(36).slice(2, 8);
@@ -24,7 +32,7 @@
   const videos = new Map();
   const shown = new Set();
 
-  const post = (message, transfer = []) => window.postMessage({ farglassRedirect: message }, "*", transfer);
+  const post = (message, transfer = []) => port.postMessage(message, transfer);
   const idOf = (mediaSource) => {
     let id = mediaIds.get(mediaSource);
     if (!id) {
@@ -190,13 +198,13 @@
     for (const media of videos.keys()) post({ type: "gone", media });
   });
 
-  window.addEventListener("message", (event) => {
-    const message = event.source === window ? event.data?.farglassRedirectBack : undefined;
+  port.onmessage = (event) => {
+    const message = event.data;
     if (message?.type !== "showing") return;
     const video = videos.get(message.media);
     if (!video) return;
     if (message.showing) shown.add(message.media);
     else shown.delete(message.media);
     draw(video, message.showing);
-  });
+  };
 })();

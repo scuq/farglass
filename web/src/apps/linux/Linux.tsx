@@ -250,7 +250,7 @@ export default function Linux(props: { context: AppContext }) {
   const players = () => {
     const surface = info();
     const frame = surface?.geometry ?? (surface ? { width: surface.width / surface.scale, height: surface.height / surface.scale } : undefined);
-    return manager.redirect.playersFor(surface?.title ?? "", frame && { width: frame.width, height: frame.height });
+    return manager.redirect.playersFor(id, surface?.title ?? "", frame && { width: frame.width, height: frame.height });
   };
   const shown = new Set<string>();
   createEffect(players, (list) => {

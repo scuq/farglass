@@ -331,14 +331,20 @@ export class RedirectManager {
     this.#mode[1](mode);
   }
 
-  /** The players that show in a window whose title is `title`, and whose window geometry has the size `frame`. */
-  playersFor(title: string, frame?: { width: number; height: number }): Player[] {
+  /**
+   * The players that show in the window `window` with the title `title`, and whose window geometry has the size `frame`.
+   *
+   * A video goes only on a window of the browser process that sent it, and only if the title of the page is
+   * the window title with no browser name (F052).
+   */
+  playersFor(window: number, title: string, frame?: { width: number; height: number }): Player[] {
     this.#version[0]();
     if (this.#mode[0]() === "host") return [];
     const players: Player[] = [];
     for (const media of this.#medias.values()) {
       const state = media.state;
-      if (!state || !state.visible || media.failed || !state.title || !title.startsWith(state.title)) continue;
+      if (!state || !state.visible || media.failed || !state.title) continue;
+      if (!(state.windows ?? []).includes(window) || !sameTitle(title, state.title)) continue;
       if (!media.started || !media.inStep) continue;
       const rect = placement(state, frame);
       if (rect) players.push({ media, rect });
@@ -428,4 +434,16 @@ export class RedirectManager {
     this.#append = null;
     if (append) this.#medias.get(append.media)?.push(append.source, { kind: "append", data: append.data, offset: append.offset });
   }
+}
+
+/**
+ * Reports whether the window title `window` is the page title `page`: the same text, or the same text
+ * and the name of the browser after " - " or " — ", for example "Video - Chromium".
+ */
+export function sameTitle(window: string, page: string): boolean {
+  if (window === page) return true;
+  for (const separator of [" - ", " — "]) {
+    if (window.startsWith(page + separator) && !window.slice(page.length + separator.length).includes(separator)) return true;
+  }
+  return false;
 }

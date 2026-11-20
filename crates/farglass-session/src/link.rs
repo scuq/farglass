@@ -95,6 +95,17 @@ impl Default for Session {
         let surfaces = Surfaces::new();
         let terminals = Terminals::new(TerminalOptions::from_env());
         let stats = Stats::new(surfaces.clone(), terminals.pids());
+        // A redirected video goes only on a window of the browser process that sent it (F052).
+        let redirect = Redirect::new();
+        let windows = surfaces.clone();
+        redirect.set_windows(Arc::new(move |pid| {
+            windows
+                .processes()
+                .into_iter()
+                .filter(|(_, owner)| *owner == pid)
+                .map(|(id, _)| id)
+                .collect()
+        }));
         Self {
             store: StateStore::default(),
             terminals,
@@ -106,7 +117,7 @@ impl Default for Session {
             surfaces,
             launcher: Launcher::new(LaunchOptions::from_env()),
             audio: Audio::new(),
-            redirect: Redirect::new(),
+            redirect,
         }
     }
 }

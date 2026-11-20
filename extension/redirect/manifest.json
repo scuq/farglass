@@ -8,7 +8,7 @@
   "permissions": ["nativeMessaging"],
   "background": { "service_worker": "background.js" },
   "content_scripts": [
-    { "matches": ["<all_urls>"], "js": ["page.js"], "run_at": "document_start", "world": "MAIN" },
-    { "matches": ["<all_urls>"], "js": ["relay.js"], "run_at": "document_start" }
+    { "matches": ["<all_urls>"], "js": ["relay.js"], "run_at": "document_start" },
+    { "matches": ["<all_urls>"], "js": ["page.js"], "run_at": "document_start", "world": "MAIN" }
   ]
 }

@@ -342,6 +342,9 @@ Its native messaging host, `farglass-session`, gives the copy to the agent throu
 Your browser plays the same stream in a video element under the window of the host browser, at the time of the host.
 The host hides the video and puts a black box under the controls of the page, and the black pixels of that rectangle are transparent in your browser: the controls stay on top.
 The agent then encodes nothing for the video.
+The two scripts of the extension talk through a private MessagePort, thus a script of the page cannot send messages to the agent.
+Your browser places a video only on a window of the browser process that sent it, and only if the window title is the page title and the browser name.
+The agent keeps at most 32 media sources of one browser, 8 SourceBuffers of each, an initialization segment of 4 MiB, and 64 MiB of video for a later tab.
 The launcher starts Chromium and Brave with the extension, and the agent writes the native messaging manifest in a web session.
 A browser that you start in a terminal needs `--load-extension=/usr/share/farglass/redirect-extension`.
 Google Chrome does not load an extension from the command line.
