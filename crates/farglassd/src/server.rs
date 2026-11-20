@@ -269,6 +269,22 @@ impl Server {
                 tracing::warn!(%peer, "dev_user mode refused a connection that is not from loopback");
                 continue;
             }
+            // One address group has a limited number of connections (F060).
+            let group = farglass_login::audit::address_group(&peer.ip().to_canonical().to_string());
+            let Some(place) = self
+                .context
+                .connections
+                .take(&group, self.context.max_connections)
+            else {
+                farglass_login::audit::Event {
+                    event: "tcp",
+                    reason: "address-cap",
+                    addr: &peer.ip().to_canonical().to_string(),
+                    ..Default::default()
+                }
+                .refused();
+                continue;
+            };
             let acceptor = self.acceptor.clone();
             // The handlers read the address of the browser from this extension.
             let router = self
@@ -280,6 +296,7 @@ impl Server {
                 if let Err(error) = serve(stream, acceptor, router, &builder).await {
                     tracing::debug!(%peer, %error, "the connection failed");
                 }
+                drop(place);
             });
         }
     }

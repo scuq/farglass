@@ -28,6 +28,9 @@ pub const TICKET_LIFETIME: Duration = Duration::from_secs(60);
 /// The time for which a session cookie is valid. F010 adds the idle logout.
 pub const SESSION_LIFETIME: Duration = Duration::from_secs(12 * 60 * 60);
 
+/// The largest number of tickets that wait for `POST /session` (F060).
+pub const MAX_TICKETS: usize = 10_000;
+
 /// The length of a ticket and of a token in random bytes.
 const SECRET_LEN: usize = 32;
 
@@ -53,6 +56,15 @@ impl SessionStore {
         let mut tickets = lock(&self.tickets);
         let now = Instant::now();
         tickets.retain(|_, entry| entry.expires > now);
+        // A full table loses its oldest ticket: that login must start again (F060).
+        if tickets.len() >= MAX_TICKETS
+            && let Some(oldest) = tickets
+                .iter()
+                .min_by_key(|(_, entry)| entry.expires)
+                .map(|(key, _)| *key)
+        {
+            tickets.remove(&oldest);
+        }
         tickets.insert(
             hash(&ticket),
             Entry {

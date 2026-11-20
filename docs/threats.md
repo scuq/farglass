@@ -29,6 +29,7 @@ Controls:
 - farglassd speaks only TLS 1.3 with AES-128-GCM or ChaCha20-Poly1305, and X25519 or secp256r1 (F064).
 - Each response has a CSP with `script-src 'self'` and `frame-ancestors 'none'`, COOP, COEP, CORP, `X-Frame-Options: DENY`, and no referrer (`http.rs`). HSTS comes only with a certificate of the administrator.
 - In `dev_user` mode, the host of the request must be a loopback name.
+- One address (IPv6 by /64) has at most 64 TCP or QUIC connections, and `POST /session` and `POST /transport` have a rate limit of 30 at once and 1 each second. The ticket tables keep at most 10 000 tickets (F060).
 
 ### Login
 
@@ -124,7 +125,7 @@ Gap: finding 17.
 | 11 | Info | A program of the user can unlock the web lock screen. The replacement of the agent is fixed in F057. The passkey step shows that the password was correct. `dev_user` gives each local user a session. The CSP permits inline style elements. | ADR-044 |
 | 12 | Info | `install-local.sh` puts the path of the repository in a shell string for `runuser`. | Fixed in F056 |
 | 13 | Medium | farglassd counted each agent link from the session worker under the uid root, thus the cap of 4 links of F051 let at most 4 web sessions on the host. | Fixed after F057 |
-| 14 | Low | farglassd has no cap on TCP connections and TLS handshakes for each address, and no rate limit on `POST /session` and `POST /transport`. Only the WebSocket connections with no user have a cap. | F060 |
+| 14 | Low | farglassd has no cap on TCP connections and TLS handshakes for each address, and no rate limit on `POST /session` and `POST /transport`. Only the WebSocket connections with no user have a cap. | Fixed in F060 |
 | 15 | Low | The first passkey needs no proof. A person at an unlocked tab, or with a stolen cookie, can add a passkey to an account with no passkey, and the user is then locked out until the administrator removes the file. | F061 |
 | 16 | Info | A failed login logs the typed username. A password typed in the username field goes into the journal. | F062 |
 | 17 | Info | The root test starts farglass-login directly, not in its systemd unit: no test proves that PAM works with the capability set of F056. | F063 |

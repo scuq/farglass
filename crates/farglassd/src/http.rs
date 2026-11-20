@@ -94,10 +94,14 @@ struct SessionRequest {
 /// Redeems the ticket of a login and sets the session cookie.
 async fn create_session(
     State(context): State<Arc<Context>>,
+    peer: Option<axum::Extension<axum::extract::ConnectInfo<std::net::SocketAddr>>>,
     headers: HeaderMap,
     uri: Uri,
     body: axum::body::Bytes,
 ) -> Response {
+    if let Some(refused) = rate_limited(&context, peer.as_ref(), "session") {
+        return refused;
+    }
     if !context.origin.allows(&headers, &uri) {
         return StatusCode::FORBIDDEN.into_response();
     }
@@ -124,6 +128,31 @@ async fn create_session(
         response.headers_mut().append(SET_COOKIE, value);
     }
     response
+}
+
+/// Returns 429 if the address of the request is over the rate limit of the ticket endpoints (F060).
+///
+/// A request with no address, for example through HTTP/3, counts in one group for all of them.
+fn rate_limited(
+    context: &Context,
+    peer: Option<&axum::Extension<axum::extract::ConnectInfo<std::net::SocketAddr>>>,
+    event: &str,
+) -> Option<Response> {
+    let addr = peer.map_or_else(String::new, |peer| peer.0.0.ip().to_canonical().to_string());
+    if context
+        .ticket_rate
+        .allow(&farglass_login::audit::address_group(&addr))
+    {
+        return None;
+    }
+    farglass_login::audit::Event {
+        event,
+        reason: "rate",
+        addr: &addr,
+        ..Default::default()
+    }
+    .refused();
+    Some(StatusCode::TOO_MANY_REQUESTS.into_response())
 }
 
 /// Returns the security event of a request from a different origin.
@@ -177,9 +206,13 @@ async fn delete_session(
 /// Without a QUIC endpoint, the answer is 404 and the shell uses the WebSocket.
 async fn create_transport(
     State(context): State<Arc<Context>>,
+    peer: Option<axum::Extension<axum::extract::ConnectInfo<std::net::SocketAddr>>>,
     headers: HeaderMap,
     uri: Uri,
 ) -> Response {
+    if let Some(refused) = rate_limited(&context, peer.as_ref(), "transport") {
+        return refused;
+    }
     if !context.origin.allows(&headers, &uri) {
         return StatusCode::FORBIDDEN.into_response();
     }

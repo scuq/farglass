@@ -528,6 +528,8 @@ These limits keep one attacker from stopping the logins of other users:
   It also closes a connection with no user after 10 minutes with no login.
 - One address has at most 16 connections with no user at the same time.
 - One uid has at most 4 links to the agent socket at the same time.
+- One address has at most 64 TCP or QUIC connections at the same time (F060).
+- `POST /session` and `POST /transport` take 30 requests at once from one address, then 1 each second; more get 429 (F060).
 
 The agent gets each link to farglassd from the session worker of its web session (F057).
 The worker runs as root: it connects, names the uid of the session, and gives the open link to the agent through a private socket pair.

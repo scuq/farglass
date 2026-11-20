@@ -40,6 +40,61 @@ pub const LOGIN_IDLE: Duration = Duration::from_secs(10 * 60);
 /// The largest number of connections with no user at the same time from one address, IPv6 grouped by /64.
 pub const MAX_ANONYMOUS_PER_ADDRESS: usize = 16;
 
+/// The largest number of TCP or QUIC connections at the same time from one address, IPv6 grouped by /64 (F060).
+pub const MAX_CONNECTIONS_PER_ADDRESS: usize = 64;
+
+/// A rate limit for each address group (F060): a bucket of `burst` requests that fills
+/// with `per_second` requests each second.
+#[derive(Debug)]
+pub struct RateLimit {
+    burst: f64,
+    per_second: f64,
+    buckets: Mutex<HashMap<String, (f64, std::time::Instant)>>,
+}
+
+/// The largest number of address groups in a [`RateLimit`].
+const MAX_BUCKETS: usize = 10_000;
+
+impl RateLimit {
+    /// Returns a limit of `burst` requests that fills with `per_second` requests each second.
+    #[must_use]
+    pub fn new(burst: u32, per_second: f64) -> Self {
+        Self {
+            burst: f64::from(burst),
+            per_second,
+            buckets: Mutex::default(),
+        }
+    }
+
+    /// Takes one request of `group`. Reports whether the limit permits it.
+    pub fn allow(&self, group: &str) -> bool {
+        self.allow_at(group, std::time::Instant::now())
+    }
+
+    fn allow_at(&self, group: &str, now: std::time::Instant) -> bool {
+        let mut buckets = self.buckets.lock().unwrap_or_else(PoisonError::into_inner);
+        let refill = |(tokens, last): (f64, std::time::Instant)| {
+            (tokens + now.saturating_duration_since(last).as_secs_f64() * self.per_second)
+                .min(self.burst)
+        };
+        if !buckets.contains_key(group) && buckets.len() >= MAX_BUCKETS {
+            // Only a full bucket goes: it limits nothing. With none, refuse (ADR-042).
+            buckets.retain(|_, entry| refill(*entry) < self.burst);
+            if buckets.len() >= MAX_BUCKETS {
+                return false;
+            }
+        }
+        let entry = buckets.entry(group.to_owned()).or_insert((self.burst, now));
+        let tokens = refill(*entry);
+        if tokens < 1.0 {
+            *entry = (tokens, now);
+            return false;
+        }
+        *entry = (tokens - 1.0, now);
+        true
+    }
+}
+
 /// The browser side of one connection, from the transport.
 #[derive(Clone, Debug, Default)]
 pub struct Client {
@@ -140,6 +195,12 @@ pub struct Context {
     pub check_membership: bool,
     /// The machine PIN (F059).
     pub pin: Arc<crate::pin::PinStore>,
+    /// The TCP and QUIC connections of each address group (F060).
+    pub connections: Anonymous,
+    /// The largest number of TCP or QUIC connections from one address group.
+    pub max_connections: usize,
+    /// The rate limit of `POST /session` and `POST /transport` for each address group (F060).
+    pub ticket_rate: RateLimit,
     /// The value of the Alt-Svc header that points to HTTP/3. Only with a certificate of the administrator.
     pub alt_svc: Option<axum::http::HeaderValue>,
 }
@@ -169,6 +230,9 @@ impl Context {
             login_idle: LOGIN_IDLE,
             check_membership: false,
             pin: Arc::new(crate::pin::PinStore::default()),
+            connections: Anonymous::default(),
+            max_connections: MAX_CONNECTIONS_PER_ADDRESS,
+            ticket_rate: RateLimit::new(30, 1.0),
         }
     }
 }
@@ -981,5 +1045,34 @@ async fn send_first(pending: &VecDeque<Pending>) -> bool {
     match pending.front() {
         Some(first) => first.frame.send().await,
         None => std::future::pending().await,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_rate_limit_gives_its_burst_then_refills() {
+        let limit = RateLimit::new(3, 1.0);
+        let now = std::time::Instant::now();
+        assert!((0..3).all(|_| limit.allow_at("a", now)));
+        assert!(!limit.allow_at("a", now));
+        assert!(
+            limit.allow_at("b", now),
+            "a different address has its own bucket"
+        );
+        assert!(limit.allow_at("a", now + Duration::from_millis(1100)));
+        assert!(!limit.allow_at("a", now + Duration::from_millis(1100)));
+    }
+
+    #[test]
+    fn a_full_table_of_rate_limits_refuses_a_new_address() {
+        let limit = RateLimit::new(1, 0.0);
+        let now = std::time::Instant::now();
+        for i in 0..MAX_BUCKETS {
+            assert!(limit.allow_at(&format!("g{i}"), now));
+        }
+        assert!(!limit.allow_at("new", now));
     }
 }

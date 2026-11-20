@@ -842,3 +842,36 @@ async fn only_tls_1_3_with_aes_128_gcm_first_and_x25519() {
         .await;
     assert!(refused.is_err(), "the server offered AES-256");
 }
+
+#[tokio::test]
+async fn one_address_gets_a_limited_number_of_tcp_connections() {
+    let server = TestServer::start().await;
+    // Connections that never do the TLS handshake, as an attacker holds them.
+    let mut held = Vec::new();
+    for _ in 0..farglassd::connection::MAX_CONNECTIONS_PER_ADDRESS {
+        held.push(TcpStream::connect(server.addr).await.unwrap());
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let mut extra = TcpStream::connect(server.addr).await.unwrap();
+    let mut byte = [0_u8; 1];
+    let read = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        tokio::io::AsyncReadExt::read(&mut extra, &mut byte),
+    )
+    .await
+    .expect("the connection over the limit stayed open");
+    assert!(matches!(read, Ok(0) | Err(_)));
+    drop(held);
+}
+
+#[tokio::test]
+async fn the_ticket_endpoints_have_a_rate_limit() {
+    let server = TestServer::start().await;
+    let mut statuses = Vec::new();
+    for _ in 0..40 {
+        let response = post_session(&server, "no-such-ticket", ORIGIN).await;
+        statuses.push(response.status());
+    }
+    assert_eq!(statuses[0], StatusCode::FORBIDDEN);
+    assert_eq!(statuses.last(), Some(&StatusCode::TOO_MANY_REQUESTS));
+}

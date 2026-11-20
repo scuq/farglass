@@ -251,6 +251,15 @@ impl Tickets {
         let now = Instant::now();
         let mut tickets = self.tickets.lock().unwrap_or_else(PoisonError::into_inner);
         tickets.retain(|_, (_, expires)| *expires > now);
+        // A full table loses its oldest ticket: that browser asks again (F060).
+        if tickets.len() >= crate::cookie::MAX_TICKETS
+            && let Some(oldest) = tickets
+                .iter()
+                .min_by_key(|(_, (_, expires))| *expires)
+                .map(|(key, _)| *key)
+        {
+            tickets.remove(&oldest);
+        }
         tickets.insert(
             crate::cookie::hash(&ticket),
             (admission, now + TICKET_LIFETIME),
@@ -321,12 +330,28 @@ pub async fn accept_loop(
             incoming.refuse();
             continue;
         }
+        let addr = peer.ip().to_canonical().to_string();
+        let Some(place) = context.connections.take(
+            &farglass_login::audit::address_group(&addr),
+            context.max_connections,
+        ) else {
+            farglass_login::audit::Event {
+                event: "quic",
+                reason: "address-cap",
+                addr: &addr,
+                ..Default::default()
+            }
+            .refused();
+            incoming.refuse();
+            continue;
+        };
         let router = router.clone();
         let context = context.clone();
         tokio::spawn(async move {
             if let Err(error) = serve_connection(incoming, router, context).await {
                 tracing::info!(%peer, %error, "a QUIC connection ended with an error");
             }
+            drop(place);
         });
     }
 }
