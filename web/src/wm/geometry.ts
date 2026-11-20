@@ -133,6 +133,74 @@ export function tileRects(count: number, area: Rect, gap = TILE_GAP): Rect[] {
   return rects;
 }
 
+/** The layouts of the picker (F043). Columns is the layout of the Tile action. */
+export const LAYOUTS = ["columns", "grid", "center", "wide", "spotlight"] as const;
+export type Layout = (typeof LAYOUTS)[number];
+
+/** The names of the layouts. */
+export const LAYOUT_LABELS: Readonly<Record<Layout, string>> = {
+  columns: "Columns",
+  grid: "Grid",
+  center: "Center",
+  wide: "Wide",
+  spotlight: "Spotlight",
+};
+
+/** Splits the rectangle `area` into `count` rows or columns with a gap between them. */
+function split(area: Rect, count: number, vertical: boolean, gap: number): Rect[] {
+  if (count <= 0) return [];
+  const length = ((vertical ? area.h : area.w) - gap * (count - 1)) / count;
+  return Array.from({ length: count }, (_, i) =>
+    vertical
+      ? { x: area.x, y: Math.round(area.y + i * (length + gap)), w: area.w, h: Math.round(length) }
+      : { x: Math.round(area.x + i * (length + gap)), y: area.y, w: Math.round(length), h: area.h },
+  );
+}
+
+/**
+ * Returns `count` rectangles of `layout` in `area`. The first one is for the window with the focus.
+ *
+ * - columns: the columns of the Tile action.
+ * - grid: rows and columns of the same size, the last row wider.
+ * - center: the first window in the middle, the others in columns on the left and the right.
+ * - wide: the first window across the top, the others in a row below.
+ * - spotlight: the first window on the left, the others in a column on the right.
+ */
+export function layoutRects(layout: Layout, count: number, area: Rect, gap = TILE_GAP): Rect[] {
+  if (count <= 0) return [];
+  const inner = { x: area.x + gap, y: area.y + gap, w: area.w - 2 * gap, h: area.h - 2 * gap };
+  if (layout === "columns") return tileRects(count, area, gap);
+  if (layout === "grid") {
+    const columns = Math.ceil(Math.sqrt(count));
+    const rows = Math.ceil(count / columns);
+    return split(inner, rows, true, gap).flatMap((row, index) =>
+      split(row, index === rows - 1 ? count - columns * (rows - 1) : columns, false, gap),
+    );
+  }
+  if (count === 1) {
+    return layout === "center" ? [{ x: Math.round(inner.x + inner.w * 0.15), y: inner.y, w: Math.round(inner.w * 0.7), h: inner.h }] : [inner];
+  }
+  if (layout === "wide") {
+    const mainH = Math.round(inner.h * 0.65);
+    const below = { x: inner.x, y: inner.y + mainH + gap, w: inner.w, h: inner.h - mainH - gap };
+    return [{ ...inner, h: mainH }, ...split(below, count - 1, false, gap)];
+  }
+  if (layout === "spotlight") {
+    const mainW = Math.round(inner.w * 0.7);
+    const side = { x: inner.x + mainW + gap, y: inner.y, w: inner.w - mainW - gap, h: inner.h };
+    return [{ ...inner, w: mainW }, ...split(side, count - 1, true, gap)];
+  }
+  // center: the others alternate between the left and the right column.
+  const sideW = Math.round((inner.w - 2 * gap) * 0.2);
+  const main = { x: inner.x + sideW + gap, y: inner.y, w: inner.w - 2 * sideW - 2 * gap, h: inner.h };
+  const others = count - 1;
+  const left = split({ x: inner.x, y: inner.y, w: sideW, h: inner.h }, Math.ceil(others / 2), true, gap);
+  const right = split({ x: main.x + main.w + gap, y: inner.y, w: sideW, h: inner.h }, Math.floor(others / 2), true, gap);
+  const rest: Rect[] = [];
+  for (let i = 0; i < others; i++) rest.push((i % 2 === 0 ? left[i / 2] : right[(i - 1) / 2])!);
+  return [main, ...rest];
+}
+
 /** Returns the rectangle of a window that the user drags out of a maximized or snapped state. */
 export function unsnapRect(restore: Rect, current: Rect, px: number, py: number): Rect {
   // Keep the pointer at the same relative place on the title bar.

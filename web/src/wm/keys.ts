@@ -15,7 +15,9 @@ export type WmAction =
   | { readonly type: "snap"; readonly side: "left" | "right" }
   | { readonly type: "workspace"; readonly delta: -1 | 1; readonly carry: boolean }
   | { readonly type: "workspace-index"; readonly index: number }
-  | { readonly type: "tile" };
+  | { readonly type: "tile" }
+  | { readonly type: "overview" }
+  | { readonly type: "layouts" };
 
 /** The key that starts the switcher, as `KeyboardEvent.code`. */
 const SWITCH_CODES = new Set(["Tab", "Backquote"]);
@@ -27,6 +29,9 @@ export function actionFor(event: Pick<KeyboardEvent, "code" | "altKey" | "ctrlKe
   if (altKey && !ctrlKey && !metaKey && SWITCH_CODES.has(code)) {
     return { type: "switch", backward: shiftKey };
   }
+  // Alt+Shift+G: the overview, and Alt+Shift+L: the layout picker (F043). Super+Tab and Super+Z with Keyboard Lock.
+  if (altKey && shiftKey && !ctrlKey && !metaKey && code === "KeyG") return { type: "overview" };
+  if (altKey && shiftKey && !ctrlKey && !metaKey && code === "KeyL") return { type: "layouts" };
   // Ctrl+Alt+Arrow: the workspace on the left or right. With Shift, the window goes along.
   if (ctrlKey && altKey && !metaKey && (code === "ArrowLeft" || code === "ArrowRight")) {
     return { type: "workspace", delta: code === "ArrowLeft" ? -1 : 1, carry: shiftKey };
@@ -44,6 +49,10 @@ export function actionFor(event: Pick<KeyboardEvent, "code" | "altKey" | "ctrlKe
         return { type: "snap", side: "right" };
       case "KeyT":
         return { type: "tile" };
+      case "Tab":
+        return { type: "overview" };
+      case "KeyZ":
+        return { type: "layouts" };
     }
     const digit = /^Digit([1-9])$/.exec(code);
     if (digit) {

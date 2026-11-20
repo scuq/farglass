@@ -7,6 +7,8 @@ import type { DesktopController } from "./controller";
 import { snapRect } from "./geometry";
 import { desktopMenu, windowMenu } from "./menus";
 import { type Win, windowById } from "./model";
+import { LayoutPicker } from "./LayoutPicker";
+import { Overview } from "./Overview";
 import { WindowFrame } from "./WindowFrame";
 
 /** The window surface: the windows of the desktop, the snap preview, and the window switcher. */
@@ -70,6 +72,12 @@ export function Surface(props: { controller: DesktopController }) {
             />
           );
         }}
+      </Show>
+      <Show when={c.layoutsOpen()}>
+        <LayoutPicker controller={c} />
+      </Show>
+      <Show when={c.overviewOpen()}>
+        <Overview controller={c} />
       </Show>
       <Show when={c.switcher()}>
         {(open) => (

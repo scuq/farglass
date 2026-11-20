@@ -7,7 +7,7 @@ import { type Accessor, createMemo, createSignal, onCleanup } from "solid-js";
 import { APPS } from "../apps/registry";
 import type { Connection } from "../proto";
 import { StateClient } from "../state";
-import { clampRect, type Rect, type SnapZone } from "./geometry";
+import { clampRect, type Layout, type Rect, type SnapZone } from "./geometry";
 import { DEFAULT_FOCUS, FOCUS_KEY, type FocusSettings, InputWatch, parseFocusSettings } from "./focus";
 import { actionFor, isLauncherKey, SuperTap } from "./keys";
 import {
@@ -16,6 +16,7 @@ import {
   emptyDesktop,
   focused,
   focusWindow,
+  layoutWorkspace,
   minimizeWindow,
   moveToWorkspace,
   openWindow,
@@ -95,6 +96,14 @@ export interface DesktopController {
   whenLoaded(handler: () => void): void;
   switchWorkspace(index: number): void;
   tile(): void;
+  /** Reports whether the layout picker is open (F043). */
+  readonly layoutsOpen: Accessor<boolean>;
+  setLayoutsOpen(open: boolean): void;
+  /** Arranges the windows of the workspace in `layout`. */
+  applyLayout(layout: Layout): void;
+  /** Reports whether the overview of the workspaces is open (F043). */
+  readonly overviewOpen: Accessor<boolean>;
+  setOverviewOpen(open: boolean): void;
   /** Snaps a window to `zone`. */
   snap(id: string, zone: SnapZone): void;
   /** Moves a window to the workspace `index`. */
@@ -108,6 +117,8 @@ export function createDesktopController(connection: Connection): DesktopControll
   const [preview, setPreview] = createSignal<SnapZone | null>(null);
   const [switcher, setSwitcher] = createSignal<Switcher | null>(null);
   const [launcherOpen, setLauncherOpen] = createSignal(false);
+  const [layoutsOpen, setLayoutsOpen] = createSignal(false);
+  const [overviewOpen, setOverviewOpen] = createSignal(false);
   const store = new StateClient(connection);
   const superTap = new SuperTap();
   const input = new InputWatch();
@@ -293,6 +304,15 @@ export function createDesktopController(connection: Connection): DesktopControll
     surfaceWindows: () => (unsaved ?? desktop()).windows.filter((win) => win.app === "linux").map((win) => win.id),
     switchWorkspace: (index) => apply((state) => switchWorkspace(state, index)),
     tile: () => apply((state) => tileWorkspace(state, area())),
+    layoutsOpen,
+    setLayoutsOpen,
+    applyLayout(layout) {
+      setLayoutsOpen(false);
+      apply((state) => layoutWorkspace(state, area(), layout));
+      queueMicrotask(() => focusElement(focusedId()));
+    },
+    overviewOpen,
+    setOverviewOpen,
     snap: (id, zone) => apply((state) => focusWindow(snapWindow(state, id, zone), id)),
     moveToWorkspace: (id, index) => apply((state) => moveToWorkspace(state, id, index)),
   };
@@ -337,6 +357,14 @@ export function createDesktopController(connection: Connection): DesktopControll
       case "tile":
         apply((state) => tileWorkspace(state, area()));
         break;
+      case "overview":
+        setLayoutsOpen(false);
+        setOverviewOpen(!overviewOpen());
+        return;
+      case "layouts":
+        setOverviewOpen(false);
+        setLayoutsOpen(!layoutsOpen());
+        return;
     }
     queueMicrotask(() => focusElement(focusedId()));
   };

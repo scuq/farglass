@@ -108,7 +108,10 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
           {soundPlayer()?.muted() ? "Sound off" : "Sound"}
         </button>
       </Show>
-      <button type="button" class="panel-tile" onClick={() => c.tile()} title="Place the windows of the workspace in columns">
+      <button type="button" class="panel-overview" aria-pressed={String(c.overviewOpen()) as "true" | "false"} onClick={() => c.setOverviewOpen(!c.overviewOpen())} title="Show all workspaces and windows (Alt+Shift+G)">
+        Overview
+      </button>
+      <button type="button" class="panel-tile" aria-haspopup="dialog" onClick={() => c.setLayoutsOpen(!c.layoutsOpen())} title="Select a layout for the windows of the workspace (Alt+Shift+L)">
         Tile
       </button>
       <Clock />

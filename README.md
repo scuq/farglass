@@ -133,7 +133,8 @@ The panel at the top has these parts, from left to right:
   A calculation, for example `2 * (3 + 4)^2`, or a unit conversion, for example `10 km in mi`, `100 f to c`, or `2 GiB in MB`, is the first result. Enter copies its value.
   The calculator runs in your browser: `+ - * / % ^`, parentheses, `pi`, `e`, and `sqrt`, `abs`, `sin`, `cos`, `tan`, `ln`, `log`, `exp`, `round`, `floor`, and `ceil`.
 - The workspace buttons and a button for each window of the workspace. A click on the window with the focus minimizes it.
-- **Tile** places the windows of the workspace in columns.
+- **Overview** shows all workspaces with their windows. Each window has a letter: press it to go to that window, also on a different workspace. Escape closes the overview.
+- **Tile** opens the layout picker. Each layout shows a preview with your windows: columns, grid, center, wide, and spotlight. The window with the focus gets the main place. Select a layout with the arrow keys or 1 to 5, and press Enter.
 - The clock, with the date in its tooltip. It shows the time of the client.
 - Your username opens the session menu with **Log out**. **Lock** comes with the lock screen in a later version.
 
@@ -173,7 +174,9 @@ Press Escape during a drag to stop it.
 | Super+Up, Super+Down | Maximize or restore, minimize |
 | Super+Left, Super+Right | Snap to the left or the right half |
 | Super+1 to Super+4 | Show a workspace |
-| Super+T | Tile the windows of the workspace |
+| Super+T | Tile the windows of the workspace in columns |
+| Super+Tab, or Alt+Shift+G | Open or close the overview |
+| Super+Z, or Alt+Shift+L | Open or close the layout picker |
 | Super (tap), or Alt+F1 | Open or close the launcher |
 
 NOTE: The operating system of the client keeps Alt+Tab and the Super key, unless the shell is in fullscreen mode with Keyboard Lock.

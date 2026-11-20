@@ -159,3 +159,166 @@
 .app-message {
   color: var(--muted);
 }
+
+/* The layout picker (F043). */
+.wm-layouts-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 0.25);
+}
+.wm-layouts {
+  padding: 1rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.3);
+  outline: none;
+}
+.wm-layouts-hint {
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+}
+.wm-layouts-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+.wm-layout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  background: none;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+}
+.wm-layout[aria-selected="true"] {
+  border-color: var(--focus);
+}
+.wm-layout-preview {
+  position: relative;
+  display: block;
+  background: var(--bar);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.wm-layout-window {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  font-size: 9px;
+}
+.wm-layout-window[data-first="true"] {
+  border-color: var(--focus);
+}
+.wm-layout-window img {
+  width: 10px;
+  height: 10px;
+}
+.wm-layout-title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The overview (F043): the workspaces and windows are boxes that a transform places and scales. */
+.wm-overview {
+  position: absolute;
+  inset: 0;
+  z-index: 10000;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--bar) 92%, black);
+  outline: none;
+}
+.wm-overview-hint {
+  position: absolute;
+  top: 0.75rem;
+  left: 0;
+  right: 0;
+  margin: 0;
+  text-align: center;
+  color: var(--muted);
+}
+.wm-overview-workspace {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  background: var(--bg);
+  border: 6px solid var(--line);
+  border-radius: 16px;
+  box-sizing: border-box;
+}
+.wm-overview-workspace[data-current="true"] {
+  border-color: var(--focus);
+}
+.wm-overview-number {
+  position: absolute;
+  right: 24px;
+  bottom: 12px;
+  font-size: 64px;
+  color: var(--muted);
+}
+.wm-overview-window {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  box-sizing: border-box;
+  background: var(--bar);
+  border: 4px solid var(--line);
+  border-radius: 12px;
+  color: inherit;
+  font: inherit;
+  font-size: 40px;
+  text-align: left;
+  overflow: hidden;
+}
+.wm-overview-window[data-minimized="true"] {
+  opacity: 0.55;
+}
+.wm-overview-window:hover,
+.wm-overview-window:focus-visible {
+  border-color: var(--focus);
+}
+.wm-overview-window img {
+  width: 48px;
+  height: 48px;
+}
+.wm-overview-title {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wm-overview-letter {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
+  min-width: 1.6em;
+  padding: 0.2em 0.4em;
+  font: 700 96px/1 system-ui, sans-serif;
+  text-align: center;
+  color: var(--bg);
+  background: var(--focus);
+  border-radius: 16px;
+}

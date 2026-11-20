@@ -3,7 +3,7 @@
  * function that returns a new state, thus the tests need no DOM.
  */
 
-import { clampRect, type Rect, type SnapZone, snapRect, tileRects } from "./geometry";
+import { clampRect, type Layout, layoutRects, type Rect, type SnapZone, snapRect, tileRects } from "./geometry";
 
 /** One window. */
 export interface Win {
@@ -190,6 +190,34 @@ export function tileWorkspace(desktop: Desktop, area: Rect): Desktop {
     result = placeWindow(result, id, rects[index]!);
   });
   return result;
+}
+
+/**
+ * Arranges the windows of the current workspace that are not minimized in `layout` (F043).
+ * The window with the focus gets the first place.
+ */
+export function layoutWorkspace(desktop: Desktop, area: Rect, layout: Layout): Desktop {
+  const ids = switchable(desktop).filter((id) => !windowById(desktop, id)?.minimized);
+  const rects = layoutRects(layout, ids.length, area);
+  let result = desktop;
+  ids.forEach((id, index) => {
+    result = placeWindow(result, id, rects[index]!);
+  });
+  return result;
+}
+
+/** The letters of the overview, the home row first. */
+export const OVERVIEW_LETTERS = "asdfghjklqwertyuiopzxcvbnm";
+
+/**
+ * Returns the windows of the overview with a letter each: by workspace, and in each
+ * workspace from the top of the stack down. Windows after the 26th get no letter.
+ */
+export function overviewLetters(desktop: Desktop): { id: string; letter: string | null }[] {
+  const ordered = Array.from({ length: desktop.workspaces }, (_, workspace) =>
+    desktop.windows.filter((win) => win.workspace === workspace).reverse(),
+  ).flat();
+  return ordered.map((win, index) => ({ id: win.id, letter: OVERVIEW_LETTERS[index] ?? null }));
 }
 
 /**
