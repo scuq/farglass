@@ -61,6 +61,7 @@ pub struct Attempt {
 
 impl Attempt {
     /// Connects to the login socket at `path` and starts an attempt.
+    /// `device` reports whether the browser has a valid device cookie (F051).
     ///
     /// # Errors
     ///
@@ -69,12 +70,19 @@ impl Attempt {
         path: &Path,
         user: Option<String>,
         rhost: String,
+        device: bool,
     ) -> Result<Self, ClientError> {
         let stream = UnixStream::connect(path).await?;
         let mut attempt = Self {
             link: Framed::new(stream, FrameCodec),
         };
-        attempt.send(&LoginRequest::Start { user, rhost }).await?;
+        attempt
+            .send(&LoginRequest::Start {
+                user,
+                rhost,
+                device,
+            })
+            .await?;
         Ok(attempt)
     }
 

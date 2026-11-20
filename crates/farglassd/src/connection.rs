@@ -6,9 +6,11 @@
 use std::collections::{HashMap, VecDeque};
 use std::net::IpAddr;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use std::time::Duration;
+
+use farglass_login::audit::{self, Event};
 
 use farglass_proto::login::LoginReply;
 use farglass_proto::message::{Close, CloseReason, ConnectionMessage, Open, PasskeyRequest};
@@ -28,6 +30,69 @@ const TO_SHELL_QUEUE: usize = 64;
 
 /// The answers that wait for farglass-login.
 const ANSWER_QUEUE: usize = 4;
+
+/// The shell must send its hello message in this time (F051).
+pub const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// A connection with no user closes after this time with no frame on a login channel (F051).
+pub const LOGIN_IDLE: Duration = Duration::from_secs(10 * 60);
+
+/// The largest number of connections with no user at the same time from one address, IPv6 grouped by /64.
+pub const MAX_ANONYMOUS_PER_ADDRESS: usize = 16;
+
+/// The browser side of one connection, from the transport.
+#[derive(Clone, Debug, Default)]
+pub struct Client {
+    /// The address of the browser, for the limits of the login.
+    pub addr: Option<IpAddr>,
+    /// The user from the session cookie or from `dev_user`.
+    pub user: Option<Identity>,
+    /// The `Origin` header that the transport checked: a passkey belongs to its host name (F034).
+    pub origin: Option<String>,
+    /// Reports whether the browser has a valid device cookie (F051).
+    pub device: bool,
+}
+
+/// The connections with no user of each address group (F051).
+#[derive(Debug, Default)]
+pub struct Anonymous {
+    counts: Arc<Mutex<HashMap<String, usize>>>,
+}
+
+/// A place of an address group in [`Anonymous`]. Dropping it frees the place.
+#[derive(Debug)]
+pub struct AnonymousPlace {
+    counts: Arc<Mutex<HashMap<String, usize>>>,
+    group: String,
+}
+
+impl Anonymous {
+    /// Takes a place for `group`, or returns `None` if the group has `max` places already.
+    pub fn take(&self, group: &str, max: usize) -> Option<AnonymousPlace> {
+        let mut counts = self.counts.lock().unwrap_or_else(PoisonError::into_inner);
+        let count = counts.entry(group.to_owned()).or_insert(0);
+        if *count >= max {
+            return None;
+        }
+        *count += 1;
+        Some(AnonymousPlace {
+            counts: self.counts.clone(),
+            group: group.to_owned(),
+        })
+    }
+}
+
+impl Drop for AnonymousPlace {
+    fn drop(&mut self) {
+        let mut counts = self.counts.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(count) = counts.get_mut(&self.group) {
+            *count -= 1;
+            if *count == 0 {
+                counts.remove(&self.group);
+            }
+        }
+    }
+}
 
 /// The state that all connections share.
 #[derive(Debug)]
@@ -58,6 +123,16 @@ pub struct Context {
     pub hsts: bool,
     /// The QUIC endpoint for HTTP/3 and WebTransport, if farglassd has one.
     pub transport: Option<Arc<crate::quic::TransportInfo>>,
+    /// The key of the device cookies (F051).
+    pub devices: Arc<crate::device::DeviceKeys>,
+    /// The connections with no user of each address group (F051).
+    pub anonymous: Anonymous,
+    /// The largest number of connections with no user from one address group.
+    pub max_anonymous: usize,
+    /// The time for the hello message of the shell.
+    pub hello_timeout: Duration,
+    /// The time with no login frame before a connection with no user closes.
+    pub login_idle: Duration,
     /// The value of the Alt-Svc header that points to HTTP/3. Only with a certificate of the administrator.
     pub alt_svc: Option<axum::http::HeaderValue>,
 }
@@ -80,6 +155,11 @@ impl Context {
             hsts: false,
             transport: None,
             alt_svc: None,
+            devices: Arc::new(crate::device::DeviceKeys::default()),
+            anonymous: Anonymous::default(),
+            max_anonymous: MAX_ANONYMOUS_PER_ADDRESS,
+            hello_timeout: HELLO_TIMEOUT,
+            login_idle: LOGIN_IDLE,
         }
     }
 }
@@ -199,6 +279,8 @@ struct Connection<'a, O> {
     rhost: String,
     /// The origin of the page, from the checked `Origin` header.
     origin: Option<String>,
+    /// Reports whether the browser has a valid device cookie.
+    device: bool,
     user: SharedUser,
     /// The user of a locked session. The connection then has no user until a login of this user.
     locked: Option<Identity>,
@@ -214,20 +296,20 @@ struct Connection<'a, O> {
 
 /// Runs one browser connection until the shell closes it or breaks the protocol.
 ///
-/// `peer` is the address of the browser, for the rate limiter of the login.
-/// `user` is the user from the session cookie or from `dev_user`, or `None`.
-/// `origin` is the `Origin` header that the transport checked: a passkey belongs to its host name (F034).
+/// `client` gives the address, the user from the session cookie or from
+/// `dev_user`, the checked origin, and the device cookie.
 /// The function sends the hello message first, with the user if the
 /// connection has one. It gives each channel to the agent of the user.
+/// A connection with no user takes a place of its address group (F051), and
+/// closes if the shell sends no hello message in time, or no login frame for
+/// [`Context::login_idle`].
 ///
 /// # Errors
 ///
 /// [`Violation`] if the shell breaks the protocol. The caller must close the transport.
 pub async fn run<I, O, E>(
     context: &Context,
-    peer: Option<IpAddr>,
-    user: Option<Identity>,
-    origin: Option<String>,
+    client: Client,
     incoming: &mut I,
     outgoing: &mut O,
 ) -> Result<(), Violation>
@@ -235,10 +317,30 @@ where
     I: Stream<Item = Result<Frame, Violation>> + Unpin,
     O: Sink<Frame, Error = E> + Unpin,
 {
+    let Client {
+        addr: peer,
+        user,
+        origin,
+        device,
+    } = client;
+    let rhost = peer.map_or_else(String::new, |ip| ip.to_canonical().to_string());
     // A locked session gives the connection no user: only a login of the same user unlocks it.
     let (user, locked) = match user {
         Some(identity) if context.presence.is_locked(identity.uid) => (None, Some(identity)),
         user => (user, None),
+    };
+    // A connection with no user takes a place of its address group (F051).
+    let _place = if user.is_none() {
+        let group = audit::address_group(&rhost);
+        match context.anonymous.take(&group, context.max_anonymous) {
+            Some(place) => Some(place),
+            None => {
+                connection_event("address-cap", &rhost).refused();
+                return Ok(());
+            }
+        }
+    } else {
+        None
     };
     let user = SharedUser::new(user, context.presence.clone());
     let hello = ConnectionMessage::Hello {
@@ -249,7 +351,14 @@ where
     if outgoing.send(Frame::connection(&hello)?).await.is_err() {
         return Ok(());
     }
-    match incoming.next().await {
+    let first = match tokio::time::timeout(context.hello_timeout, incoming.next()).await {
+        Ok(first) => first,
+        Err(_) => {
+            connection_event("hello-timeout", &rhost).refused();
+            return Ok(());
+        }
+    };
+    match first {
         None => return Ok(()),
         Some(frame) => {
             let frame = frame?;
@@ -270,8 +379,9 @@ where
     let mut conn = Connection {
         id: context.registry.connection_id(),
         context,
-        rhost: peer.map_or_else(String::new, |ip| ip.to_canonical().to_string()),
+        rhost,
         origin,
+        device,
         user,
         locked,
         outgoing,
@@ -284,6 +394,16 @@ where
     let result = conn.relay(incoming, &mut from_agents).await;
     conn.detach();
     result
+}
+
+/// Returns a security event of a browser connection.
+fn connection_event<'a>(reason: &'a str, addr: &'a str) -> Event<'a> {
+    Event {
+        event: "connection",
+        reason,
+        addr,
+        ..Event::default()
+    }
 }
 
 impl<O, E> Connection<'_, O>
@@ -299,10 +419,16 @@ where
         I: Stream<Item = Result<Frame, Violation>> + Unpin,
     {
         let mut events = self.context.presence.subscribe();
+        let idle = tokio::time::sleep(self.context.login_idle);
+        tokio::pin!(idle);
         loop {
             tokio::select! {
                 // Frames to the browser first: they free the queue of the agent link.
                 biased;
+                () = &mut idle, if self.user.get().is_none() => {
+                    connection_event("idle-timeout", &self.rhost).refused();
+                    return Ok(());
+                }
                 event = events.recv() => {
                     if let Ok(event) = event
                         && let Some(message) = self.user_event(event)
@@ -329,7 +455,14 @@ where
                 frame = incoming.next(), if self.pending.is_empty() => match frame {
                     None => return Ok(()),
                     Some(frame) => {
-                        if !self.handle_shell(frame?).await? {
+                        let frame = frame?;
+                        // A frame on a login channel restarts the idle time of a connection with no user.
+                        if matches!(self.channels.get(&frame.channel()), Some(Local::Login { .. }))
+                            || frame.frame_type() == FrameType::Open
+                        {
+                            idle.as_mut().reset(tokio::time::Instant::now() + self.context.login_idle);
+                        }
+                        if !self.handle_shell(frame).await? {
                             return Ok(());
                         }
                     }
@@ -488,6 +621,7 @@ where
             sessions: self.context.sessions.clone(),
             passkeys: self.context.passkeys.clone(),
             origin: self.origin.clone(),
+            device: self.device,
         };
         tokio::spawn(task.run());
         self.channels.insert(

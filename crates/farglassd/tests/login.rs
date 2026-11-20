@@ -110,8 +110,12 @@ impl Browser {
                 tx.send(frame).await.map(|()| tx)
             });
             let mut outgoing = std::pin::pin!(outgoing);
-            let peer = Some("192.0.2.10".parse().unwrap());
-            connection::run(&context, peer, user, None, &mut incoming, &mut outgoing).await
+            let client = connection::Client {
+                addr: Some("192.0.2.10".parse().unwrap()),
+                user,
+                ..connection::Client::default()
+            };
+            connection::run(&context, client, &mut incoming, &mut outgoing).await
         });
         let hello = tokio::time::timeout(WAIT, from_server.recv())
             .await
@@ -725,4 +729,89 @@ async fn idle_lock_and_logind_lock_the_session_and_logind_unlocks_it() {
         .unwrap();
     connection_message(&mut browser, ConnectionMessage::Locked).await;
     assert!(service.context.presence.is_locked(uid));
+}
+
+/// The queues and the task of a connection from [`raw_connection`].
+type Raw = (
+    mpsc::Sender<Result<Frame, Violation>>,
+    mpsc::Receiver<Frame>,
+    JoinHandle<Result<(), Violation>>,
+);
+
+/// Starts a connection with no hello from the browser. Returns the queues and the task.
+fn raw_connection(context: &Arc<Context>, user: Option<Identity>) -> Raw {
+    let (to_server, server_in) = mpsc::channel(16);
+    let (server_out, from_server) = mpsc::channel(16);
+    let context = context.clone();
+    let task = tokio::spawn(async move {
+        let mut incoming = stream::unfold(server_in, |mut rx| async move {
+            rx.recv().await.map(|item| (item, rx))
+        })
+        .boxed();
+        let outgoing = sink::unfold(server_out, |tx, frame: Frame| async move {
+            tx.send(frame).await.map(|()| tx)
+        });
+        let mut outgoing = std::pin::pin!(outgoing);
+        let client = connection::Client {
+            addr: Some("2001:db8:5:6::1".parse().unwrap()),
+            user,
+            ..connection::Client::default()
+        };
+        connection::run(&context, client, &mut incoming, &mut outgoing).await
+    });
+    (to_server, from_server, task)
+}
+
+fn limited(service: &LoginService, adjust: impl FnOnce(&mut Context)) -> Arc<Context> {
+    let mut context = Context::new(
+        service.registry.clone(),
+        service.context.login_socket.clone(),
+    );
+    adjust(&mut context);
+    Arc::new(context)
+}
+
+#[tokio::test]
+async fn a_connection_with_no_hello_closes_after_the_hello_time() {
+    let service = LoginService::start().await;
+    let context = limited(&service, |c| c.hello_timeout = Duration::from_millis(200));
+    let (_to_server, mut from_server, task) = raw_connection(&context, None);
+    assert!(from_server.recv().await.unwrap().channel().is_connection());
+    let result = tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn an_address_gets_a_limited_number_of_connections_with_no_user() {
+    let service = LoginService::start().await;
+    let context = limited(&service, |c| c.max_anonymous = 1);
+    let (_first_to, mut first_from, _first) = raw_connection(&context, None);
+    assert!(
+        first_from.recv().await.is_some(),
+        "the first connection gets the hello"
+    );
+    // The same /64 network has no place: the connection closes with no hello.
+    let (_second_to, mut second_from, second) = raw_connection(&context, None);
+    assert!(second_from.recv().await.is_none());
+    assert!(second.await.unwrap().is_ok());
+    // A connection with a user from a cookie does not need a place.
+    let (_user_to, mut user_from, _user) = raw_connection(
+        &context,
+        Some(Identity {
+            uid: 4242,
+            name: "alice".to_owned(),
+        }),
+    );
+    assert!(user_from.recv().await.is_some());
+}
+
+#[tokio::test]
+async fn a_connection_with_no_user_closes_after_the_login_idle_time() {
+    let service = LoginService::start().await;
+    let context = limited(&service, |c| c.login_idle = Duration::from_millis(300));
+    let mut browser = Browser::connect_as(&context, None).await;
+    let closed = tokio::time::timeout(WAIT, browser.from_server.recv())
+        .await
+        .unwrap();
+    assert!(closed.is_none(), "the idle connection did not close");
 }

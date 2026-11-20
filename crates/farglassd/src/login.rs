@@ -106,6 +106,8 @@ pub struct LoginTask {
     pub passkeys: Option<Arc<PasskeyStore>>,
     /// The origin of the page, from the checked `Origin` header. A passkey belongs to its host name.
     pub origin: Option<String>,
+    /// Reports whether the browser has a valid device cookie: it can use the reserved login places (F051).
+    pub device: bool,
 }
 
 impl LoginTask {
@@ -126,7 +128,12 @@ impl LoginTask {
     }
 
     async fn relay(&mut self) -> Result<(), String> {
-        let mut attempt = Attempt::start(&self.socket, self.only_user.clone(), self.rhost.clone())
+        let mut attempt = Attempt::start(
+            &self.socket,
+            self.only_user.clone(),
+            self.rhost.clone(),
+            self.device,
+        )
             .await
             .map_err(|error| {
                 tracing::error!(socket = %self.socket.display(), %error, "the login service is not available");
@@ -242,10 +249,24 @@ impl LoginTask {
 pub async fn logout(context: &crate::connection::Context, uid: u32, cause: &str) {
     context.sessions.remove_user(uid);
     context.presence.announce_logout(uid);
+    let event = farglass_login::audit::Event {
+        event: "logout",
+        reason: cause,
+        uid: Some(uid),
+        ..Default::default()
+    };
     match farglass_login::client::logout(&context.login_socket, uid).await {
-        Ok(sessions) => tracing::info!(uid, sessions, cause, "logout"),
+        Ok(sessions) => {
+            tracing::info!(uid, sessions, cause, "logout");
+            event.accepted();
+        }
         Err(error) => {
-            tracing::warn!(uid, cause, %error, "the web session did not end through farglass-login")
+            let detail = error.to_string();
+            farglass_login::audit::Event {
+                detail: Some(&detail),
+                ..event
+            }
+            .fault();
         }
     }
 }

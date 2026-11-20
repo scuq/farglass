@@ -156,7 +156,8 @@ impl PasskeyStore {
     /// Reports whether the user must use a second factor: the user has a passkey, or a file that cannot be read.
     #[must_use]
     pub fn required(&self, uid: u32) -> bool {
-        self.load(uid).map_or(true, |file| !file.passkeys.is_empty())
+        self.load(uid)
+            .map_or(true, |file| !file.passkeys.is_empty())
     }
 
     /// Returns the list of the passkeys of the user and the count of recovery codes.

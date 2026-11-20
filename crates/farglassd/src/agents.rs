@@ -30,6 +30,9 @@ use tokio_util::codec::{FramedRead, FramedWrite};
 /// The agent must send its hello message in this time.
 const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// The largest number of agent links of one uid at the same time, with links that wait for their hello (F051).
+pub const MAX_LINKS_PER_UID: usize = 4;
+
 /// The frames that wait for the agent. When the queue is full, the browser
 /// connections of the user wait.
 const TO_AGENT_QUEUE: usize = 256;
@@ -490,7 +493,10 @@ pub fn bind(path: &Path) -> Result<UnixListener, BindError> {
 }
 
 /// Accepts agents on `listener` and serves each one in its own task.
+///
+/// Each uid has at most [`MAX_LINKS_PER_UID`] links at the same time (F051).
 pub async fn accept_loop(listener: UnixListener, registry: Arc<Registry>) {
+    let links: Arc<Mutex<HashMap<u32, usize>>> = Arc::default();
     loop {
         let stream = match listener.accept().await {
             Ok((stream, _)) => stream,
@@ -507,8 +513,54 @@ pub async fn accept_loop(listener: UnixListener, registry: Arc<Registry>) {
                 continue;
             }
         };
+        let Some(place) = LinkPlace::take(&links, uid) else {
+            farglass_login::audit::Event {
+                event: "agent",
+                reason: "uid-cap",
+                uid: Some(uid),
+                ..Default::default()
+            }
+            .refused();
+            continue;
+        };
         let registry = registry.clone();
-        tokio::spawn(async move { registry.serve(stream, uid).await });
+        tokio::spawn(async move {
+            registry.serve(stream, uid).await;
+            drop(place);
+        });
+    }
+}
+
+/// A place of a uid for one agent link. Dropping it frees the place.
+struct LinkPlace {
+    links: Arc<Mutex<HashMap<u32, usize>>>,
+    uid: u32,
+}
+
+impl LinkPlace {
+    fn take(links: &Arc<Mutex<HashMap<u32, usize>>>, uid: u32) -> Option<Self> {
+        let mut counts = lock(links);
+        let count = counts.entry(uid).or_insert(0);
+        if *count >= MAX_LINKS_PER_UID {
+            return None;
+        }
+        *count += 1;
+        Some(Self {
+            links: links.clone(),
+            uid,
+        })
+    }
+}
+
+impl Drop for LinkPlace {
+    fn drop(&mut self) {
+        let mut counts = lock(&self.links);
+        if let Some(count) = counts.get_mut(&self.uid) {
+            *count -= 1;
+            if *count == 0 {
+                counts.remove(&self.uid);
+            }
+        }
     }
 }
 

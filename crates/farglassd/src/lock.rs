@@ -5,6 +5,7 @@
 //! connection gets the lock screen. Only a login of the user unlocks the
 //! session, or an unlock request of logind.
 
+use farglass_login::audit::Event;
 use farglass_proto::message::LinkMessage;
 
 use crate::agents::{AgentEvent, Registry};
@@ -13,7 +14,13 @@ use crate::presence::Presence;
 /// Locks the session of `uid`, stops each browser connection of the user, and sets the LockedHint of logind.
 pub fn lock(presence: &Presence, registry: &Registry, uid: u32, cause: &str) {
     if presence.lock_user(uid) {
-        tracing::info!(uid, cause, "session locked");
+        Event {
+            event: "lock",
+            reason: cause,
+            uid: Some(uid),
+            ..Event::default()
+        }
+        .accepted();
         hint(registry, uid, true);
     }
 }
@@ -21,7 +28,13 @@ pub fn lock(presence: &Presence, registry: &Registry, uid: u32, cause: &str) {
 /// Unlocks the session of `uid` and clears the LockedHint of logind.
 pub fn unlock(presence: &Presence, registry: &Registry, uid: u32, cause: &str) {
     if presence.unlock_user(uid) {
-        tracing::info!(uid, cause, "session unlocked");
+        Event {
+            event: "unlock",
+            reason: cause,
+            uid: Some(uid),
+            ..Event::default()
+        }
+        .accepted();
         hint(registry, uid, false);
     }
 }

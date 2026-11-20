@@ -14,8 +14,9 @@ pub const FIRST_BLOCK: Duration = Duration::from_secs(30);
 pub const MAX_BLOCK: Duration = Duration::from_secs(15 * 60);
 /// The limiter removes a counter that had no failure for this time.
 pub const FORGET: Duration = Duration::from_secs(60 * 60);
-/// The largest number of counters. A larger number removes the oldest counter.
-/// Thus random usernames cannot fill the memory.
+/// The largest number of counters. A larger number removes the oldest counter
+/// with no active block. Thus random usernames cannot fill the memory.
+/// If each counter has an active block, a new key counts as blocked (ADR-042).
 pub const MAX_ENTRIES: usize = 10_000;
 
 /// The thing that the limiter counts.
@@ -59,7 +60,12 @@ impl Limiter {
     fn blocked_at(&self, key: &Key, now: Instant) -> Option<Duration> {
         let mut entries = self.lock();
         entries.retain(|_, entry| now.duration_since(entry.last) < FORGET);
-        let until = entries.get(key)?.blocked_until?;
+        let Some(entry) = entries.get(key) else {
+            // A full table of active blocks has no place to count a new key: refuse it.
+            return (entries.len() >= MAX_ENTRIES && evictable(&entries, now).is_none())
+                .then_some(FIRST_BLOCK);
+        };
+        let until = entry.blocked_until?;
         until
             .checked_duration_since(now)
             .filter(|left| !left.is_zero())
@@ -68,12 +74,13 @@ impl Limiter {
     fn failed_at(&self, key: Key, now: Instant) {
         let mut entries = self.lock();
         if entries.len() >= MAX_ENTRIES && !entries.contains_key(&key) {
-            let oldest = entries
-                .iter()
-                .min_by_key(|(_, entry)| entry.last)
-                .map(|(key, _)| key.clone());
-            if let Some(oldest) = oldest {
-                entries.remove(&oldest);
+            // Never remove an active block (ADR-042). With no free place, the key stays
+            // uncounted, and `blocked` refuses it.
+            match evictable(&entries, now) {
+                Some(oldest) => {
+                    entries.remove(&oldest);
+                }
+                None => return,
             }
         }
         let entry = entries.entry(key).or_insert(Entry {
@@ -93,6 +100,15 @@ impl Limiter {
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<Key, Entry>> {
         self.entries.lock().unwrap_or_else(PoisonError::into_inner)
     }
+}
+
+/// Returns the oldest key with no active block.
+fn evictable(entries: &HashMap<Key, Entry>, now: Instant) -> Option<Key> {
+    entries
+        .iter()
+        .filter(|(_, entry)| entry.blocked_until.is_none_or(|until| until <= now))
+        .min_by_key(|(_, entry)| entry.last)
+        .map(|(key, _)| key.clone())
 }
 
 #[cfg(test)]
@@ -177,5 +193,28 @@ mod tests {
         }
         assert_eq!(limiter.lock().len(), MAX_ENTRIES);
         assert!(!limiter.lock().contains_key(&user("user0")));
+    }
+
+    #[test]
+    fn a_full_table_keeps_each_active_block_and_refuses_a_new_key() {
+        let limiter = Limiter::default();
+        let now = Instant::now();
+        {
+            let mut entries = limiter.lock();
+            for i in 0..MAX_ENTRIES {
+                entries.insert(
+                    user(&format!("user{i}")),
+                    Entry {
+                        failures: FREE_FAILURES,
+                        last: now,
+                        blocked_until: Some(now + MAX_BLOCK),
+                    },
+                );
+            }
+        }
+        limiter.failed_at(user("new"), now);
+        assert_eq!(limiter.lock().len(), MAX_ENTRIES);
+        assert!(limiter.blocked_at(&user("user0"), now).is_some());
+        assert_eq!(limiter.blocked_at(&user("new"), now), Some(FIRST_BLOCK));
     }
 }

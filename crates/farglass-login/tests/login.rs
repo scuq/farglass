@@ -76,10 +76,15 @@ impl Harness {
     }
 
     async fn attempt(&self, user: Option<&str>) -> Attempt {
+        self.attempt_from(user, "192.0.2.10", false).await
+    }
+
+    async fn attempt_from(&self, user: Option<&str>, rhost: &str, device: bool) -> Attempt {
         Attempt::start(
             &self.socket,
             user.map(str::to_owned),
-            "192.0.2.10".to_owned(),
+            rhost.to_owned(),
+            device,
         )
         .await
         .unwrap()
@@ -252,7 +257,11 @@ async fn repeated_failures_block_the_address_and_the_user() {
 
 #[tokio::test]
 async fn closed_connection_stops_the_attempt_and_frees_its_place() {
-    let harness = Harness::start(|settings| settings.max_attempts = 1).await;
+    let harness = Harness::start(|settings| {
+        settings.max_attempts = 1;
+        settings.reserved_attempts = 0;
+    })
+    .await;
     let user = current_user();
 
     let mut first = harness.attempt(Some(&user)).await;
@@ -568,4 +577,177 @@ async fn a_refused_second_factor_fails_and_starts_no_session() {
     };
     assert!(matches!(result, LoginEvent::Failure { .. }), "{result:?}");
     assert!(host.actions().is_empty(), "{:?}", host.actions());
+}
+
+/// Waits for the first prompt of `attempt` and returns its number and its echo flag.
+async fn first_prompt(attempt: &mut Attempt) -> (u32, bool) {
+    loop {
+        match tokio::time::timeout(WAIT, next_event(attempt))
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            LoginEvent::Prompt { prompt, echo, .. } => return (prompt, echo),
+            LoginEvent::Info { .. } => {}
+            other => panic!("unexpected event {other:?}"),
+        }
+    }
+}
+
+/// Returns the result event of `attempt`, after the prompts.
+async fn result(attempt: &mut Attempt) -> LoginEvent {
+    loop {
+        let event = tokio::time::timeout(WAIT, next_event(attempt))
+            .await
+            .unwrap()
+            .unwrap();
+        if !matches!(event, LoginEvent::Info { .. } | LoginEvent::Prompt { .. }) {
+            return event;
+        }
+    }
+}
+
+#[tokio::test]
+async fn one_address_gets_only_its_places_and_an_ipv6_network_is_one_address() {
+    let harness = Harness::start(|settings| settings.max_per_address = 1).await;
+    let user = current_user();
+    let mut first = harness
+        .attempt_from(Some(&user), "2001:db8:1:2::10", false)
+        .await;
+    first_prompt(&mut first).await;
+    // The same /64 network has no free place.
+    let mut second = harness
+        .attempt_from(Some(&user), "2001:db8:1:2::99", false)
+        .await;
+    assert!(
+        matches!(result(&mut second).await, LoginEvent::Failure { message } if message.contains("from your address"))
+    );
+    // A different address has its own place.
+    let mut other = harness
+        .attempt_from(Some(&user), "203.0.113.7", false)
+        .await;
+    first_prompt(&mut other).await;
+}
+
+#[tokio::test]
+async fn a_browser_with_a_device_cookie_gets_a_reserved_place() {
+    let harness = Harness::start(|settings| {
+        settings.max_attempts = 2;
+        settings.reserved_attempts = 1;
+    })
+    .await;
+    let user = current_user();
+    let mut holder = harness
+        .attempt_from(Some(&user), "203.0.113.1", false)
+        .await;
+    first_prompt(&mut holder).await;
+    // The open place is taken: a browser with no device cookie gets no place.
+    let mut stranger = harness
+        .attempt_from(Some(&user), "203.0.113.2", false)
+        .await;
+    assert!(
+        matches!(result(&mut stranger).await, LoginEvent::Failure { message } if message.contains("too many logins"))
+    );
+    // A known browser uses the reserved place.
+    let mut known = harness.attempt_from(Some(&user), "203.0.113.3", true).await;
+    let (prompt, _) = first_prompt(&mut known).await;
+    known
+        .answer(prompt, Zeroizing::new("secret".to_owned()))
+        .await
+        .unwrap();
+    assert!(matches!(
+        result(&mut known).await,
+        LoginEvent::Success { .. }
+    ));
+}
+
+#[tokio::test]
+async fn a_login_that_passes_the_deadline_fails_and_counts() {
+    let harness =
+        Harness::start(|settings| settings.login_deadline = Duration::from_millis(300)).await;
+    let user = current_user();
+    for _ in 0..limiter::FREE_FAILURES {
+        let mut attempt = harness.attempt(Some(&user)).await;
+        first_prompt(&mut attempt).await;
+        // No answer: the deadline ends the login.
+        assert!(
+            matches!(result(&mut attempt).await, LoginEvent::Failure { message } if message.contains("too long"))
+        );
+    }
+    let events = harness.login(&user, "secret").await;
+    assert!(
+        matches!(events.as_slice(), [LoginEvent::Blocked { .. }]),
+        "{events:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_abandoned_attempt_with_an_answer_counts_and_one_with_no_answer_does_not() {
+    let harness = Harness::start(|_| {}).await;
+    let user = current_user();
+    // No answer: a reload of the login screen does not count.
+    for _ in 0..limiter::FREE_FAILURES + 1 {
+        let mut attempt = harness.attempt(None).await;
+        first_prompt(&mut attempt).await;
+        drop(attempt);
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let mut attempt = harness.attempt(None).await;
+    first_prompt(&mut attempt).await;
+    drop(attempt);
+
+    // The username, then the attempt stops: it counts.
+    for _ in 0..limiter::FREE_FAILURES {
+        let mut attempt = harness.attempt(None).await;
+        let (prompt, echo) = first_prompt(&mut attempt).await;
+        assert!(echo);
+        attempt
+            .answer(prompt, Zeroizing::new(user.clone()))
+            .await
+            .unwrap();
+        first_prompt(&mut attempt).await;
+        drop(attempt);
+    }
+    let result = tokio::time::timeout(WAIT, async {
+        loop {
+            let events = harness.login(&user, "secret").await;
+            if matches!(events.as_slice(), [LoginEvent::Blocked { .. }]) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await;
+    assert!(result.is_ok(), "the abandoned attempts did not block");
+}
+
+#[tokio::test]
+async fn a_blocked_user_gets_no_password_prompt_from_a_new_address() {
+    let harness = Harness::start(|_| {}).await;
+    let user = current_user();
+    // Wrong passwords from many addresses block the user, not one address.
+    for i in 0..limiter::FREE_FAILURES {
+        let mut attempt = harness
+            .attempt_from(Some(&user), &format!("203.0.113.{}", i + 10), false)
+            .await;
+        let (prompt, _) = first_prompt(&mut attempt).await;
+        attempt
+            .answer(prompt, Zeroizing::new("wrong".to_owned()))
+            .await
+            .unwrap();
+        assert!(matches!(
+            result(&mut attempt).await,
+            LoginEvent::Failure { .. }
+        ));
+    }
+    // The login screen gives no username: PAM asks for it, and the block stops the password prompt.
+    let mut attempt = harness.attempt_from(None, "198.51.100.1", false).await;
+    let (prompt, echo) = first_prompt(&mut attempt).await;
+    assert!(echo);
+    attempt
+        .answer(prompt, Zeroizing::new(user.clone()))
+        .await
+        .unwrap();
+    let event = result(&mut attempt).await;
+    assert!(matches!(event, LoginEvent::Blocked { .. }), "{event:?}");
 }

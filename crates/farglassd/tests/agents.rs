@@ -51,15 +51,11 @@ impl Browser {
                 tx.send(frame).await.map(|()| tx)
             });
             let mut outgoing = std::pin::pin!(outgoing);
-            connection::run(
-                &context,
-                None,
-                context.dev_user.clone(),
-                None,
-                &mut incoming,
-                &mut outgoing,
-            )
-            .await
+            let client = connection::Client {
+                user: context.dev_user.clone(),
+                ..connection::Client::default()
+            };
+            connection::run(&context, client, &mut incoming, &mut outgoing).await
         });
         let mut browser = Self {
             to_server,
@@ -499,4 +495,26 @@ async fn shell_violations_stop_the_connection() {
         second_hello.result().await,
         Err(Violation::SecondHello)
     ));
+}
+
+#[tokio::test]
+async fn one_uid_gets_a_limited_number_of_agent_links() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("agent.sock");
+    let listener = agents::bind(&path).unwrap();
+    tokio::spawn(agents::accept_loop(listener, Registry::new()));
+    // The links do not send their hello: they wait as a local attacker does.
+    let mut links = Vec::new();
+    for _ in 0..agents::MAX_LINKS_PER_UID {
+        let mut link = Framed::new(UnixStream::connect(&path).await.unwrap(), FrameCodec);
+        let hello = tokio::time::timeout(WAIT, link.next()).await.unwrap();
+        assert!(hello.is_some(), "a link in the limit gets the hello");
+        links.push(link);
+    }
+    let mut refused = Framed::new(UnixStream::connect(&path).await.unwrap(), FrameCodec);
+    let next = tokio::time::timeout(WAIT, refused.next()).await.unwrap();
+    assert!(
+        next.is_none(),
+        "the link over the limit closes with no hello"
+    );
 }

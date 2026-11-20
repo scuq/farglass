@@ -4,7 +4,7 @@ title: The agent gets its connection from the session worker
 status: planned
 phase: P06
 tags: [security]
-decisions: [ADR-042, ADR-043]
+decisions: [ADR-041, ADR-042, ADR-043]
 files: [crates/farglass-login/src/host.rs, crates/farglass-session/src/main.rs, crates/farglass-session/src/link.rs, crates/farglassd/src/agents.rs, docs/threats.md]
 ---
 

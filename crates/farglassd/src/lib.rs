@@ -10,6 +10,7 @@ pub mod agents;
 pub mod config;
 pub mod connection;
 pub mod cookie;
+pub mod device;
 mod http;
 pub mod lock;
 pub mod login;

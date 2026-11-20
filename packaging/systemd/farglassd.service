@@ -10,6 +10,9 @@ ExecStart=/usr/libexec/farglass/farglassd
 # SIGHUP loads the certificate files again.
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
+# Many browser connections need many file descriptors. farglassd limits the
+# connections with no user for each address (F051).
+LimitNOFILE=65536
 
 # farglassd runs as an unprivileged user (ADR-003). The group farglass lets it
 # connect to the login socket of farglass-login.

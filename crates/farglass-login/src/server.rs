@@ -1,8 +1,9 @@
 //! The login service: one connection is one login attempt.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::mpsc as std_mpsc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use farglass_proto::codec::FrameCodec;
@@ -14,6 +15,7 @@ use tokio::sync::{Semaphore, mpsc};
 use tokio_util::codec::Framed;
 use zeroize::Zeroizing;
 
+use crate::audit::{self, Event};
 use crate::host::{Host, NoSessions, Started};
 use crate::limiter::{Key, Limiter};
 use crate::pam::{self, Conversation, Login};
@@ -21,8 +23,8 @@ use crate::pam::{self, Conversation, Login};
 /// farglassd must send the start message in this time.
 const START_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// The user must answer one prompt in this time.
-pub const PROMPT_TIMEOUT: Duration = Duration::from_secs(60);
+/// The whole login, from the start message to the session steps, must end in this time (F051).
+pub const LOGIN_DEADLINE: Duration = Duration::from_secs(60);
 
 /// The message for each failure that can tell if a user exists.
 const FAILURE_MESSAGE: &str = "The login failed.";
@@ -38,8 +40,14 @@ pub struct Settings {
     pub allow_root: bool,
     /// The wait after a failed attempt, before the answer. It makes guesses slow.
     pub fail_delay: Duration,
-    /// The largest number of attempts at the same time.
+    /// The largest number of attempts at the same time, with the reserved places.
     pub max_attempts: usize,
+    /// The places of `max_attempts` that only a browser with a valid device cookie can use (F051).
+    pub reserved_attempts: usize,
+    /// The largest number of attempts at the same time from one address, IPv6 grouped by /64.
+    pub max_per_address: usize,
+    /// The time for the whole login. A login that is not complete in this time fails.
+    pub login_deadline: Duration,
     /// The actions on the host: the logind sessions and the start of the web session.
     pub host: Arc<dyn Host>,
 }
@@ -52,6 +60,9 @@ impl Default for Settings {
             allow_root: false,
             fail_delay: Duration::from_secs(2),
             max_attempts: 32,
+            reserved_attempts: 8,
+            max_per_address: 4,
+            login_deadline: LOGIN_DEADLINE,
             host: Arc::new(NoSessions),
         }
     }
@@ -61,19 +72,78 @@ impl Default for Settings {
 #[derive(Debug)]
 pub struct Service {
     settings: Settings,
-    limiter: Limiter,
-    attempts: Arc<Semaphore>,
+    limiter: Arc<Limiter>,
+    /// The places that each browser can use.
+    open: Arc<Semaphore>,
+    /// The places for browsers with a valid device cookie.
+    reserved: Arc<Semaphore>,
+    /// The running attempts of each address group.
+    per_address: Arc<Mutex<HashMap<String, usize>>>,
+}
+
+/// A place of an address group. Dropping it frees the place.
+struct AddressPlace {
+    map: Arc<Mutex<HashMap<String, usize>>>,
+    group: String,
+}
+
+impl AddressPlace {
+    /// Takes a place for `group`, or returns `None` if the group has `max` places already.
+    fn take(map: &Arc<Mutex<HashMap<String, usize>>>, group: &str, max: usize) -> Option<Self> {
+        let mut counts = map.lock().unwrap_or_else(PoisonError::into_inner);
+        let count = counts.entry(group.to_owned()).or_insert(0);
+        if *count >= max {
+            return None;
+        }
+        *count += 1;
+        Some(Self {
+            map: map.clone(),
+            group: group.to_owned(),
+        })
+    }
+}
+
+impl Drop for AddressPlace {
+    fn drop(&mut self) {
+        let mut counts = self.map.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(count) = counts.get_mut(&self.group) {
+            *count -= 1;
+            if *count == 0 {
+                counts.remove(&self.group);
+            }
+        }
+    }
+}
+
+/// What the PAM conversation learned: the username that the user typed, and a block of that user.
+#[derive(Debug, Default)]
+struct Seen {
+    name: Option<String>,
+    blocked: Option<Duration>,
+}
+
+/// Logs a security event of a login.
+fn log_event<'a>(reason: &'a str, addr: &'a str, user: Option<&'a str>) -> Event<'a> {
+    Event {
+        event: "login",
+        reason,
+        addr,
+        user,
+        ..Event::default()
+    }
 }
 
 impl Service {
     /// Returns a service with `settings`.
     #[must_use]
     pub fn new(settings: Settings) -> Arc<Self> {
-        let attempts = Arc::new(Semaphore::new(settings.max_attempts));
+        let reserved = settings.reserved_attempts.min(settings.max_attempts);
         Arc::new(Self {
+            open: Arc::new(Semaphore::new(settings.max_attempts - reserved)),
+            reserved: Arc::new(Semaphore::new(reserved)),
+            per_address: Arc::default(),
             settings,
-            limiter: Limiter::default(),
-            attempts,
+            limiter: Arc::default(),
         })
     }
 
@@ -109,47 +179,66 @@ impl Service {
             .await
             .map_err(|_| "no start message")?
             .ok_or("the connection closed before the start message")??;
-        let (user, rhost) = match request(&start)? {
-            LoginRequest::Start { user, rhost } => (user, rhost),
+        let (user, rhost, device) = match request(&start)? {
+            LoginRequest::Start {
+                user,
+                rhost,
+                device,
+            } => (user, rhost, device),
             LoginRequest::Logout { uid } => return self.logout(&mut link, uid, peer).await,
             _ => return Err("the first message was not a start message".into()),
         };
-        let address = Key::Address(rhost.clone());
+        let group = audit::address_group(&rhost);
+        let address = Key::Address(group.clone());
         let user_key = user.clone().map(Key::User);
 
-        let blocked = [Some(&address), user_key.as_ref()]
-            .into_iter()
-            .flatten()
-            .filter_map(|key| self.limiter.blocked(key))
-            .max();
-        if let Some(left) = blocked {
-            tracing::info!(rhost, ?user, ?peer, "a blocked login was refused");
-            return send(
-                &mut link,
-                &LoginEvent::Blocked {
-                    retry_after: left.as_secs().max(1),
-                },
-            )
-            .await;
+        if let Some(left) = self.limiter.blocked(&address) {
+            log_event("blocked-address", &rhost, user.as_deref()).refused();
+            return blocked(&mut link, left).await;
         }
-        let Ok(_permit) = self.attempts.clone().try_acquire_owned() else {
-            tracing::warn!(rhost, "too many logins at the same time");
+        if let Some(left) = user_key.as_ref().and_then(|key| self.limiter.blocked(key)) {
+            log_event("blocked-user", &rhost, user.as_deref()).refused();
+            return blocked(&mut link, left).await;
+        }
+        let Some(_place) =
+            AddressPlace::take(&self.per_address, &group, self.settings.max_per_address)
+        else {
+            log_event("address-cap", &rhost, user.as_deref()).refused();
+            let message =
+                "There are too many logins from your address at the same time. Try again later."
+                    .to_owned();
+            return send(&mut link, &LoginEvent::Failure { message }).await;
+        };
+        let permit = match self.open.clone().try_acquire_owned() {
+            Ok(permit) => Some(permit),
+            Err(_) if device => self.reserved.clone().try_acquire_owned().ok(),
+            Err(_) => None,
+        };
+        let Some(_permit) = permit else {
+            log_event("login-pool-full", &rhost, user.as_deref()).refused();
             let message =
                 "The server has too many logins at the same time. Try again later.".to_owned();
             return send(&mut link, &LoginEvent::Failure { message }).await;
         };
+        let deadline = Instant::now() + self.settings.login_deadline;
 
         let (events, mut from_pam) = mpsc::unbounded_channel();
         let (answers, to_pam) = std_mpsc::channel();
+        let seen = Arc::new(Mutex::new(Seen::default()));
         let settings = self.settings.clone();
         let pam_user = user.clone();
         let pam_rhost = rhost.clone();
+        let bridge = Bridge {
+            events,
+            answers: to_pam,
+            next_prompt: 0,
+            deadline,
+            limiter: self.limiter.clone(),
+            seen: seen.clone(),
+            last_echo: None,
+        };
         let pam = tokio::task::spawn_blocking(move || {
-            let mut bridge = Bridge {
-                events,
-                answers: to_pam,
-                next_prompt: 0,
-            };
+            let mut bridge = bridge;
             let params = Login {
                 service: &settings.service,
                 confdir: settings.pam_dir.as_deref(),
@@ -159,43 +248,105 @@ impl Service {
             pam::login(params, &mut bridge)
         });
 
-        // Relay the conversation until PAM completes.
-        loop {
-            tokio::select! {
-                event = from_pam.recv() => match event {
-                    Some(event) => send(&mut link, &event).await?,
-                    // The PAM thread stopped. Its result follows.
-                    None => break,
-                },
-                frame = link.next() => match frame {
-                    Some(Ok(frame)) => match request(&frame)? {
-                        LoginRequest::Answer { prompt, text } => {
-                            let _ = answers.send((prompt, text));
-                        }
-                        LoginRequest::Start { .. } | LoginRequest::Logout { .. } => {
-                            return Err("a second start message".into());
-                        }
-                        // A confirm or a second factor before the question. Ignore it.
-                        LoginRequest::Confirm { .. } | LoginRequest::SecondFactor { .. } => {}
+        // Relay the conversation until PAM completes, or until the deadline.
+        let mut answered = false;
+        let relay = async {
+            loop {
+                tokio::select! {
+                    event = from_pam.recv() => match event {
+                        Some(event) => send(&mut link, &event).await?,
+                        // The PAM thread stopped. Its result follows.
+                        None => return Ok(true),
                     },
-                    // farglassd stopped the attempt. Dropping `answers` stops the PAM conversation.
-                    _ => {
-                        drop(answers);
-                        let _ = pam.await;
-                        return Ok(());
-                    }
-                },
+                    frame = link.next() => match frame {
+                        Some(Ok(frame)) => match request(&frame)? {
+                            LoginRequest::Answer { prompt, text } => {
+                                answered = true;
+                                let _ = answers.send((prompt, text));
+                            }
+                            LoginRequest::Start { .. } | LoginRequest::Logout { .. } => {
+                                return Err("a second start message".into());
+                            }
+                            // A confirm or a second factor before the question. Ignore it.
+                            LoginRequest::Confirm { .. } | LoginRequest::SecondFactor { .. } => {}
+                        },
+                        // farglassd stopped the attempt.
+                        _ => return Ok(false),
+                    },
+                }
             }
+        };
+        let relayed: Result<bool, Box<dyn std::error::Error + Send + Sync>> =
+            match tokio::time::timeout_at(deadline.into(), relay).await {
+                Ok(result) => result,
+                Err(_) => {
+                    // Dropping `answers` stops the PAM conversation.
+                    drop(answers);
+                    let _ = pam.await;
+                    let name = lock(&seen).name.clone().or(user);
+                    self.count_failure(&address, name.as_deref());
+                    log_event("login-deadline", &rhost, name.as_deref()).refused();
+                    let message = "The login took too long. Try again.".to_owned();
+                    return send(&mut link, &LoginEvent::Failure { message }).await;
+                }
+            };
+        if !relayed? {
+            // farglassd stopped the attempt. Dropping `answers` stops the PAM conversation.
+            drop(answers);
+            let _ = pam.await;
+            if answered {
+                // An attempt that got an answer and then stopped counts as a guess (F051).
+                let name = lock(&seen).name.clone().or(user);
+                self.count_failure(&address, name.as_deref());
+                log_event("abandoned", &rhost, name.as_deref()).refused();
+            }
+            return Ok(());
         }
 
-        match pam.await? {
-            Ok(name) => self.succeeded(&mut link, &address, name, &rhost).await,
-            Err(failure) => {
-                self.limiter.failed(address);
-                if let Some(name) = failure.user.clone().or(user) {
-                    self.limiter.failed(Key::User(name));
+        let result = pam.await;
+        let result = match result {
+            Ok(result) => result,
+            Err(error) => {
+                // A panic of the PAM thread is a refusal, never a success (ADR-042).
+                Event {
+                    detail: Some(&error.to_string()),
+                    ..log_event("pam-thread", &rhost, user.as_deref())
                 }
-                tracing::info!(rhost, user = ?failure.user, reason = failure.reason, "a login failed");
+                .fault();
+                tokio::time::sleep(self.settings.fail_delay).await;
+                let message = FAILURE_MESSAGE.to_owned();
+                return send(&mut link, &LoginEvent::Failure { message }).await;
+            }
+        };
+        match result {
+            Ok(name) => {
+                self.succeeded(&mut link, &address, name, &rhost, deadline)
+                    .await
+            }
+            Err(failure) => {
+                let name = failure.user.clone().or(user);
+                self.count_failure(&address, name.as_deref());
+                // The conversation stopped at the deadline: PAM failed for no answer.
+                if Instant::now() >= deadline {
+                    log_event("login-deadline", &rhost, name.as_deref()).refused();
+                    let message = "The login took too long. Try again.".to_owned();
+                    return send(&mut link, &LoginEvent::Failure { message }).await;
+                }
+                let user_blocked = lock(&seen).blocked;
+                if let Some(left) = user_blocked {
+                    log_event("blocked-user", &rhost, name.as_deref()).refused();
+                    return blocked(&mut link, left).await;
+                }
+                let reason = if failure.account {
+                    "account"
+                } else {
+                    "wrong-password"
+                };
+                Event {
+                    detail: Some(&failure.reason),
+                    ..log_event(reason, &rhost, name.as_deref())
+                }
+                .refused();
                 tokio::time::sleep(self.settings.fail_delay).await;
                 let message = if failure.account {
                     failure.reason
@@ -207,27 +358,48 @@ impl Service {
         }
     }
 
+    /// Counts a failed or abandoned attempt for the address and, if known, the user.
+    fn count_failure(&self, address: &Key, user: Option<&str>) {
+        self.limiter.failed(address.clone());
+        if let Some(name) = user {
+            self.limiter.failed(Key::User(name.to_owned()));
+        }
+    }
+
     async fn succeeded(
         &self,
         link: &mut Framed<UnixStream, FrameCodec>,
         address: &Key,
         name: String,
         rhost: &str,
+        deadline: Instant,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // A correct password does not end a block of the user (F051).
+        if let Some(left) = self.limiter.blocked(&Key::User(name.clone())) {
+            self.count_failure(address, Some(&name));
+            log_event("blocked-user", rhost, Some(&name)).refused();
+            return blocked(link, left).await;
+        }
         let uid = match nix::unistd::User::from_name(&name) {
             Ok(Some(user)) => user.uid.as_raw(),
-            _ => {
-                tracing::warn!(
-                    user = name,
-                    "PAM accepted a user that has no account on the host"
-                );
+            other => {
+                // A read error of the user database is a refusal (ADR-042).
+                let detail = match other {
+                    Err(error) => error.to_string(),
+                    _ => "PAM accepted a user that has no account on the host".to_owned(),
+                };
+                Event {
+                    detail: Some(&detail),
+                    ..log_event("no-account", rhost, Some(&name))
+                }
+                .fault();
                 tokio::time::sleep(self.settings.fail_delay).await;
                 let message = FAILURE_MESSAGE.to_owned();
                 return send(link, &LoginEvent::Failure { message }).await;
             }
         };
         if uid == 0 && !self.settings.allow_root {
-            tracing::warn!(rhost, "a login as root was refused");
+            log_event("root", rhost, Some(&name)).refused();
             self.limiter.failed(address.clone());
             tokio::time::sleep(self.settings.fail_delay).await;
             let message = "The login as root is not permitted.".to_owned();
@@ -243,10 +415,13 @@ impl Service {
             },
         )
         .await?;
-        if !self.second_factor(link).await? {
-            tracing::info!(rhost, user = name, "the second factor failed");
-            self.limiter.failed(address.clone());
-            self.limiter.failed(Key::User(name));
+        if !self.second_factor(link, deadline).await? {
+            self.count_failure(address, Some(&name));
+            Event {
+                uid: Some(uid),
+                ..log_event("second-factor", rhost, Some(&name))
+            }
+            .refused();
             tokio::time::sleep(self.settings.fail_delay).await;
             let message = "The passkey or the recovery code was not accepted.".to_owned();
             return send(link, &LoginEvent::Failure { message }).await;
@@ -255,6 +430,11 @@ impl Service {
         // because a decline or an error of the host is not a guess.
         self.limiter.succeeded(address);
         self.limiter.succeeded(&Key::User(name.clone()));
+        Event {
+            uid: Some(uid),
+            ..log_event("", rhost, Some(&name))
+        }
+        .accepted();
 
         // One user has one graphical session at a time (ADR-015).
         let host = self.settings.host.clone();
@@ -273,7 +453,7 @@ impl Service {
                 },
             )
             .await?;
-            if !self.confirmed(link).await? {
+            if !self.confirmed(link, deadline).await? {
                 tracing::info!(user = name, rhost, "the user kept the local session");
                 let message = "The login stopped. The local session continues.".to_owned();
                 return send(link, &LoginEvent::Failure { message }).await;
@@ -343,6 +523,7 @@ impl Service {
     async fn second_factor(
         &self,
         link: &mut Framed<UnixStream, FrameCodec>,
+        deadline: Instant,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         let wait = async {
             while let Some(frame) = link.next().await {
@@ -352,7 +533,7 @@ impl Service {
             }
             Ok::<_, Box<dyn std::error::Error + Send + Sync>>(false)
         };
-        tokio::time::timeout(PROMPT_TIMEOUT, wait)
+        tokio::time::timeout_at(deadline.into(), wait)
             .await
             .unwrap_or(Ok(false))
     }
@@ -362,6 +543,7 @@ impl Service {
     async fn confirmed(
         &self,
         link: &mut Framed<UnixStream, FrameCodec>,
+        deadline: Instant,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         let wait = async {
             while let Some(frame) = link.next().await {
@@ -371,7 +553,7 @@ impl Service {
             }
             Ok::<_, Box<dyn std::error::Error + Send + Sync>>(false)
         };
-        tokio::time::timeout(PROMPT_TIMEOUT, wait)
+        tokio::time::timeout_at(deadline.into(), wait)
             .await
             .unwrap_or(Ok(false))
     }
@@ -399,10 +581,27 @@ struct Bridge {
     events: mpsc::UnboundedSender<LoginEvent>,
     answers: std_mpsc::Receiver<(u32, Zeroizing<String>)>,
     next_prompt: u32,
+    /// The end of the whole login.
+    deadline: Instant,
+    limiter: Arc<Limiter>,
+    /// The username that the user typed, and a block of it.
+    seen: Arc<Mutex<Seen>>,
+    /// The last answer to a prompt with echo: the username for the next password prompt.
+    last_echo: Option<String>,
 }
 
 impl Conversation for Bridge {
     fn prompt(&mut self, text: &str, echo: bool) -> Option<Zeroizing<String>> {
+        // A blocked user gets no password prompt (F051).
+        if !echo && let Some(name) = self.last_echo.clone() {
+            let blocked = self.limiter.blocked(&Key::User(name.clone()));
+            let mut seen = lock(&self.seen);
+            seen.name = Some(name);
+            if blocked.is_some() {
+                seen.blocked = blocked;
+                return None;
+            }
+        }
         self.next_prompt += 1;
         let prompt = self.next_prompt;
         let event = LoginEvent::Prompt {
@@ -411,11 +610,15 @@ impl Conversation for Bridge {
             echo,
         };
         self.events.send(event).ok()?;
-        let deadline = Instant::now() + PROMPT_TIMEOUT;
         loop {
-            let left = deadline.checked_duration_since(Instant::now())?;
+            let left = self.deadline.checked_duration_since(Instant::now())?;
             match self.answers.recv_timeout(left) {
-                Ok((number, answer)) if number == prompt => return Some(answer),
+                Ok((number, answer)) if number == prompt => {
+                    if echo {
+                        self.last_echo = Some(answer.trim().to_owned());
+                    }
+                    return Some(answer);
+                }
                 // An answer to an older prompt.
                 Ok(_) => {}
                 // No answer in time, or farglassd stopped the attempt.
@@ -435,6 +638,24 @@ impl Conversation for Bridge {
             text: text.to_owned(),
         });
     }
+}
+
+/// Locks `mutex`. A panic in another thread does not make the data unusable here.
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+async fn blocked(
+    link: &mut Framed<UnixStream, FrameCodec>,
+    left: Duration,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    send(
+        link,
+        &LoginEvent::Blocked {
+            retry_after: left.as_secs().max(1),
+        },
+    )
+    .await
 }
 
 fn request(frame: &Frame) -> Result<LoginRequest, Box<dyn std::error::Error + Send + Sync>> {

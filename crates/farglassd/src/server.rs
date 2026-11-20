@@ -144,6 +144,9 @@ impl Server {
             hsts,
             transport,
             alt_svc,
+            devices: Arc::new(crate::device::DeviceKeys::load(
+                &config.state_dir.join("device.key"),
+            )),
             passkeys: Some(Arc::new(crate::passkeys::PasskeyStore::new(
                 config.state_dir.join("passkeys"),
             ))),

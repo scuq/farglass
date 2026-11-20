@@ -18,6 +18,10 @@ pub enum LoginRequest {
         user: Option<String>,
         /// The address of the browser, for the rate limiter and for `PAM_RHOST`.
         rhost: String,
+        /// Reports whether the browser has a valid device cookie of farglassd. Such a
+        /// browser can use the reserved login places (F051).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        device: bool,
     },
     /// Answers a prompt.
     Answer {
@@ -192,6 +196,7 @@ mod tests {
         let start = LoginRequest::Start {
             user: None,
             rhost: "192.0.2.10".to_owned(),
+            device: false,
         };
         assert_eq!(
             serde_json::to_value(&start).unwrap(),

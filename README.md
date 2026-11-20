@@ -483,6 +483,21 @@ farglass-login refuses a login as root unless it starts with `--allow-root`.
 After five failures from one address or for one user, it blocks that address or user for 30 seconds.
 Each more failure doubles the block, up to 15 minutes.
 After a failure, the answer comes 2 seconds later.
+IPv6 addresses count by /64 network.
+A correct password does not end a block, and a blocked user gets no password prompt.
+
+These limits keep one attacker from stopping the logins of other users:
+
+- A login must be complete in 60 seconds (`--login-deadline`).
+- One address runs at most 4 logins at the same time (`--max-per-address`).
+- farglass-login runs at most 32 logins at the same time (`--max-attempts`).
+  Of these, 8 (`--reserved-attempts`) are only for a browser that logged in before and has the device cookie `__Host-farglass-device`.
+  This cookie gives no access.
+- A login that stops after an answer, or that passes the deadline, counts as a failure.
+- farglassd closes a connection that sends no hello message in 10 seconds.
+  It also closes a connection with no user after 10 minutes with no login.
+- One address has at most 16 connections with no user at the same time.
+- One uid has at most 4 links to the agent socket at the same time.
 
 After a login, farglass-login starts the web session of the user.
 It runs `farglass-login --session-worker USER` as a transient systemd unit `farglass-session-UID`.
@@ -499,6 +514,34 @@ If the user selects Cancel, the login stops and the local session continues.
 Text sessions, for example SSH, continue in all cases.
 
 `--session none` starts no session. Use it for development with no root, with an agent that you start yourself.
+
+### Security log
+
+farglassd and farglass-login write each security event to the journal with the target `farglass::security` (ADR-043).
+Each line has the same fields:
+
+```text
+event=login result=refused reason=address-cap addr=203.0.113.7 user=- uid=-
+```
+
+A success has the level info, a refusal warn, and a fault of the host error with `reason=fault` (ADR-042).
+A fault never lets a login pass: for example, an unreadable passkey file or user database refuses the login.
+No password, PIN, recovery code, cookie, or ticket goes into the log.
+
+To see the events:
+
+```sh
+journalctl -u farglassd -u farglass-login | grep farglass::security
+journalctl -u farglassd -u farglass-login | grep 'result=refused'
+```
+
+A fail2ban filter, for example in `/etc/fail2ban/filter.d/farglass.conf`:
+
+```ini
+[Definition]
+failregex = farglass::security: event=\S+ result=refused reason=(?!fault)\S+ addr=<ADDR>
+journalmatch = _SYSTEMD_UNIT=farglass-login.service + _SYSTEMD_UNIT=farglassd.service
+```
 
 ### Passkeys
 

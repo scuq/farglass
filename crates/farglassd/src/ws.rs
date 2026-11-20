@@ -31,6 +31,7 @@ pub async fn upgrade(
 ) -> Response {
     if !context.origin.allows(&headers, &uri) {
         tracing::warn!(%peer, origin = ?headers.get("origin"), "refused a WebSocket from a different origin");
+        crate::http::origin_event(&peer.ip().to_canonical().to_string()).refused();
         return StatusCode::FORBIDDEN.into_response();
     }
     // The Origin check passed: the header names the page of the shell.
@@ -42,19 +43,19 @@ pub async fn upgrade(
         .dev_user
         .clone()
         .or_else(|| context.sessions.user(&headers));
+    let client = connection::Client {
+        addr: Some(peer.ip()),
+        user,
+        origin,
+        device: context.devices.valid(&headers),
+    };
     ws.max_message_size(MAX_MESSAGE_LEN)
         .max_frame_size(MAX_MESSAGE_LEN)
-        .on_upgrade(move |socket| serve(socket, context, Some(peer), user, origin))
+        .on_upgrade(move |socket| serve(socket, context, client))
 }
 
 /// Runs one connection until the peer closes it or breaks the protocol.
-async fn serve(
-    socket: WebSocket,
-    context: Arc<Context>,
-    peer: Option<SocketAddr>,
-    user: Option<crate::login::Identity>,
-    origin: Option<String>,
-) {
+async fn serve(socket: WebSocket, context: Arc<Context>, client: connection::Client) {
     let (sink, stream) = socket.split();
     let mut outgoing =
         sink.with(|frame: Frame| future::ok::<_, axum::Error>(Message::Binary(frame.to_bytes())));
@@ -72,10 +73,7 @@ async fn serve(
             })
         });
 
-    let peer = peer.map(|addr| addr.ip());
-    if let Err(violation) =
-        connection::run(&context, peer, user, origin, &mut incoming, &mut outgoing).await
-    {
+    if let Err(violation) = connection::run(&context, client, &mut incoming, &mut outgoing).await {
         tracing::debug!(%violation, "closing the WebSocket connection");
         let frame = CloseFrame {
             code: close_code::PROTOCOL,

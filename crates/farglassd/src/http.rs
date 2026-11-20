@@ -105,13 +105,35 @@ async fn create_session(
         return StatusCode::BAD_REQUEST.into_response();
     };
     let Some(token) = context.sessions.redeem(&request.ticket) else {
+        farglass_login::audit::Event {
+            event: "session",
+            reason: "ticket",
+            ..Default::default()
+        }
+        .refused();
         return StatusCode::FORBIDDEN.into_response();
     };
     let mut response = StatusCode::NO_CONTENT.into_response();
     if let Ok(value) = HeaderValue::from_str(&cookie::set_cookie(&token)) {
-        response.headers_mut().insert(SET_COOKIE, value);
+        response.headers_mut().append(SET_COOKIE, value);
+    }
+    // The browser logged in: it gets a device cookie for the reserved login places (F051).
+    if let Some(device) = context.devices.issue()
+        && let Ok(value) = HeaderValue::from_str(&crate::device::set_cookie(&device))
+    {
+        response.headers_mut().append(SET_COOKIE, value);
     }
     response
+}
+
+/// Returns the security event of a request from a different origin.
+pub(crate) fn origin_event(addr: &str) -> farglass_login::audit::Event<'_> {
+    farglass_login::audit::Event {
+        event: "origin",
+        reason: "different-origin",
+        addr,
+        ..Default::default()
+    }
 }
 
 /// Logs out the user of the cookie: ends the web session, removes each cookie
@@ -177,7 +199,7 @@ async fn create_transport(
     let body = serde_json::json!({
         "port": transport.port,
         "path": crate::quic::WT_PATH,
-        "ticket": transport.tickets.issue(identity),
+        "ticket": transport.tickets.issue(identity, context.devices.valid(&headers)),
         "hashes": transport.certs.hashes().iter().map(|hash| hex(hash)).collect::<Vec<_>>(),
     });
     let mut response = body.to_string().into_response();

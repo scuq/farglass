@@ -67,6 +67,18 @@ struct Args {
     #[arg(long, value_name = "N", default_value_t = 32)]
     max_attempts: usize,
 
+    /// The places of --max-attempts that only a browser with a valid device cookie can use
+    #[arg(long, value_name = "N", default_value_t = 8)]
+    reserved_attempts: usize,
+
+    /// The largest number of logins at the same time from one address (IPv6 grouped by /64)
+    #[arg(long, value_name = "N", default_value_t = 4)]
+    max_per_address: usize,
+
+    /// The time for the whole login in seconds
+    #[arg(long, value_name = "S", default_value_t = 60)]
+    login_deadline: u64,
+
     /// How to start the web session after a login
     #[arg(long, value_enum, default_value = "systemd")]
     session: SessionMode,
@@ -178,6 +190,9 @@ async fn serve(args: Args) -> ExitCode {
         allow_root: args.allow_root,
         fail_delay: Duration::from_millis(args.fail_delay_ms),
         max_attempts: args.max_attempts.max(1),
+        reserved_attempts: args.reserved_attempts,
+        max_per_address: args.max_per_address.max(1),
+        login_deadline: Duration::from_secs(args.login_deadline.max(1)),
         host,
     };
     tracing::info!(service = settings.service, allow_root = settings.allow_root, session = ?args.session, "ready");

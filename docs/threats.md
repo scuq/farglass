@@ -34,7 +34,12 @@ Threats: guessing of passwords, a login with no second factor, denial of service
 
 Controls:
 
-- farglass-login runs PAM as root (ADR-003). It blocks an address or a user after five failures, waits 2 s after a failure, and runs at most 32 logins at the same time (`crates/farglass-login/src/limiter.rs`, `server.rs`).
+- farglass-login runs PAM as root (ADR-003). It blocks an address (IPv6 by /64) or a user after five failures, and waits 2 s after a failure (`crates/farglass-login/src/limiter.rs`, `server.rs`).
+- A blocked user gets no password prompt, and a correct password does not end a block. A login that stops after an answer, or passes the deadline of 60 s, counts as a failure (F051).
+- farglass-login runs at most 32 logins at the same time, at most 4 from one address. 8 places are only for a browser with a device cookie (F051).
+- farglassd closes a connection with no hello in 10 s, and a connection with no user after 10 minutes with no login. One address has at most 16 connections with no user (F051).
+- A full table of the limiter keeps each active block, and refuses a new key (ADR-042).
+- Each refusal goes to the security log (ADR-043).
 - The failure text does not tell if the user exists. A login as root needs `--allow-root`.
 - After PAM, farglass-login waits until farglassd checks the passkey, before the session starts (ADR-040).
 - The login socket has mode 0660 and the group farglass.
@@ -53,7 +58,7 @@ Controls:
 ### Agent socket `/run/farglass/agent.sock`
 
 Threat: a different local user gets the channels of a user.
-Control: farglassd selects the agent by the uid of the peer from SO_PEERCRED (`agents.rs`).
+Controls: farglassd selects the agent by the uid of the peer from SO_PEERCRED (`agents.rs`). One uid has at most 4 links at the same time (F051).
 
 ### Channels of the shell
 
@@ -89,14 +94,14 @@ Gap: finding 9.
 | No. | Severity | Finding | Record |
 |---|---|---|---|
 | 1 | High | A read error of the passkey file other than "not found", for example with no free file descriptor, turned the second factor off. | Fixed in F035 |
-| 2 | Medium | The block of a user applies only when farglassd gives the username. The login screen never does, thus an attacker with many addresses gets five guesses at each one. | F051 |
-| 3 | Medium | A connection waits for its hello with no time limit, and 32 logins that do not answer hold all login places. An attacker with no password can stop all logins and use up the file descriptors. | F051 |
+| 2 | Medium | The block of a user applies only when farglassd gives the username. The login screen never does, thus an attacker with many addresses gets five guesses at each one. | Fixed in F051 |
+| 3 | Medium | A connection waits for its hello with no time limit, and 32 logins that do not answer hold all login places. An attacker with no password can stop all logins and use up the file descriptors. | Fixed in F051 |
 | 4 | Medium | Each script of a page in the host browser can send redirection messages. The agent keeps media, sources, and init segments with no limit, and the client places a video on each window whose title starts with the title that the page gives. | F052 |
 | 5 | Low | A person at an unlocked tab, or with a stolen cookie, can remove all passkeys with no new check. | F053 |
 | 6 | Low | A connection that misses a lock or logout event, after 64 events in its queue, keeps its channels. | F054 |
 | 7 | Low | A connection from a cookie continues after the cookie ends. | F054 |
 | 8 | Low | Output in a terminal (OSC 52) can write the clipboard of the client computer. | F055 |
 | 9 | Low | farglass-login runs as root with all capabilities and accepts each peer of its socket. | F056 |
-| 10 | Low | Each local user can open connections to the agent socket with no limit. | F051 |
+| 10 | Low | Each local user can open connections to the agent socket with no limit. | Fixed in F051 |
 | 11 | Info | A program of the user can unlock the web lock screen or replace the agent. The passkey step shows that the password was correct. `dev_user` gives each local user a session. The CSP permits inline style elements. | ADR-041 |
 | 12 | Info | `install-local.sh` puts the path of the repository in a shell string for `runuser`. | F056 |

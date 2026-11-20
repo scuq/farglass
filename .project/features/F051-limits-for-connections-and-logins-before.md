@@ -1,11 +1,11 @@
 ---
 id: F051
 title: Limits for connections and logins before authentication
-status: planned
+status: done
 phase: P06
 tags: [security]
 decisions: [ADR-042, ADR-043]
-files: []
+files: [crates/farglass-login/src/audit.rs, crates/farglass-login/src/limiter.rs, crates/farglass-login/src/server.rs, crates/farglass-login/src/main.rs, crates/farglass-login/src/client.rs, crates/farglass-proto/src/login.rs, crates/farglassd/src/device.rs, crates/farglassd/src/connection.rs, crates/farglassd/src/agents.rs, crates/farglassd/src/http.rs, crates/farglassd/src/ws.rs, crates/farglassd/src/quic.rs, crates/farglassd/src/lock.rs, packaging/systemd/farglassd.service, README.md, docs/threats.md]
 ---
 
 ## Goal
@@ -25,3 +25,4 @@ An attacker with no password cannot stop the logins of other users or guess one 
 - Review findings 2, 3, and 10 in docs/threats.md
 
 ## Acceptance
+farglass-login groups IPv6 by /64, refuses a blocked user before the password and after a correct password, counts abandoned and deadline attempts, caps 4 logins per address, ends each login after 60 s, and keeps 8 of 32 places for browsers with a device cookie. farglassd closes a connection with no hello in 10 s and with no user after 10 minutes, caps 16 connections with no user per address and 4 agent links per uid, and sets the HMAC device cookie at POST /session. A full limiter keeps active blocks (ADR-042). Each event goes to farglass::security in the ADR-043 form; README gives journalctl and fail2ban. Tests: farglass-login login.rs (5 new), farglassd login.rs (3 new), agents.rs (1 new), audit, limiter, device unit tests; e2e login and passkey pass.

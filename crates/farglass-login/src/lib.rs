@@ -11,6 +11,7 @@
 
 #[allow(unsafe_code)]
 pub mod activation;
+pub mod audit;
 pub mod client;
 pub mod host;
 pub mod limiter;

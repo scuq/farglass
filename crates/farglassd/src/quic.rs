@@ -223,8 +223,8 @@ fn make_pinned(
     })
 }
 
-/// The user of a ticket and the end of its validity.
-type TicketEntry = (Option<Identity>, Instant);
+/// The user of a ticket, the device cookie of its browser (F051), and the end of its validity.
+type TicketEntry = (Option<Identity>, bool, Instant);
 
 /// The single-use tickets of `POST /transport`. Each names the user of the
 /// cookie, or no user for a connection that must log in.
@@ -234,24 +234,25 @@ pub struct Tickets {
 }
 
 impl Tickets {
-    /// Returns a new ticket for `identity`.
-    pub fn issue(&self, identity: Option<Identity>) -> String {
+    /// Returns a new ticket for `identity`. `device` reports whether the browser has a valid device cookie.
+    pub fn issue(&self, identity: Option<Identity>, device: bool) -> String {
         let ticket = crate::cookie::secret();
         let now = Instant::now();
         let mut tickets = self.tickets.lock().unwrap_or_else(PoisonError::into_inner);
-        tickets.retain(|_, (_, expires)| *expires > now);
+        tickets.retain(|_, (_, _, expires)| *expires > now);
         tickets.insert(
             crate::cookie::hash(&ticket),
-            (identity, now + TICKET_LIFETIME),
+            (identity, device, now + TICKET_LIFETIME),
         );
         ticket
     }
 
-    /// Redeems `ticket` one time. Returns the identity of the ticket, or `None` if the ticket is not valid.
-    pub fn redeem(&self, ticket: &str) -> Option<Option<Identity>> {
+    /// Redeems `ticket` one time. Returns the identity and the device flag of the ticket,
+    /// or `None` if the ticket is not valid.
+    pub fn redeem(&self, ticket: &str) -> Option<(Option<Identity>, bool)> {
         let mut tickets = self.tickets.lock().unwrap_or_else(PoisonError::into_inner);
-        let (identity, expires) = tickets.remove(&crate::cookie::hash(ticket))?;
-        (expires > Instant::now()).then_some(identity)
+        let (identity, device, expires) = tickets.remove(&crate::cookie::hash(ticket))?;
+        (expires > Instant::now()).then_some((identity, device))
     }
 }
 
@@ -368,6 +369,18 @@ async fn serve_connection(
         let identity = match admit(&context, &request) {
             Ok(identity) => identity,
             Err(status) => {
+                let addr = peer.ip().to_canonical().to_string();
+                farglass_login::audit::Event {
+                    event: "transport",
+                    reason: if status == StatusCode::NOT_FOUND {
+                        "path"
+                    } else {
+                        "ticket-or-origin"
+                    },
+                    addr: &addr,
+                    ..Default::default()
+                }
+                .refused();
                 let _ = stream.send_response(empty(status)).await;
                 let _ = stream.finish().await;
                 continue;
@@ -396,8 +409,8 @@ fn empty(status: StatusCode) -> Response<()> {
     response
 }
 
-/// Checks a WebTransport request. Returns the identity of its ticket.
-fn admit(context: &Context, request: &Request<()>) -> Result<Option<Identity>, StatusCode> {
+/// Checks a WebTransport request. Returns the identity and the device flag of its ticket.
+fn admit(context: &Context, request: &Request<()>) -> Result<(Option<Identity>, bool), StatusCode> {
     if request.uri().path() != WT_PATH {
         return Err(StatusCode::NOT_FOUND);
     }
@@ -481,7 +494,7 @@ type Routes = Arc<Mutex<RouteTable>>;
 /// Runs the channel protocol on a WebTransport session until it ends.
 async fn run_session(
     session: WebTransportSession<h3_quinn::Connection, Bytes>,
-    identity: Option<Identity>,
+    (identity, device): (Option<Identity>, bool),
     origin: Option<String>,
     router: Router,
     context: Arc<Context>,
@@ -522,16 +535,13 @@ async fn run_session(
         Ok::<_, std::convert::Infallible>(routes)
     });
     let mut outgoing = std::pin::pin!(outgoing);
-    if let Err(violation) = connection::run(
-        &context,
-        Some(peer.ip()),
-        identity,
+    let client = connection::Client {
+        addr: Some(peer.ip()),
+        user: identity,
         origin,
-        &mut incoming,
-        &mut outgoing,
-    )
-    .await
-    {
+        device,
+    };
+    if let Err(violation) = connection::run(&context, client, &mut incoming, &mut outgoing).await {
         tracing::warn!(%peer, %violation, "the shell broke the protocol on WebTransport");
     }
     acceptor.abort();
@@ -667,8 +677,8 @@ mod tests {
     #[test]
     fn tickets_are_single_use() {
         let tickets = Tickets::default();
-        let ticket = tickets.issue(None);
-        assert_eq!(tickets.redeem(&ticket), Some(None));
+        let ticket = tickets.issue(None, true);
+        assert_eq!(tickets.redeem(&ticket), Some((None, true)));
         assert_eq!(tickets.redeem(&ticket), None);
         assert_eq!(tickets.redeem("guess"), None);
     }
