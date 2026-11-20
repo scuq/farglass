@@ -1,11 +1,11 @@
 ---
 id: F062
 title: The security log names only accounts of the host
-status: planned
+status: done
 phase: P06
 tags: [security]
 decisions: [ADR-042, ADR-043]
-files: []
+files: [crates/farglass-login/src/server.rs, README.md, docs/threats.md]
 ---
 
 ## Goal
@@ -17,3 +17,4 @@ A password typed in the username field does not go into the journal.
 - Review finding 16 in docs/threats.md
 
 ## Acceptance
+log_event of farglass-login writes the username only if nix finds the account on the host, else user=?; a read error of the user database also gives user=?. The limiter still counts the typed name. Test: the_log_names_an_account_of_the_host_and_hides_other_text.

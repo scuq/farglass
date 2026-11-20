@@ -127,5 +127,5 @@ Gap: finding 17.
 | 13 | Medium | farglassd counted each agent link from the session worker under the uid root, thus the cap of 4 links of F051 let at most 4 web sessions on the host. | Fixed after F057 |
 | 14 | Low | farglassd has no cap on TCP connections and TLS handshakes for each address, and no rate limit on `POST /session` and `POST /transport`. Only the WebSocket connections with no user have a cap. | Fixed in F060 |
 | 15 | Low | The first passkey needs no proof. A person at an unlocked tab, or with a stolen cookie, can add a passkey to an account with no passkey, and the user is then locked out until the administrator removes the file. | Fixed in F061 |
-| 16 | Info | A failed login logs the typed username. A password typed in the username field goes into the journal. | F062 |
+| 16 | Info | A failed login logs the typed username. A password typed in the username field goes into the journal. | Fixed in F062 |
 | 17 | Info | The root test starts farglass-login directly, not in its systemd unit: no test proves that PAM works with the capability set of F056. | F063 |

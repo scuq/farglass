@@ -129,14 +129,22 @@ struct Seen {
 }
 
 /// Logs a security event of a login.
+///
+/// The username goes into the log only if the host has that account (F062): a password
+/// typed in the username field must not go into the journal. Other names give `user=?`.
 fn log_event<'a>(reason: &'a str, addr: &'a str, user: Option<&'a str>) -> Event<'a> {
     Event {
         event: "login",
         reason,
         addr,
-        user,
+        user: user.map(|name| if account_exists(name) { name } else { "?" }),
         ..Event::default()
     }
+}
+
+/// Reports whether the host has the account `name`. A read error gives `false`: the name stays out of the log.
+fn account_exists(name: &str) -> bool {
+    matches!(nix::unistd::User::from_name(name), Ok(Some(_)))
 }
 
 impl Service {
@@ -842,5 +850,22 @@ mod tests {
             })
             .unwrap();
         assert!(!peer_allowed(other));
+    }
+
+    #[test]
+    fn the_log_names_an_account_of_the_host_and_hides_other_text() {
+        let me = nix::unistd::User::from_uid(nix::unistd::getuid())
+            .unwrap()
+            .unwrap()
+            .name;
+        let line = log_event("wrong-password", "192.0.2.1", Some(&me))
+            .line(crate::audit::Outcome::Refused);
+        assert!(line.contains(&format!("user={me} ")), "{line}");
+        let line = log_event("wrong-password", "192.0.2.1", Some("Hunter2secret"))
+            .line(crate::audit::Outcome::Refused);
+        assert!(
+            line.contains("user=? ") && !line.contains("Hunter2"),
+            "{line}"
+        );
     }
 }

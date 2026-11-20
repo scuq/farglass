@@ -596,6 +596,7 @@ event=login result=refused reason=address-cap addr=203.0.113.7 user=- uid=-
 A success has the level info, a refusal warn, and a fault of the host error with `reason=fault` (ADR-042).
 A fault never lets a login pass: for example, an unreadable passkey file or user database refuses the login.
 No password, PIN, recovery code, cookie, or ticket goes into the log.
+A failed login names the user only if the host has that account, else `user=?`: a password typed in the username field stays out of the journal (F062).
 
 To see the events:
 
