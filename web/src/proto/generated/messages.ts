@@ -441,9 +441,9 @@ dx: number,
  */
 dy: number, } | { "type": "key", 
 /**
- * The window where the user typed the key.
+ * The window where the user typed the key. A shell before this field sends none: the key goes to the window with the focus.
  */
-id: number, 
+id?: number, 
 /**
  * The key code.
  */

@@ -210,8 +210,8 @@ pub enum Command {
     /// A key of the keyboard: a Linux key code, for example `KEY_A` (30), in the window `id`.
     /// If the window does not have the focus, it gets it first: a key goes where the user typed it.
     Key {
-        /// The window.
-        id: u32,
+        /// The window, or `None` for the window with the focus.
+        id: Option<u32>,
         /// The key code.
         code: u32,
         /// Pressed or released.
@@ -558,7 +558,10 @@ impl State {
                 }
             }
             Command::Key { id, code, pressed } => {
-                if self.focused != Some(id) && self.toplevels.contains_key(&id) {
+                if let Some(id) = id
+                    && self.focused != Some(id)
+                    && self.toplevels.contains_key(&id)
+                {
                     self.activate(Some(id));
                 }
                 if let Some(keyboard) = self.seat.get_keyboard() {

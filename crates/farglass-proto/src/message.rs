@@ -421,8 +421,10 @@ pub enum SurfaceInput {
     },
     /// A key: a Linux key code, for example 30 for A, in the window `id`. The window gets the keyboard focus first if it does not have it.
     Key {
-        /// The window where the user typed the key.
-        id: u32,
+        /// The window where the user typed the key. A shell before this field sends none: the key goes to the window with the focus.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        id: Option<u32>,
         /// The key code.
         code: u32,
         /// Pressed or released.
