@@ -202,6 +202,12 @@ try {
       await shell.waitForTimeout(2500);
       if (SHOTS) await shell.screenshot({ path: join(SHOTS, "yt-hover.png") });
       console.log("HOVER done");
+      // The captions and the settings menu: dark panels over the video.
+      await player.keyboard.press("c");
+      await player.locator(".ytp-settings-button").click();
+      await shell.waitForTimeout(2500);
+      if (SHOTS) await shell.screenshot({ path: join(SHOTS, "yt-menu.png") });
+      console.log("MENU done");
     }
   }
   if (process.env.FARGLASS_THEATRE) {

@@ -5,6 +5,7 @@ import { startSound } from "../audio/player";
 import { startHostApps } from "../launcher/hostApps";
 import { startStats } from "../stats";
 import { startSurfaceManager, stopSurfaceManager } from "../surface/manager";
+import { parseVideoMode, VIDEO_KEY } from "../surface/redirect";
 import { KeyHints } from "../keys/KeyHints";
 import { Panel } from "../panel/Panel";
 import { Tour, TOUR_EVENT } from "../tour/Tour";
@@ -26,7 +27,9 @@ export function Desktop(props: { connection: Connection; user: string; onlogout:
   // The idle lock of farglassd needs the activity of the user.
   onCleanup(trackActivity(() => props.connection.activity()));
   // The windows of the Wayland apps of the session.
-  startSurfaceManager(props.connection, controller);
+  const surfaces = startSurfaceManager(props.connection, controller);
+  // Where the videos of the host browser play, from the settings (F040).
+  onCleanup(controller.state.watch(VIDEO_KEY, (value) => surfaces.redirect.setMode(parseVideoMode(value))));
   onCleanup(() => stopSurfaceManager(props.connection));
   // The desktop entries of the host for the launcher, and the icons of their windows (F031).
   onCleanup(startHostApps(props.connection));

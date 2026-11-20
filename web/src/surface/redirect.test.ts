@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { dataFrame, encodeJsonFrame, FrameType, parseJson, readyFrame } from "../proto";
 import { fakeConnection } from "../proto/testing";
-import { hostTime, mustSeek, placement, RedirectManager } from "./redirect";
+import { hostTime, mustSeek, parseVideoMode, placement, RedirectManager } from "./redirect";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -104,5 +104,18 @@ describe("health", () => {
     expect(manager.playersFor("A video - Brave")).toEqual([]);
     manager.close();
     vi.useRealTimers();
+  });
+});
+
+describe("video mode", () => {
+  test("the mode comes from the state store, and on the host the client shows no video", async () => {
+    expect(parseVideoMode(null)).toBe("client");
+    expect(parseVideoMode({ mode: "host" })).toBe("host");
+    expect(parseVideoMode({ mode: "other" })).toBe("client");
+    const { connection } = await fakeConnection("alice");
+    const manager = new RedirectManager(connection);
+    manager.setMode("host");
+    expect(manager.playersFor("Any - Brave")).toEqual([]);
+    manager.close();
   });
 });

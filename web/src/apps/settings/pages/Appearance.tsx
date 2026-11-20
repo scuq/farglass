@@ -1,5 +1,6 @@
 import { createSignal, For } from "solid-js";
 import { ACCENTS, APPEARANCE_KEY, type Appearance, DEFAULT_APPEARANCE, MOTIONS, parseAppearance, TEXT_SIZES, THEMES } from "../../../appearance";
+import { parseVideoMode, VIDEO_KEY, type VideoMode } from "../../../surface/redirect";
 import type { AppContext } from "../../types";
 
 const THEME_LABELS: Record<Appearance["theme"], string> = { system: "Same as this computer", light: "Light", dark: "Dark" };
@@ -9,6 +10,12 @@ const ACCENT_LABELS: Record<Appearance["accent"], string> = { blue: "Blue", gree
 /** The appearance of the shell. The value is in the state store, thus each tab and each login gets it. */
 export function AppearancePage(props: { context: AppContext }) {
   const [value, setValue] = createSignal<Appearance>(DEFAULT_APPEARANCE);
+  const [video, setVideo] = createSignal<VideoMode>("client");
+  props.context.state.watchShared(VIDEO_KEY, (stored) => setVideo(parseVideoMode(stored)));
+  const changeVideo = (mode: VideoMode) => {
+    setVideo(mode);
+    props.context.state.setShared(VIDEO_KEY, { mode });
+  };
   props.context.state.watchShared(APPEARANCE_KEY, (stored) => setValue(parseAppearance(stored)));
   const change = (patch: Partial<Appearance>) => {
     const next = { ...value(), ...patch };
@@ -63,6 +70,17 @@ export function AppearancePage(props: { context: AppContext }) {
             </label>
           )}
         </For>
+      </fieldset>
+      <fieldset>
+        <legend>Videos in the host browser</legend>
+        <label class="settings-choice">
+          <input type="radio" name="video" value="client" checked={video() === "client"} onChange={() => changeVideo("client")} />
+          Play in this browser: sharp, and with little load on the host. The controls of the page can show small marks over the video.
+        </label>
+        <label class="settings-choice">
+          <input type="radio" name="video" value="host" checked={video() === "host"} onChange={() => changeVideo("host")} />
+          Play on the host: the window shows the video as the host draws it, with more load on the host and the connection.
+        </label>
       </fieldset>
       <p class="settings-note">The appearance applies at once in each tab of your session.</p>
     </div>

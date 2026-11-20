@@ -296,6 +296,9 @@ The launcher starts Chromium and Brave with the extension, and the agent writes 
 A browser that you start in a terminal needs `--load-extension=/usr/share/farglass/redirect-extension`.
 Google Chrome does not load an extension from the command line.
 Encrypted video (DRM) and Media Source Extensions in a worker stay as tiles.
+A semi-transparent element of the page over the video shows in your browser as well as the key can make it: a light graph as translucent white, a dark gray panel as translucent dark gray.
+A panel of nearly black, for example the settings menu of YouTube, is not distinct from the black under it, thus the video shows under its text with no panel.
+Settings > Appearance > Videos in the host browser selects "Play on the host" for the exact page: the host then draws the video, with more load on the host and the connection.
 `npm --prefix spikes/e2e run redirect` tests it with a local page, and `npm --prefix spikes/e2e run youtube` tries a YouTube video (network needed).
 
 To look at the events of a real app:
@@ -318,6 +321,7 @@ The settings app has these pages:
 
 - Appearance: the theme, the accent color, the text size, and the motion. Each tab and each login of the user gets them.
   The motion follows the reduced motion setting of your computer, or Full, or Reduced. Reduced has no movement, no pulse, and no blinking cursor in the terminal. A change applies at once, with no reload.
+  Videos in the host browser play in this browser (video redirection), or on the host.
 - Keyboard: the shortcut scheme, the hints, the list of shortcuts, and the tour.
 - Focus: the rules of focus protection, each on or off. See [Focus protection](#focus-protection).
 - Date and time: the time of the host, the timezone, and the network time (timedate1).

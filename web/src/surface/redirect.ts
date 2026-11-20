@@ -267,8 +267,20 @@ export interface Player {
   readonly rect: RedirectRect;
 }
 
+/** The key of the setting in the state store: where the videos of the host browser play. */
+export const VIDEO_KEY = "video-redirect";
+
+/** Where the videos of the host browser play: in the client browser (redirection), or on the host. */
+export type VideoMode = "client" | "host";
+
+/** Returns the mode from a value of the state store. The default is the client browser. */
+export function parseVideoMode(value: unknown): VideoMode {
+  return typeof value === "object" && value !== null && (value as { mode?: unknown }).mode === "host" ? "host" : "client";
+}
+
 export class RedirectManager {
   readonly #channel: Channel;
+  readonly #mode = createSignal<VideoMode>("client");
   readonly #medias = new Map<string, RedirectedMedia>();
   readonly #version = createSignal(0, { equals: false });
   readonly #showing = new Map<string, boolean>();
@@ -314,9 +326,15 @@ export class RedirectManager {
     this.#medias.clear();
   }
 
+  /** Sets where the videos play. With "host", the client shows no video, and the host draws each one again. */
+  setMode(mode: VideoMode): void {
+    this.#mode[1](mode);
+  }
+
   /** The players that show in a window whose title is `title`, and whose window geometry has the size `frame`. */
   playersFor(title: string, frame?: { width: number; height: number }): Player[] {
     this.#version[0]();
+    if (this.#mode[0]() === "host") return [];
     const players: Player[] = [];
     for (const media of this.#medias.values()) {
       const state = media.state;
