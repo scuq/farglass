@@ -1,7 +1,7 @@
 ---
 id: F033
 title: Debian package
-status: planned
+status: dropped
 phase: P06
 tags: []
 decisions: [ADR-003]
