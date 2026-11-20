@@ -4,7 +4,7 @@ title: A passkey change needs a fresh passkey
 status: planned
 phase: P06
 tags: [security]
-decisions: []
+decisions: [ADR-042, ADR-043]
 files: []
 ---
 

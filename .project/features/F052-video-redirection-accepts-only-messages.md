@@ -4,7 +4,7 @@ title: Video redirection accepts only messages of the extension
 status: planned
 phase: P06
 tags: [security]
-decisions: []
+decisions: [ADR-042, ADR-043]
 files: []
 ---
 

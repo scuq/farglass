@@ -4,7 +4,7 @@ title: A connection ends at a missed lock or logout and at the cookie expiry
 status: planned
 phase: P06
 tags: [security]
-decisions: []
+decisions: [ADR-042, ADR-043]
 files: []
 ---
 

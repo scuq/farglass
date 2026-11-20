@@ -4,7 +4,7 @@ title: Hardening of farglass-login
 status: planned
 phase: P06
 tags: [security]
-decisions: []
+decisions: [ADR-042, ADR-043]
 files: []
 ---
 

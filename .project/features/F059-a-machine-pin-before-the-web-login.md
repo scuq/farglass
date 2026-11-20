@@ -4,7 +4,7 @@ title: A machine PIN before the web login
 status: planned
 phase: P06
 tags: [security]
-decisions: []
+decisions: [ADR-042, ADR-043]
 files: [crates/farglassd/src/connection.rs, crates/farglassd/src/main.rs, crates/farglass-proto/src/message.rs, web/src/LoginScreen.tsx, web/src/login.ts, README.md, docs/threats.md]
 ---
 

@@ -4,7 +4,7 @@ title: Only members of a group can log in
 status: planned
 phase: P06
 tags: [security]
-decisions: []
+decisions: [ADR-042, ADR-043]
 files: [crates/farglass-login/src/main.rs, crates/farglass-login/src/server.rs, crates/farglassd/src/connection.rs, packaging/install-local.sh, packaging/systemd/farglass-login.service, README.md, docs/threats.md]
 ---
 
