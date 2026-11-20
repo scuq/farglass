@@ -17,15 +17,21 @@
 //! | 6 | fill | x u16, y u16, w u8, h u8, BGRA u32 |
 //! | 7 | jpeg | x u16, y u16, w u8, h u8, length u32, JPEG of the tile. It takes no cache slot. |
 //! | 8 | end | sequence u32 |
+//! | 9 | video | x u16, y u16, w u16, h u16, flags u8, length u32, H.264 access unit (Annex B). Flag 1: key frame. Flag 2: a new stream. |
+//! | 10 | video end | no fields: the video region ends, and exact tiles follow |
 //!
 //! A new size in a frame message clears the canvas of the client to
 //! transparent black. The client shows the canvas at the end message, and
 //! acknowledges the sequence.
+//!
+//! A region that changes in each frame goes as video (F037): see [`crate::video`].
+//! The tiles of the region do not go while the video runs.
 
 use std::time::{Duration, Instant};
 
 use crate::Rect;
 use crate::cache::{Cache, Hit, SLOTS};
+use crate::video::{self, Detector, VideoStream};
 use crate::{classify, scroll};
 
 /// The version of the message stream.
@@ -54,6 +60,10 @@ pub mod code {
     pub const JPEG: u8 = 7;
     /// The end of a frame.
     pub const END: u8 = 8;
+    /// A frame of the video region.
+    pub const VIDEO: u8 = 9;
+    /// The end of the video region.
+    pub const VIDEO_END: u8 = 10;
 }
 
 /// The numbers of one encoded frame.
@@ -75,6 +85,8 @@ pub struct Stats {
     pub refined: u32,
     /// The tiles in the damage that did not change.
     pub unchanged: u32,
+    /// The video frames.
+    pub video: u32,
     /// The bytes of the frame.
     pub bytes: u32,
     /// The CPU time of the encoder in microseconds.
@@ -116,6 +128,81 @@ pub struct Encoder {
     pub lossy: bool,
     /// For each tile: the time of its last lossy send, until the lossless pass.
     lossy_since: Vec<Option<Instant>>,
+    /// Reports whether a region that changes in each frame goes as video (F037).
+    pub video: bool,
+    detector: Detector,
+    stream: Option<VideoStream>,
+    /// Reports whether the video encoder did not start: the encoder then uses tiles only.
+    video_failed: bool,
+}
+
+/// Ends the video `stream`: the region of the copy of the client gets the last frame of the video,
+/// and each tile of the region goes exact. The client draws the tiles over the lossy video.
+#[allow(clippy::too_many_arguments)]
+fn end_video(
+    out: &mut Out,
+    stats: &mut Stats,
+    cache: &mut Cache,
+    lossy_since: &mut [Option<Instant>],
+    shown: &mut [u8],
+    width: usize,
+    height: usize,
+    stream: &VideoStream,
+) {
+    out.u8(code::VIDEO_END);
+    let (x, y, w, h) = stream.rect;
+    if stream.last.len() == w * h * 4 {
+        for (line, chunk) in stream.last.chunks_exact(w * 4).enumerate() {
+            let start = ((y + line) * width + x) * 4;
+            shown[start..start + w * 4].copy_from_slice(chunk);
+        }
+    }
+    let columns = width.div_ceil(TILE);
+    let (c0, r0, c1, r1) = stream.block;
+    let mut current = Vec::with_capacity(TILE * TILE * 4);
+    for row in r0..r1.min(height.div_ceil(TILE)) {
+        for column in c0..c1.min(columns) {
+            if !stream.covers(column, row, width, height) {
+                continue;
+            }
+            let (tx, ty) = (column * TILE, row * TILE);
+            let (tw, th) = (TILE.min(width - tx), TILE.min(height - ty));
+            tile_bytes(
+                &Image {
+                    width,
+                    height,
+                    pixels: shown,
+                },
+                tx,
+                ty,
+                tw,
+                th,
+                &mut current,
+            );
+            write_tile(out, stats, cache, (tx, ty, tw, th), &current, false, false);
+            lossy_since[row * columns + column] = None;
+            stats.refined += 1;
+        }
+    }
+}
+
+/// Writes a video message for a frame of `stream`.
+fn write_video(out: &mut Out, stats: &mut Stats, stream: &VideoStream, frame: &video::VideoFrame) {
+    let (x, y, w, h) = stream.rect;
+    out.u8(code::VIDEO);
+    out.u16(x);
+    out.u16(y);
+    out.u16(w);
+    out.u16(h);
+    out.u8(frame.flags);
+    out.u32(u32::try_from(frame.data.len()).unwrap_or(u32::MAX));
+    out.0.extend_from_slice(&frame.data);
+    stats.video += 1;
+}
+
+/// Reports whether the block `outer` has each tile of the block `inner`.
+const fn contains(outer: video::TileBox, inner: video::TileBox) -> bool {
+    inner.0 >= outer.0 && inner.1 >= outer.1 && inner.2 <= outer.2 && inner.3 <= outer.3
 }
 
 /// The time with no change after which a lossy tile goes again, exact.
@@ -194,6 +281,10 @@ impl Default for Encoder {
             scroll: true,
             lossy: true,
             lossy_since: Vec::new(),
+            video: true,
+            detector: Detector::default(),
+            stream: None,
+            video_failed: false,
         }
     }
 }
@@ -322,14 +413,29 @@ impl Encoder {
     ///
     /// A new size sends each tile. Returns `None` if nothing changed.
     pub fn encode(&mut self, image: &Image<'_>, damage: &[Rect]) -> Option<Encoded> {
+        self.encode_at(image, damage, Instant::now())
+    }
+
+    /// Encodes as [`Encoder::encode`] does, with `now` as the time of the commit.
+    #[allow(clippy::too_many_lines)]
+    pub fn encode_at(
+        &mut self,
+        image: &Image<'_>,
+        damage: &[Rect],
+        now: Instant,
+    ) -> Option<Encoded> {
         let started = Instant::now();
         let (width, height) = (image.width, image.height);
         let resized = !matches!(&self.shown, Some((w, h, _)) if *w == width && *h == height);
         let columns = width.div_ceil(TILE);
         let rows = height.div_ceil(TILE);
+        // A new size clears the canvas of the client: a video of the old size ends.
+        let mut video_ended = false;
         if resized {
             self.shown = Some((width, height, vec![0; width * height * 4]));
             self.lossy_since = vec![None; columns * rows];
+            self.detector.reset(columns, rows);
+            video_ended = self.stream.take().is_some();
         }
         let mut dirty = vec![resized; columns * rows];
         if !resized {
@@ -347,10 +453,15 @@ impl Encoder {
         out.u32(next);
         out.u16(width);
         out.u16(height);
+        if video_ended {
+            out.u8(code::VIDEO_END);
+        }
 
         // A scroll: the client copies the rows that moved, and the tile diff then sends the new strip only.
+        // With a video, the copy of the client is not exact in the region, thus no scroll.
         if self.scroll
             && !resized
+            && self.stream.is_none()
             && let Some((x0, y0, x1, y1)) = bounds(damage, width, height)
             && let Some(step) = scroll::detect(shown, image.pixels, width, x0, y0, x1, y1)
         {
@@ -374,35 +485,119 @@ impl Encoder {
             tiles_of(region, width, height, &mut dirty, columns);
         }
 
+        // The tiles that changed. The video compares its own region.
+        let mut changed = vec![false; columns * rows];
         let mut current = Vec::with_capacity(TILE * TILE * 4);
         let mut before = Vec::with_capacity(TILE * TILE * 4);
         for row in 0..rows {
             for column in 0..columns {
-                if !dirty[row * columns + column] {
+                let index = row * columns + column;
+                if !dirty[index] {
                     continue;
                 }
                 stats.damaged += 1;
+                if self
+                    .stream
+                    .as_ref()
+                    .is_some_and(|s| s.covers(column, row, width, height))
+                {
+                    continue;
+                }
+                if resized {
+                    changed[index] = true;
+                    continue;
+                }
                 let (x, y) = (column * TILE, row * TILE);
                 let (w, h) = (TILE.min(width - x), TILE.min(height - y));
                 tile_bytes(image, x, y, w, h, &mut current);
-                if !resized {
-                    tile_bytes(
-                        &Image {
-                            width,
-                            height,
-                            pixels: shown,
-                        },
-                        x,
-                        y,
-                        w,
-                        h,
-                        &mut before,
-                    );
-                    if before == current {
-                        stats.unchanged += 1;
-                        continue;
+                tile_bytes(
+                    &Image {
+                        width,
+                        height,
+                        pixels: shown,
+                    },
+                    x,
+                    y,
+                    w,
+                    h,
+                    &mut before,
+                );
+                if before == current {
+                    stats.unchanged += 1;
+                } else {
+                    changed[index] = true;
+                }
+            }
+        }
+
+        // The video region: a frame of the running video, a new video, or a new region.
+        let mut video_frame = self
+            .stream
+            .as_mut()
+            .and_then(|stream| stream.frame(image.pixels, width, now));
+        if self.video && !self.video_failed && !resized {
+            let mut seen = changed.clone();
+            if video_frame.is_some()
+                && let Some(stream) = &self.stream
+            {
+                let (c0, r0, c1, r1) = stream.block;
+                for row in r0..r1 {
+                    for column in c0..c1 {
+                        seen[row * columns + column] = true;
                     }
                 }
+            }
+            if let Some(block) = self.detector.record(&seen, now) {
+                // A region that grew: the old video ends, and a video of the new region starts.
+                if let Some(stream) = self.stream.take_if(|s| !contains(s.block, block)) {
+                    end_video(
+                        &mut out,
+                        &mut stats,
+                        &mut self.cache,
+                        &mut self.lossy_since,
+                        shown,
+                        width,
+                        height,
+                        &stream,
+                    );
+                    video_frame = None;
+                }
+                if self.stream.is_none()
+                    && let Some(rect) = video::pixel_rect(block, width, height)
+                {
+                    match VideoStream::new(rect, block, now) {
+                        Ok(mut stream) => {
+                            tracing::debug!(?rect, "a region of the surface goes as video");
+                            video_frame = stream.frame(image.pixels, width, now);
+                            self.stream = Some(stream);
+                        }
+                        Err(error) => {
+                            tracing::warn!(%error, "no video encoder, the surface goes as tiles only");
+                            self.video_failed = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        for row in 0..rows {
+            for column in 0..columns {
+                let index = row * columns + column;
+                if !changed[index] {
+                    continue;
+                }
+                if self
+                    .stream
+                    .as_ref()
+                    .is_some_and(|s| s.covers(column, row, width, height))
+                {
+                    // The video draws this tile.
+                    self.lossy_since[index] = None;
+                    continue;
+                }
+                let (x, y) = (column * TILE, row * TILE);
+                let (w, h) = (TILE.min(width - x), TILE.min(height - y));
+                tile_bytes(image, x, y, w, h, &mut current);
                 let went_lossy = write_tile(
                     &mut out,
                     &mut stats,
@@ -412,14 +607,24 @@ impl Encoder {
                     resized,
                     self.lossy,
                 );
-                self.lossy_since[row * columns + column] = went_lossy.then_some(started);
+                self.lossy_since[index] = went_lossy.then_some(now);
                 for (line, chunk) in current.chunks_exact(w * 4).enumerate() {
                     let start = ((y + line) * width + x) * 4;
                     shown[start..start + w * 4].copy_from_slice(chunk);
                 }
             }
         }
-        if stats.tiles + stats.fills + stats.cached + stats.lossy + stats.moved_rows == 0
+        if let (Some(stream), Some(frame)) = (&self.stream, &video_frame) {
+            write_video(&mut out, &mut stats, stream, frame);
+        }
+        if stats.tiles
+            + stats.fills
+            + stats.cached
+            + stats.lossy
+            + stats.moved_rows
+            + stats.video
+            + stats.refined
+            == 0
             && !resized
         {
             return None;
@@ -436,20 +641,27 @@ impl Encoder {
         })
     }
 
-    /// Returns the time of the next lossless pass, if a lossy tile waits for it.
+    /// Returns the time of the next lossless pass: a lossy tile waits for it, or a video that stopped changing.
     #[must_use]
     pub fn next_refine(&self) -> Option<Instant> {
-        self.lossy_since
+        let tiles = self
+            .lossy_since
             .iter()
             .flatten()
             .min()
-            .map(|since| *since + REFINE_AFTER)
+            .map(|since| *since + REFINE_AFTER);
+        let video = self
+            .stream
+            .as_ref()
+            .map(|stream| stream.last_change + video::VIDEO_IDLE);
+        tiles.into_iter().chain(video).min()
     }
 
     /// The lossless pass: sends each lossy tile that did not change for [`REFINE_AFTER`] again, exact.
+    /// A video region that did not change for [`video::VIDEO_IDLE`] ends and goes as exact tiles.
     pub fn refine(&mut self, now: Instant) -> Option<Encoded> {
         let started = Instant::now();
-        let (width, height, shown) = self.shown.as_ref()?;
+        let (width, height, shown) = self.shown.as_mut()?;
         let (width, height) = (*width, *height);
         let columns = width.div_ceil(TILE);
         let mut out = Out(Vec::new());
@@ -459,6 +671,25 @@ impl Encoder {
         out.u32(next);
         out.u16(width);
         out.u16(height);
+        let mut video_ended = false;
+        if let Some(stream) = self
+            .stream
+            .take_if(|stream| now.duration_since(stream.last_change) >= video::VIDEO_IDLE)
+        {
+            video_ended = true;
+            end_video(
+                &mut out,
+                &mut stats,
+                &mut self.cache,
+                &mut self.lossy_since,
+                shown,
+                width,
+                height,
+                &stream,
+            );
+            // The region must change in many commits again before a new video.
+            self.detector.forget(stream.block);
+        }
         let mut current = Vec::with_capacity(TILE * TILE * 4);
         for (index, since) in self.lossy_since.iter_mut().enumerate() {
             if !since.is_some_and(|since| now.duration_since(since) >= REFINE_AFTER) {
@@ -490,7 +721,7 @@ impl Encoder {
             );
             stats.refined += 1;
         }
-        if stats.refined == 0 {
+        if stats.refined == 0 && !video_ended {
             return None;
         }
         self.seq = next;
@@ -509,11 +740,26 @@ impl Encoder {
     pub fn reset(&mut self) {
         self.shown = None;
     }
+
+    /// Returns the region of the running video in buffer pixels: x, y, width, and height.
+    #[must_use]
+    pub fn video_rect(&self) -> Option<(usize, usize, usize, usize)> {
+        self.stream.as_ref().map(|stream| stream.rect)
+    }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    /// The H.264 decoder of the reference decoder.
+    pub(crate) struct H264(openh264::decoder::Decoder);
+
+    impl std::fmt::Debug for H264 {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("H264")
+        }
+    }
 
     /// A reference decoder: applies a stream to a canvas, as the client does.
     #[derive(Debug, Default)]
@@ -525,6 +771,9 @@ pub(crate) mod tests {
         pub slots: Vec<Option<(usize, usize, Vec<u8>)>>,
         pub next: usize,
         pub lossy_tiles: usize,
+        pub video: Option<H264>,
+        pub video_frames: usize,
+        pub video_ends: usize,
     }
 
     impl Canvas {
@@ -629,6 +878,43 @@ pub(crate) mod tests {
                     code::END => {
                         let seq = u32::from_le_bytes(take(&mut bytes, 4).try_into().unwrap());
                         self.acked.push(seq);
+                    }
+                    code::VIDEO => {
+                        let f = take(&mut bytes, 13);
+                        let (x, y, w, h) = (
+                            u16_(&f[0..2]),
+                            u16_(&f[2..4]),
+                            u16_(&f[4..6]),
+                            u16_(&f[6..8]),
+                        );
+                        let flags = f[8];
+                        let len = u32::from_le_bytes([f[9], f[10], f[11], f[12]]) as usize;
+                        let data = take(&mut bytes, len);
+                        if flags & video::flag::NEW != 0 {
+                            assert!(
+                                flags & video::flag::KEY != 0,
+                                "a new stream starts with a key frame"
+                            );
+                            self.video = Some(H264(openh264::decoder::Decoder::new().unwrap()));
+                        }
+                        let decoder = &mut self.video.as_mut().expect("a video stream").0;
+                        let decoded = decoder
+                            .decode(&data)
+                            .unwrap()
+                            .expect("a picture for each frame");
+                        use openh264::formats::YUVSource as _;
+                        assert_eq!(decoded.dimensions(), (w, h));
+                        let mut rgba = vec![0; w * h * 4];
+                        decoded.write_rgba8(&mut rgba);
+                        for pixel in rgba.as_chunks_mut::<4>().0 {
+                            pixel.swap(0, 2);
+                        }
+                        self.draw(x, y, w, h, &rgba);
+                        self.video_frames += 1;
+                    }
+                    code::VIDEO_END => {
+                        self.video = None;
+                        self.video_ends += 1;
                     }
                     other => panic!("unknown message {other}"),
                 }
@@ -1096,5 +1382,143 @@ mod lossy_tests {
             "the new lossy send starts the time again"
         );
         assert!(first.stats.lossy > 0);
+    }
+
+    /// A window of 640 x 480 with a text strip and a "video" of 320 x 192 at (128, 128) that changes in each frame.
+    fn video_frame(n: usize) -> Vec<u8> {
+        let (width, height) = (640, 480);
+        let mut pixels = vec![0; width * height * 4];
+        for y in 0..height {
+            for x in 0..width {
+                let pixel = if (128..448).contains(&x) && (128..320).contains(&y) {
+                    // A smooth picture that moves, as a video does.
+                    let v = ((x + 3 * n) % 256) as u8;
+                    let u = ((y + 2 * n) % 256) as u8;
+                    [v, u, v / 2 + u / 2, 255]
+                } else {
+                    [235, 235, 235, 255]
+                };
+                pixels[(y * width + x) * 4..][..4].copy_from_slice(&pixel);
+            }
+        }
+        pixels
+    }
+
+    #[test]
+    fn a_region_that_changes_in_each_frame_goes_as_video_and_ends_exact() {
+        let (width, height) = (640, 480);
+        let mut encoder = Encoder::new();
+        let mut canvas = Canvas::default();
+        canvas.apply(&hello(SLOTS));
+        let start = Instant::now();
+        let full = [Rect {
+            x: 0,
+            y: 0,
+            width: 640,
+            height: 480,
+        }];
+        let mut tile_bytes_late = 0;
+        for n in 0..40 {
+            let pixels = video_frame(n);
+            let image = Image {
+                width,
+                height,
+                pixels: &pixels,
+            };
+            let now = start + Duration::from_millis(33) * u32::try_from(n).unwrap();
+            let encoded = encoder.encode_at(&image, &full, now).unwrap();
+            canvas.apply(&encoded.bytes);
+            if n >= 30 {
+                assert_eq!(encoded.stats.video, 1, "frame {n}");
+                tile_bytes_late += encoded.stats.tiles + encoded.stats.lossy;
+            }
+        }
+        assert_eq!(encoder.video_rect(), Some((128, 128, 320, 192)));
+        assert_eq!(
+            tile_bytes_late, 0,
+            "the tiles of the video region do not go"
+        );
+        assert!(canvas.video_frames >= 20);
+        // The video is close to the source.
+        let last = video_frame(39);
+        let mut error = 0_u64;
+        for y in 128..320 {
+            for x in 128..448 {
+                for c in 0..3 {
+                    let i = (y * width + x) * 4 + c;
+                    error += u64::from(last[i].abs_diff(canvas.pixels[i]));
+                }
+            }
+        }
+        let mean = error as f64 / (320.0 * 192.0 * 3.0);
+        assert!(mean < 12.0, "mean error {mean}");
+
+        // A change outside the region still goes as a tile while the video runs.
+        let mut pixels = video_frame(40);
+        pixels[(10 * width + 10) * 4] = 0;
+        let now = start + Duration::from_millis(33 * 40);
+        let encoded = encoder
+            .encode_at(
+                &Image {
+                    width,
+                    height,
+                    pixels: &pixels,
+                },
+                &full,
+                now,
+            )
+            .unwrap();
+        canvas.apply(&encoded.bytes);
+        assert_eq!(encoded.stats.video, 1);
+        assert_eq!(encoded.stats.tiles + encoded.stats.lossy, 1);
+
+        // The video stops: after the idle time, the region goes as exact tiles.
+        let at = encoder.next_refine().unwrap();
+        assert!(at <= now + video::VIDEO_IDLE);
+        let encoded = encoder.refine(now + video::VIDEO_IDLE).unwrap();
+        canvas.apply(&encoded.bytes);
+        assert_eq!(canvas.video_ends, 1);
+        assert_eq!(encoder.video_rect(), None);
+        assert_eq!(canvas.pixels, pixels, "the canvas is exact after the video");
+    }
+
+    #[test]
+    fn a_blinking_cursor_and_typing_do_not_start_a_video() {
+        let (width, height) = (320, 240);
+        let mut encoder = Encoder::new();
+        let mut canvas = Canvas::default();
+        canvas.apply(&hello(SLOTS));
+        let start = Instant::now();
+        for n in 0..60_u32 {
+            // A cursor that blinks two times each second, and a key that changes a new tile each time.
+            let mut pixels = vec![255; width * height * 4];
+            if n % 2 == 0 {
+                for y in 10..30 {
+                    pixels[(y * width + 100) * 4] = 0;
+                }
+            }
+            for k in 0..n as usize % 5 {
+                pixels[(200 * width + 20 + k * 64) * 4] = 0;
+            }
+            let image = Image {
+                width,
+                height,
+                pixels: &pixels,
+            };
+            if let Some(encoded) = encoder.encode_at(
+                &image,
+                &[Rect {
+                    x: 0,
+                    y: 0,
+                    width: 320,
+                    height: 240,
+                }],
+                start + Duration::from_millis(500) * n,
+            ) {
+                assert_eq!(encoded.stats.video, 0);
+                canvas.apply(&encoded.bytes);
+            }
+        }
+        assert_eq!(encoder.video_rect(), None);
     }
 }

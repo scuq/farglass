@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { bgraToRgba, Code, SurfaceDecoder } from "./decoder";
+import { avcCodec, bgraToRgba, Code, SurfaceDecoder, VideoFlag } from "./decoder";
 import { decodeLz4Block } from "./lz4";
 
 /** A canvas in memory that records what the decoder draws. */
@@ -9,6 +9,7 @@ class Canvas {
   rgba = new Uint8ClampedArray(0);
   ended: number[] = [];
   jpegs: number[][] = [];
+  log: string[] = [];
   readonly target = {
     resize: (w: number, h: number) => {
       this.width = w;
@@ -29,7 +30,15 @@ class Canvas {
       await new Promise((resolve) => setTimeout(resolve, 5));
       this.jpegs.push([x, y, w, h, jpeg[0]!, jpeg[1]!]);
     },
-    end: (seq: number) => this.ended.push(seq),
+    video: async (x: number, y: number, w: number, h: number, flags: number, data: Uint8Array) => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      this.log.push(`video ${x} ${y} ${w} ${h} ${flags} ${[...data].join(",")}`);
+    },
+    videoEnd: () => this.log.push("video end"),
+    end: (seq: number) => {
+      this.log.push(`end ${seq}`);
+      this.ended.push(seq);
+    },
   };
   pixel(x: number, y: number) {
     return [...this.rgba.subarray((y * this.width + x) * 4, (y * this.width + x) * 4 + 4)];
@@ -148,6 +157,27 @@ describe("surface decoder", () => {
     await decoder.push(s.array);
     expect(canvas.jpegs).toEqual([[0, 0, 64, 64, 0xff, 0xd8]]);
     expect(canvas.ended).toEqual([1]);
+  });
+
+  test("a video frame draws before the next message, also when the data frames split it", async () => {
+    const canvas = new Canvas();
+    const decoder = new SurfaceDecoder(canvas.target);
+    const s = new Stream().u8(Code.FRAME).u32(1).u16(640).u16(480);
+    s.u8(Code.VIDEO).u16(128).u16(64).u16(320).u16(192).u8(VideoFlag.KEY | VideoFlag.NEW).u32(3);
+    s.bytes.push(7, 8, 9);
+    s.u8(Code.END).u32(1);
+    s.u8(Code.FRAME).u32(2).u16(640).u16(480).u8(Code.VIDEO_END).u8(Code.END).u32(2);
+    const bytes = s.array;
+    await decoder.push(bytes.subarray(0, 20));
+    await decoder.push(bytes.subarray(20));
+    expect(canvas.log).toEqual(["video 128 64 320 192 3 7,8,9", "end 1", "video end", "end 2"]);
+  });
+
+  test("the codec string comes from the sequence parameter set", () => {
+    // A start code, an SPS NAL (type 7) of the constrained baseline profile, level 3.1, then a PPS.
+    const access = new Uint8Array([0, 0, 0, 1, 0x67, 0x42, 0xc0, 0x1f, 0xda, 0, 0, 1, 0x68, 0xce]);
+    expect(avcCodec(access)).toBe("avc1.42c01f");
+    expect(avcCodec(new Uint8Array([0, 0, 1, 0x41, 0x9a]))).toBeUndefined();
   });
 
   test("an unknown message stops the stream", async () => {

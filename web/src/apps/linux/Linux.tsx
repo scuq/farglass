@@ -63,7 +63,11 @@ function SurfaceCanvas(props: {
   const worker = new Worker(new URL("../../surface/worker.ts", import.meta.url), { type: "module" });
   const offscreen = canvas.transferControlToOffscreen();
   worker.postMessage({ canvas: offscreen }, [offscreen]);
-  worker.onmessage = (event: MessageEvent<{ type: string; width?: number; height?: number; seq?: number }>) => {
+  worker.onmessage = (event: MessageEvent<{ type: string; width?: number; height?: number; seq?: number; frames?: number }>) => {
+    // The count of video frames: a hint for diagnosis and for the tests (F037).
+    if (event.data.type === "video") {
+      canvas.dataset.videoFrames = String(event.data.frames ?? 0);
+    }
     // The acknowledgment of each frame lets the agent send the next one (F029).
     if (event.data.type === "end") {
       channel.control({ type: "ack", seq: event.data.seq ?? 0 });

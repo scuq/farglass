@@ -7,7 +7,25 @@
 import { decodeLz4Block } from "./lz4";
 
 /** The message codes. They are the same as in crates/farglass-surface/src/tiles.rs. */
-export const Code = { HELLO: 0, FRAME: 1, TILE: 2, REF: 3, MOVE: 4, KEEP: 5, FILL: 6, JPEG: 7, END: 8 } as const;
+export const Code = { HELLO: 0, FRAME: 1, TILE: 2, REF: 3, MOVE: 4, KEEP: 5, FILL: 6, JPEG: 7, END: 8, VIDEO: 9, VIDEO_END: 10 } as const;
+
+/** The flags of a video message (F037). */
+export const VideoFlag = { KEY: 1, NEW: 2 } as const;
+
+/**
+ * Returns the WebCodecs codec string of an H.264 stream from the sequence parameter set
+ * in the Annex B access unit `data`, for example `avc1.42c01f`. Undefined if it has none.
+ */
+export function avcCodec(data: Uint8Array): string | undefined {
+  for (let i = 0; i + 4 < data.length; i++) {
+    if (data[i] !== 0 || data[i + 1] !== 0 || data[i + 2] !== 1) continue;
+    if ((data[i + 3]! & 0x1f) === 7 && i + 6 < data.length) {
+      const hex = (byte: number) => byte.toString(16).padStart(2, "0");
+      return `avc1.${hex(data[i + 4]!)}${hex(data[i + 5]!)}${hex(data[i + 6]!)}`;
+    }
+  }
+  return undefined;
+}
 
 /** One cache slot: the pixels of a tile, ready for the target. */
 interface Slot {
@@ -26,6 +44,13 @@ export interface SurfaceTarget {
   move(x: number, y: number, width: number, height: number, dy: number): void;
   /** Draws a lossy tile. The decoder waits for it before the next message. */
   jpeg(x: number, y: number, width: number, height: number, jpeg: Uint8Array<ArrayBuffer>): Promise<void>;
+  /**
+   * Draws a frame of the video region (F037): an H.264 access unit, Annex B, with `flags` of {@link VideoFlag}.
+   * The decoder waits for it before the next message.
+   */
+  video(x: number, y: number, width: number, height: number, flags: number, data: Uint8Array<ArrayBuffer>): Promise<void>;
+  /** The video region ends. Exact tiles of the region follow. */
+  videoEnd(): void;
   /** The frame is complete. */
   end(seq: number): void;
 }
@@ -60,6 +85,8 @@ const FIXED: Record<number, number> = {
   [Code.FILL]: 10,
   [Code.JPEG]: 10,
   [Code.END]: 4,
+  [Code.VIDEO]: 13,
+  [Code.VIDEO_END]: 0,
 };
 
 export class SurfaceDecoder {
@@ -164,6 +191,18 @@ export class SurfaceDecoder {
         const [x, y, w, h] = [view.getUint16(0, true), view.getUint16(2, true), view.getUint8(4), view.getUint8(5)];
         return { length: end - offset, wait: this.#target.jpeg(x, y, w, h, bytes.slice(offset + 1 + fixed, end)) };
       }
+      case Code.VIDEO: {
+        const length = view.getUint32(9, true);
+        const end = offset + 1 + fixed + length;
+        if (bytes.length < end) {
+          return 0;
+        }
+        const [x, y, w, h] = [view.getUint16(0, true), view.getUint16(2, true), view.getUint16(4, true), view.getUint16(6, true)];
+        return { length: end - offset, wait: this.#target.video(x, y, w, h, view.getUint8(8), bytes.slice(offset + 1 + fixed, end)) };
+      }
+      case Code.VIDEO_END:
+        this.#target.videoEnd();
+        return 1;
       case Code.REF: {
         const slot = this.#ring[view.getUint16(4, true)];
         if (!slot) {

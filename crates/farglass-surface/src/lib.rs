@@ -22,6 +22,7 @@ pub mod clipboard;
 pub mod scroll;
 mod state;
 pub mod tiles;
+pub mod video;
 
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};

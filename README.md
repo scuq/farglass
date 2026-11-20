@@ -237,6 +237,16 @@ On a Mac, Cmd acts as Ctrl in the apps: Cmd+C copies and Cmd+V pastes.
 A content of more than 16 MiB stays on its side.
 `npm --prefix spikes/e2e run clipboard` pastes text from Chromium in VS Code, copies it back, and copies a result of gnome-calculator to Chromium and to VS Code.
 
+A region that changes in each frame, for example a video player or an animation, goes as H.264 video.
+The encoder counts the commits that change each tile.
+A block of at least 6 tiles that changed in 12 of the last 16 commits, within 1.6 s, becomes the video region.
+The rest of the window still goes as tiles.
+OpenH264 encodes the region in software, and the browser decodes it with WebCodecs in the worker of the window.
+When the region does not change for 500 ms, the video ends, and the region goes as exact tiles.
+A blinking cursor or typing never starts a video.
+A hardware encoder with VAAPI is not available yet.
+`npm --prefix spikes/e2e run video` starts `spikes/e2e/fixtures/animation.py`, and the browser must decode its moving area as video.
+
 To look at the events of a real app:
 
 ```sh
