@@ -314,7 +314,7 @@ pub async fn accept_loop(
         let context = context.clone();
         tokio::spawn(async move {
             if let Err(error) = serve_connection(incoming, router, context).await {
-                tracing::debug!(%peer, %error, "the QUIC connection failed");
+                tracing::info!(%peer, %error, "a QUIC connection ended with an error");
             }
         });
     }
@@ -473,7 +473,8 @@ async fn run_session(
     quic: quinn::Connection,
     peer: SocketAddr,
 ) {
-    tracing::debug!(%peer, "WebTransport session");
+    tracing::info!(%peer, "WebTransport session started");
+    let started = std::time::Instant::now();
     let session = Arc::new(session);
     let routes: Routes = Arc::new(Mutex::new(RouteTable::default()));
     let (to_connection, from_streams) = mpsc::channel::<Result<Frame, Violation>>(64);
@@ -515,7 +516,7 @@ async fn run_session(
     )
     .await
     {
-        tracing::debug!(%peer, %violation, "the shell broke the protocol on WebTransport");
+        tracing::warn!(%peer, %violation, "the shell broke the protocol on WebTransport");
     }
     acceptor.abort();
     routes
@@ -523,6 +524,12 @@ async fn run_session(
         .unwrap_or_else(PoisonError::into_inner)
         .streams
         .clear();
+    // The cause, for example a timeout of the network or a close by the browser.
+    let reason = quic.close_reason().map_or_else(
+        || "the connection of the shell ended".to_owned(),
+        |reason| reason.to_string(),
+    );
+    tracing::info!(%peer, seconds = started.elapsed().as_secs(), reason, "WebTransport session ended");
     quic.close(0_u32.into(), b"done");
 }
 
