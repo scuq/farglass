@@ -26,3 +26,25 @@
 .term-app .xterm-scrollable-element {
   background-color: var(--term-bg, #fbfbf9) !important;
 }
+
+/* A clipboard write of a program waits for the user (F055). */
+.term-copy {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  left: 10px;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--focus);
+  border-radius: 6px;
+  background: var(--bar);
+  color: var(--fg);
+  font: 13px system-ui, sans-serif;
+}
+.term-copy span {
+  flex: 1 1 12rem;
+}

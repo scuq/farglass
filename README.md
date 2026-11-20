@@ -255,6 +255,9 @@ If the shell stops, press Enter in the window to start a new shell.
 | Ctrl+Shift+V, or Shift+Insert | Paste |
 
 A program on the host can put text on the clipboard of your browser with OSC 52, for example vim or tmux.
+The write goes through only in the 3 seconds after a key or a click in that terminal.
+A later write, for example from a remote host over ssh, shows a question in the terminal: **Copy** writes the clipboard, **Ignore** drops the text.
+A write in the scrollback that a reload shows again asks nothing.
 A program cannot read your clipboard.
 
 NOTE: The browser keeps some keys that terminal programs use, for example Ctrl+W, Ctrl+T, and Ctrl+N.

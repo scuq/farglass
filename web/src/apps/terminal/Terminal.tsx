@@ -1,4 +1,4 @@
-import { createSignal, onCleanup } from "solid-js";
+import { createSignal, onCleanup, Show } from "solid-js";
 import type { Channel, PtyEvent, PtyRequest } from "../../proto";
 import type { AppContext } from "../types";
 import type { TerminalEngine } from "./engine";
@@ -25,6 +25,10 @@ export default function TerminalApp(props: { context: AppContext }) {
   let channel: Channel | undefined;
   let acks: AckCounter | undefined;
   const probe = new EchoProbe();
+  /** A clipboard write of a program that waits for the user (F055). */
+  const [copy, setCopy] = createSignal<string | null>(null);
+  /** The bytes of the scrollback replay that the emulator did not parse yet. */
+  let replaying = 0;
 
   const control = (request: PtyRequest) => channel?.control(request);
 
@@ -45,12 +49,15 @@ export default function TerminalApp(props: { context: AppContext }) {
           term.write(bytes, () => {
             counter.parsed(bytes.byteLength);
             probe.output();
+            replaying = Math.max(0, replaying - bytes.byteLength);
           });
         },
         oncontrol: (message) => {
           const event = message as PtyEvent;
           if (event.type === "attached") {
             setStatus("running");
+            // An old clipboard write in the scrollback asks nothing: the program wrote it before.
+            replaying = event.replay;
             if (event.replay > 0) {
               // The scrollback can start in the middle of an escape sequence. Start from a clean terminal.
               term.reset();
@@ -91,6 +98,9 @@ export default function TerminalApp(props: { context: AppContext }) {
     });
     term.onResize((cols, rows) => control({ type: "resize", cols, rows }));
     term.onTitle((title) => context.setTitle(title.trim() || "Terminal"));
+    term.onBlockedCopy((text) => {
+      if (replaying === 0) setCopy(text);
+    });
 
     // The size of the window decides the number of columns and rows.
     let frame = 0;
@@ -135,6 +145,32 @@ export default function TerminalApp(props: { context: AppContext }) {
     });
   };
 
+  const answerCopy = (accept: boolean) => {
+    const text = copy();
+    setCopy(null);
+    // The click is the action of the user that the clipboard write needs.
+    if (accept && text !== null) void navigator.clipboard?.writeText(text);
+    engine?.focus();
+  };
+
   // xterm.js uses the class "terminal" for its own element.
-  return <div class="term-app" data-status={status()} ref={mount} />;
+  return (
+    <div class="term-app" data-status={status()} ref={mount}>
+      <Show when={copy()}>
+        {(text) => (
+          <div class="term-copy" role="alertdialog" aria-label="Clipboard write">
+            <span>
+              A program in this terminal wants to copy {text().length === 1 ? "1 character" : `${text().length} characters`} to your clipboard.
+            </span>
+            <button type="button" onClick={() => answerCopy(true)}>
+              Copy
+            </button>
+            <button type="button" onClick={() => answerCopy(false)}>
+              Ignore
+            </button>
+          </div>
+        )}
+      </Show>
+    </div>
+  );
 }

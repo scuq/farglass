@@ -125,7 +125,20 @@ try {
   // 3. The clipboard: OSC 52 from the host, and Ctrl+Shift+V.
   await run(page, id, "printf '\\033]52;c;%s\\a' \"$(printf from-osc52 | base64)\"");
   await page.waitForFunction(async () => (await navigator.clipboard.readText()) === "from-osc52", null, { timeout: TIMEOUT_MS });
-  check(true, "a program on the host sets the clipboard of the browser with OSC 52");
+  check(true, "a program on the host sets the clipboard of the browser with OSC 52, right after a key");
+  // With no key for 4 s, the terminal asks first (F055).
+  await page.evaluate(() => navigator.clipboard.writeText("before"));
+  await run(page, id, "sleep 4; printf '\\033]52;c;%s\\a' \"$(printf late-osc52 | base64)\"");
+  const ask = page.locator(`[data-window="${id}"] .term-copy`);
+  await ask.waitFor({ timeout: TIMEOUT_MS });
+  check((await page.evaluate(() => navigator.clipboard.readText())) === "before", "a late OSC 52 write does not change the clipboard by itself");
+  await ask.getByRole("button", { name: "Ignore" }).click();
+  check((await page.evaluate(() => navigator.clipboard.readText())) === "before" && (await ask.count()) === 0, "Ignore drops the write");
+  await run(page, id, "sleep 4; printf '\\033]52;c;%s\\a' \"$(printf late-osc52 | base64)\"");
+  await ask.waitFor({ timeout: TIMEOUT_MS });
+  await ask.getByRole("button", { name: "Copy" }).click();
+  await page.waitForFunction(async () => (await navigator.clipboard.readText()) === "late-osc52", null, { timeout: TIMEOUT_MS });
+  check(true, "Copy in the question writes the clipboard");
   await page.evaluate(() => navigator.clipboard.writeText("echo pasted-$((6*7))"));
   await page.locator(`[data-window="${id}"] .term-app`).click();
   await page.keyboard.press("Control+Shift+V");

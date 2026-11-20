@@ -8,18 +8,26 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { isDarkTheme, isReducedMotion, onThemeChange } from "../../appearance";
 import type { TerminalEngine } from "./engine";
+import { CopyGate } from "./osc52";
 
 /**
- * The clipboard for OSC 52. A program on the host can set the clipboard of the
- * browser, for example vim or tmux. A program cannot read it: a read gives an
- * empty text, because a program must not see the clipboard with no action of the user.
+ * Returns the clipboard for OSC 52. A program on the host can set the clipboard of the
+ * browser, for example vim or tmux, but only shortly after a key or a click in this
+ * terminal (F055). Otherwise `blocked` gets the text, and the app asks the user.
+ * A program cannot read the clipboard: a read gives an empty text.
  */
-const clipboard: IClipboardProvider = {
-  readText: () => "",
-  writeText: async (_selection, text) => {
-    await navigator.clipboard?.writeText(text);
-  },
-};
+function osc52(gate: CopyGate, blocked: (text: string) => void): IClipboardProvider {
+  return {
+    readText: () => "",
+    writeText: async (_selection, text) => {
+      if (gate.allows()) {
+        await navigator.clipboard?.writeText(text);
+      } else {
+        blocked(text);
+      }
+    },
+  };
+}
 
 /** Returns the colors of the terminal for the theme of the shell. */
 function theme() {
@@ -35,6 +43,11 @@ function theme() {
  * browser has none, or if it loses the WebGL context, the DOM renderer draws it.
  */
 export function createXterm(element: HTMLElement): TerminalEngine {
+  const gate = new CopyGate();
+  const copyHandlers: ((text: string) => void)[] = [];
+  // Capture: the key or the click counts before xterm.js handles it.
+  element.addEventListener("keydown", () => gate.input(), { capture: true });
+  element.addEventListener("pointerdown", () => gate.input(), { capture: true });
   const terminal = new Terminal({
     allowProposedApi: true,
     // A blinking cursor is an effect: with reduced motion, it stays (F046).
@@ -46,7 +59,14 @@ export function createXterm(element: HTMLElement): TerminalEngine {
   });
   const fit = new FitAddon();
   terminal.loadAddon(fit);
-  terminal.loadAddon(new ClipboardAddon(undefined, clipboard));
+  terminal.loadAddon(
+    new ClipboardAddon(
+      undefined,
+      osc52(gate, (text) => {
+        for (const handler of copyHandlers) handler(text);
+      }),
+    ),
+  );
   const unicode = new Unicode11Addon();
   terminal.loadAddon(unicode);
   terminal.unicode.activeVersion = "11";
@@ -132,6 +152,9 @@ export function createXterm(element: HTMLElement): TerminalEngine {
     },
     get rows() {
       return terminal.rows;
+    },
+    onBlockedCopy: (handler) => {
+      copyHandlers.push(handler);
     },
     write: (data, done) => terminal.write(data, done),
     reset: () => terminal.reset(),

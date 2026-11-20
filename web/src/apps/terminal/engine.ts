@@ -35,6 +35,8 @@ export interface TerminalEngine {
   onInput(handler: (data: string) => void): void;
   /** A new number of columns and rows. */
   onResize(handler: (cols: number, rows: number) => void): void;
+  /** A program asked to write the clipboard (OSC 52) with no recent key or click of the user (F055). */
+  onBlockedCopy(handler: (text: string) => void): void;
   /** A new title from the program (OSC 0 or OSC 2). */
   onTitle(handler: (title: string) => void): void;
   dispose(): void;

@@ -73,6 +73,7 @@ Controls:
 - A connection ends at the end of its session cookie, also through WebTransport, and when it misses a lock or logout event (F054).
 - The agent refuses the login and the passkeys channels: farglassd serves them.
 - The terminal runs the shell of the user, at most 64 terminals. This is full access as the user, by design.
+- An OSC 52 clipboard write goes through only 3 s after a key or a click in that terminal. A later write asks the user (F055).
 - The launcher starts only entries of the desktop files, each in a systemd scope.
 - The state store accepts at most 8 MiB, with keys of at most 256 bytes. The clipboard has a size limit.
 - The D-Bus channel permits a list of bus names. It is not a security boundary while the terminal exists (ADR-041).
@@ -108,7 +109,7 @@ Gap: finding 9.
 | 5 | Low | A person at an unlocked tab, or with a stolen cookie, can remove all passkeys with no new check. | Fixed in F053 |
 | 6 | Low | A connection that misses a lock or logout event, after 64 events in its queue, keeps its channels. | Fixed in F054 |
 | 7 | Low | A connection from a cookie continues after the cookie ends. | Fixed in F054 |
-| 8 | Low | Output in a terminal (OSC 52) can write the clipboard of the client computer. | F055 |
+| 8 | Low | Output in a terminal (OSC 52) can write the clipboard of the client computer. | Fixed in F055 |
 | 9 | Low | farglass-login runs as root with all capabilities and accepts each peer of its socket. | F056 |
 | 10 | Low | Each local user can open connections to the agent socket with no limit. | Fixed in F051 |
 | 11 | Info | A program of the user can unlock the web lock screen or replace the agent. The passkey step shows that the password was correct. `dev_user` gives each local user a session. The CSP permits inline style elements. | ADR-041 |
