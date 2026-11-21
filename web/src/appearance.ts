@@ -7,8 +7,8 @@
 /** The key in the state store. */
 export const APPEARANCE_KEY = "appearance";
 
-/** The color themes. "system" follows the setting of the client. */
-export const THEMES = ["system", "light", "dark"] as const;
+/** The color themes. "lcars" is the default (ADR-049). "system" follows the setting of the client. */
+export const THEMES = ["lcars", "system", "light", "dark"] as const;
 /** The accent colors. */
 export const ACCENTS = ["blue", "green", "purple", "orange"] as const;
 /** The text sizes in percent. */
@@ -23,7 +23,7 @@ export interface Appearance {
   readonly motion: (typeof MOTIONS)[number];
 }
 
-export const DEFAULT_APPEARANCE: Appearance = { theme: "system", accent: "blue", textSize: 100, motion: "system" };
+export const DEFAULT_APPEARANCE: Appearance = { theme: "lcars", accent: "orange", textSize: 100, motion: "system" };
 
 const oneOf = <T>(list: readonly T[], value: unknown, fallback: T): T => (list.includes(value as T) ? (value as T) : fallback);
 
@@ -80,10 +80,15 @@ function applyMotion(root: HTMLElement): void {
 const THEME_EVENT = "farglass-theme";
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
-/** Reports whether the shell shows the dark theme now: the choice of the user, or else the setting of the client. */
+/** Reports whether the shell shows the LCARS theme now. */
+export function isLcarsTheme(root: HTMLElement = document.documentElement): boolean {
+  return root.dataset.theme === "lcars";
+}
+
+/** Reports whether the shell shows a dark theme now (dark or LCARS): the choice of the user, or else the setting of the client. */
 export function isDarkTheme(root: HTMLElement = document.documentElement): boolean {
   if (root.dataset.theme) {
-    return root.dataset.theme === "dark";
+    return root.dataset.theme !== "light";
   }
   return window.matchMedia?.(DARK_QUERY).matches ?? false;
 }

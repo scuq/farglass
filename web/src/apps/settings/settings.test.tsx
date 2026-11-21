@@ -129,7 +129,7 @@ describe("settings", () => {
     dark.click();
     await host.pump();
     expect(document.documentElement.dataset.theme).toBeUndefined();
-    expect(host.state.at(-1)).toEqual({ type: "set", key: "appearance", value: { theme: "dark", accent: "blue", textSize: 100, motion: "system" } });
+    expect(host.state.at(-1)).toEqual({ type: "set", key: "appearance", value: { theme: "dark", accent: "orange", textSize: 100, motion: "system" } });
     expect(element.querySelector('[data-page="appearance"]')?.getAttribute("aria-current")).toBe("page");
   });
 

@@ -1,6 +1,7 @@
 import { render } from "@solidjs/web";
 import { App } from "./App";
 import "./shell.css";
+import "./theme/lcars.css";
 
 const root = document.getElementById("root");
 if (!root) {

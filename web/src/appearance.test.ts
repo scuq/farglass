@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { applyAppearance, DEFAULT_APPEARANCE, isDarkTheme, parseAppearance } from "./appearance";
+import { applyAppearance, DEFAULT_APPEARANCE, isDarkTheme, isLcarsTheme, parseAppearance } from "./appearance";
 
 afterEach(() => {
   const root = document.documentElement;
@@ -20,7 +20,7 @@ test("the appearance goes to the root element, and the system theme removes the 
   applyAppearance({ theme: "dark", accent: "green", textSize: 125, motion: "system" });
   expect([root.dataset.theme, root.dataset.accent, root.style.fontSize]).toEqual(["dark", "green", "125%"]);
   expect(isDarkTheme()).toBe(true);
-  applyAppearance(DEFAULT_APPEARANCE);
+  applyAppearance({ ...DEFAULT_APPEARANCE, theme: "system" });
   expect([root.dataset.theme, root.style.fontSize]).toEqual([undefined, ""]);
   expect(changes).toBe(2);
 });
@@ -52,4 +52,13 @@ test("the motion follows the client, a choice overrides it, and a change of the 
   } finally {
     vi.unstubAllGlobals();
   }
+});
+
+test("the LCARS theme is the default, and it is a dark theme", () => {
+  const root = document.documentElement;
+  expect(DEFAULT_APPEARANCE.theme).toBe("lcars");
+  applyAppearance(DEFAULT_APPEARANCE);
+  expect([root.dataset.theme, root.dataset.accent]).toEqual(["lcars", "orange"]);
+  expect(isLcarsTheme()).toBe(true);
+  expect(isDarkTheme()).toBe(true);
 });

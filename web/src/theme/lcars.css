@@ -1,0 +1,340 @@
+/*
+ * The LCARS theme (F071, ADR-049): the default theme of the shell, in the
+ * colors of the farglass icon. It is always dark.
+ *
+ * The rules start with :root[data-theme="lcars"], thus they win over the
+ * rules of the components, which load later. The bar colors are decoration
+ * and carry no state: a state keeps its text, --ok, and --bad.
+ */
+:root[data-theme="lcars"] {
+  color-scheme: dark;
+  --lcars-bg: #100b1a;
+  --lcars-panel: #1b1228;
+  --lcars-raised: #2a1d3b;
+  --lcars-amber: #ffb23f;
+  --lcars-orange: #ff9f27;
+  --lcars-copper: #e88b61;
+  --lcars-coral: #d96c79;
+  --lcars-lavender: #a98ac6;
+  --lcars-ivory: #fff0d5;
+  --lcars-border: #624b78;
+  --bg: var(--lcars-bg);
+  --fg: var(--lcars-ivory);
+  --muted: var(--lcars-lavender);
+  --line: var(--lcars-border);
+  --ok: #7fd6a4;
+  --bad: #ff6b6b;
+  --focus: var(--lcars-amber);
+  --title-focused: var(--lcars-amber);
+  --bar: var(--lcars-panel);
+  /* The text on a bar in the accent color. */
+  --on-focus: var(--lcars-bg);
+}
+/* The accent colors in LCARS hues. Orange is the amber of the icon and the default. */
+:root[data-theme="lcars"][data-accent="blue"] {
+  --focus: #8fb8ff;
+  --title-focused: #8fb8ff;
+}
+:root[data-theme="lcars"][data-accent="green"] {
+  --focus: #7fd6a4;
+  --title-focused: #7fd6a4;
+}
+:root[data-theme="lcars"][data-accent="purple"] {
+  --focus: #c3a6e6;
+  --title-focused: #c3a6e6;
+}
+:root[data-theme="lcars"][data-accent="orange"] {
+  --focus: var(--lcars-amber);
+  --title-focused: var(--lcars-amber);
+}
+
+:root[data-theme="lcars"] body {
+  background: var(--lcars-bg);
+  color: var(--lcars-ivory);
+}
+
+/* Controls in the apps. :where keeps the specificity at zero, so a rule of a component wins. */
+:where(:root[data-theme="lcars"]) :where(button:not(.login *)) {
+  padding: 0.3rem 0.9rem;
+  color: var(--lcars-ivory);
+  font: inherit;
+  background: var(--lcars-raised);
+  border: 1px solid var(--lcars-border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+:where(:root[data-theme="lcars"]) :where(button:not(.login *)):hover:not(:disabled) {
+  border-color: var(--focus);
+}
+:where(:root[data-theme="lcars"]) :where(button):disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+:where(:root[data-theme="lcars"]) :where(input:not([type="radio"], [type="checkbox"], [type="range"], .login *), select:not(.login *), textarea:not(.login *)) {
+  color: var(--lcars-ivory);
+  background: var(--lcars-panel);
+  border: 1px solid var(--lcars-border);
+  border-radius: 0;
+}
+:where(:root[data-theme="lcars"]) :where(input, select, textarea):focus-visible {
+  outline: none;
+  border-color: var(--focus);
+  box-shadow: inset 0 -2px var(--focus);
+}
+:where(:root[data-theme="lcars"]) :where(input[type="radio"], input[type="checkbox"], input[type="range"]) {
+  accent-color: var(--focus);
+}
+:where(:root[data-theme="lcars"]) :where(button, a):focus-visible {
+  outline: 2px solid var(--lcars-ivory);
+  outline-offset: 2px;
+}
+:where(:root[data-theme="lcars"]) :where(h1, h2, legend) {
+  letter-spacing: 0.5px;
+}
+:where(:root[data-theme="lcars"]) :where(fieldset) {
+  border: 1px solid var(--lcars-border);
+  border-radius: 0 0 0 16px;
+}
+:where(:root[data-theme="lcars"]) :where(legend) {
+  color: var(--lcars-amber);
+  text-transform: uppercase;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+:root[data-theme="lcars"] button.danger {
+  color: var(--bad);
+  border: 2px solid var(--bad);
+  background: transparent;
+}
+
+/* The panel: an LCARS bar. The apps button is the elbow at the left. */
+:root[data-theme="lcars"] .panel {
+  gap: 4px;
+  height: 2.25rem;
+  padding: 0 0.5rem 0 0;
+  background: var(--lcars-bg);
+  border-bottom: 4px solid var(--lcars-orange);
+}
+:root[data-theme="lcars"] .panel button {
+  height: 1.75rem;
+  padding: 0 0.85rem;
+  color: var(--lcars-bg);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  background: var(--lcars-lavender);
+  border: 0;
+  border-radius: 4px;
+}
+:root[data-theme="lcars"] .panel .panel-apps {
+  height: 100%;
+  padding: 0 1.25rem 0 1rem;
+  background: var(--lcars-amber);
+  border-radius: 0 0 0 1.25rem;
+}
+:root[data-theme="lcars"] .panel .panel-session {
+  background: var(--lcars-coral);
+  border-radius: 0 999px 999px 0;
+}
+:root[data-theme="lcars"] .panel .panel-overview,
+:root[data-theme="lcars"] .panel .panel-tile,
+:root[data-theme="lcars"] .panel .panel-sound {
+  background: var(--lcars-copper);
+}
+:root[data-theme="lcars"] .panel .wm-task {
+  color: var(--lcars-ivory);
+  text-transform: none;
+  font-weight: 500;
+  letter-spacing: 0;
+  background: var(--lcars-raised);
+  border-radius: 999px;
+}
+:root[data-theme="lcars"] .panel button:hover {
+  filter: brightness(1.12);
+}
+:root[data-theme="lcars"] .panel button[aria-pressed="true"] {
+  outline: none;
+  color: var(--on-focus);
+  background: var(--focus);
+}
+:root[data-theme="lcars"] .panel button:focus-visible {
+  outline: 2px solid var(--lcars-ivory);
+  outline-offset: 2px;
+}
+:root[data-theme="lcars"] .panel .wm-task[data-attention="true"] {
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+:root[data-theme="lcars"] .panel-clock {
+  padding: 0 0.5rem;
+  color: var(--lcars-amber);
+  font-family: ui-monospace, monospace;
+  letter-spacing: 1px;
+}
+
+/* Menus, the launcher, the switcher, and the layout picker: a frame with an elbow at the top left. */
+:root[data-theme="lcars"] .popover,
+:root[data-theme="lcars"] .context-menu,
+:root[data-theme="lcars"] .wm-switcher,
+:root[data-theme="lcars"] .wm-layouts,
+:root[data-theme="lcars"] .notification {
+  background: var(--lcars-bg);
+  border: 2px solid var(--lcars-border);
+  border-top: 6px solid var(--lcars-amber);
+  border-radius: 16px 4px 4px 4px;
+  box-shadow: 0 10px 32px rgb(0 0 0 / 0.5);
+}
+:root[data-theme="lcars"] .notification {
+  border-left: 6px solid var(--focus);
+}
+:root[data-theme="lcars"] .notification[data-urgency="low"] {
+  border-left-color: var(--lcars-border);
+}
+:root[data-theme="lcars"] .notification[data-urgency="critical"] {
+  border-left-color: var(--bad);
+}
+:root[data-theme="lcars"] .launcher-results li,
+:root[data-theme="lcars"] .context-menu-item,
+:root[data-theme="lcars"] .wm-switcher-item,
+:root[data-theme="lcars"] .panel-session-menu [role="menuitem"] {
+  border-radius: 999px;
+}
+:root[data-theme="lcars"] .launcher-results li[aria-selected="true"],
+:root[data-theme="lcars"] .context-menu-item[data-active="true"],
+:root[data-theme="lcars"] .wm-switcher-item[aria-selected="true"],
+:root[data-theme="lcars"] .panel-session-menu [role="menuitem"]:hover,
+:root[data-theme="lcars"] .panel-session-menu [role="menuitem"]:focus-visible {
+  color: var(--on-focus);
+  background: var(--focus);
+}
+/* A line drawing turns dark on the bright selection. */
+:root[data-theme="lcars"] .launcher-results li[aria-selected="true"]:not([data-host]) .launcher-icon {
+  filter: brightness(0);
+}
+:root[data-theme="lcars"] .panel-session-menu [role="menuitem"] {
+  padding: 0.4rem 0.9rem;
+  border: 0;
+  background: none;
+}
+:root[data-theme="lcars"] .launcher-search {
+  padding: 0.5rem 0.75rem;
+}
+
+/* Windows: the title bar is an LCARS bar with a rounded cap at the left. */
+:root[data-theme="lcars"] .wm-window {
+  background: var(--lcars-bg);
+  border: 2px solid var(--lcars-border);
+  border-radius: 18px 4px 4px 4px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.45);
+}
+:root[data-theme="lcars"] .wm-window.wm-focused {
+  border-color: var(--focus);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.6);
+}
+:root[data-theme="lcars"] .wm-window[data-mode="maximized"] {
+  border-radius: 0;
+}
+:root[data-theme="lcars"] .wm-titlebar {
+  height: 30px;
+  padding: 0 0.25rem 0 0.9rem;
+  color: var(--lcars-ivory);
+  background: var(--lcars-raised);
+  border-bottom: 0;
+  border-radius: 16px 2px 0 0;
+}
+:root[data-theme="lcars"] .wm-window[data-mode="maximized"] .wm-titlebar {
+  border-radius: 0;
+}
+:root[data-theme="lcars"] .wm-focused .wm-titlebar {
+  color: var(--on-focus);
+  background: var(--title-focused);
+}
+:root[data-theme="lcars"] .wm-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+:root[data-theme="lcars"] .wm-titlebar button {
+  width: 30px;
+  height: 22px;
+  padding: 0;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: 999px;
+}
+:root[data-theme="lcars"] .wm-titlebar button:hover,
+:root[data-theme="lcars"] .wm-titlebar button:focus-visible {
+  background: rgb(16 11 26 / 0.25);
+}
+:root[data-theme="lcars"] .wm-snap-preview {
+  border-color: var(--focus);
+  background: color-mix(in srgb, var(--focus) 15%, transparent);
+}
+
+/* The overview and the layout picker. */
+:root[data-theme="lcars"] .wm-overview {
+  background: var(--lcars-bg);
+}
+:root[data-theme="lcars"] .wm-overview-workspace {
+  background: var(--lcars-panel);
+  border-radius: 48px 8px 8px 8px;
+}
+:root[data-theme="lcars"] .wm-overview-window {
+  background: var(--lcars-raised);
+  border-radius: 32px 6px 6px 6px;
+}
+:root[data-theme="lcars"] .wm-overview-letter {
+  color: var(--on-focus);
+}
+:root[data-theme="lcars"] .wm-layout {
+  border-radius: 12px 4px 4px 4px;
+}
+:root[data-theme="lcars"] .wm-layout-preview {
+  background: var(--lcars-panel);
+}
+
+/* The settings app: the list of pages is an LCARS column. */
+:root[data-theme="lcars"] .settings-nav {
+  gap: 4px;
+  background: var(--lcars-bg);
+  border-right: 4px solid var(--lcars-lavender);
+}
+:root[data-theme="lcars"] .settings-nav button {
+  padding: 0.45rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--lcars-bg);
+  background: var(--lcars-lavender);
+  border: 0;
+  border-radius: 999px 4px 4px 999px;
+}
+:root[data-theme="lcars"] .settings-nav button:hover {
+  filter: brightness(1.12);
+}
+:root[data-theme="lcars"] .settings-nav button[aria-current="page"] {
+  color: var(--on-focus);
+  background: var(--focus);
+}
+
+/* The swatches of the accent colors show the LCARS hues. */
+:root[data-theme="lcars"] .settings-swatch[data-accent="blue"] {
+  background: #8fb8ff;
+}
+:root[data-theme="lcars"] .settings-swatch[data-accent="green"] {
+  background: #7fd6a4;
+}
+:root[data-theme="lcars"] .settings-swatch[data-accent="purple"] {
+  background: #c3a6e6;
+}
+:root[data-theme="lcars"] .settings-swatch[data-accent="orange"] {
+  background: var(--lcars-amber);
+}
+
+/* The terminal. The selector is longer than the rules of terminal.css, which loads later. */
+:root[data-theme="lcars"] .wm-content .term-app {
+  --term-bg: #100b1a;
+}

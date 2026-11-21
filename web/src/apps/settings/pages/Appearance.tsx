@@ -3,7 +3,7 @@ import { ACCENTS, APPEARANCE_KEY, type Appearance, DEFAULT_APPEARANCE, MOTIONS, 
 import { parseVideoMode, VIDEO_KEY, type VideoMode } from "../../../surface/redirect";
 import type { AppContext } from "../../types";
 
-const THEME_LABELS: Record<Appearance["theme"], string> = { system: "Same as this computer", light: "Light", dark: "Dark" };
+const THEME_LABELS: Record<Appearance["theme"], string> = { lcars: "LCARS", system: "Same as this computer", light: "Light", dark: "Dark" };
 const MOTION_LABELS: Record<Appearance["motion"], string> = { system: "Same as this computer", full: "Full", reduced: "Reduced: no movement, no pulse, and no blinking cursor" };
 const ACCENT_LABELS: Record<Appearance["accent"], string> = { blue: "Blue", green: "Green", purple: "Purple", orange: "Orange" };
 
