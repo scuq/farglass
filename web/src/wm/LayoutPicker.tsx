@@ -1,5 +1,5 @@
 import { createSignal, For } from "solid-js";
-import { windowIcon } from "../launcher/hostApps";
+import { isShellIcon, windowIcon } from "../launcher/hostApps";
 import type { DesktopController } from "./controller";
 import { LAYOUT_LABELS, LAYOUTS, type Layout, layoutRects } from "./geometry";
 import { switchable, windowById } from "./model";
@@ -60,7 +60,7 @@ export function LayoutPicker(props: { controller: DesktopController }) {
                             transform: `translate(${rect.x * scale()}px, ${rect.y * scale()}px)`,
                           }}
                         >
-                          {win() && windowIcon(win()!) ? <img src={windowIcon(win()!)} alt="" /> : null}
+                          {win() && windowIcon(win()!) ? <img src={windowIcon(win()!)} alt="" data-shell-icon={isShellIcon(windowIcon(win()!)) ? "true" : undefined} /> : null}
                           <span class="wm-layout-title">{win()?.title ?? ""}</span>
                         </span>
                       );

@@ -2,7 +2,7 @@ import { createSignal, For, onCleanup, Show, untrack } from "solid-js";
 import { setContextMenu } from "../menu/menu";
 import { windowMenu } from "../wm/menus";
 import { soundPlayer } from "../audio/player";
-import { windowIcon } from "../launcher/hostApps";
+import { isShellIcon, windowIcon } from "../launcher/hostApps";
 import { describeUsage, isBusy, statsClient } from "../stats";
 import type { DesktopController } from "../wm/controller";
 import type { Win } from "../wm/model";
@@ -102,7 +102,7 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
               title={tip(win())}
               onClick={() => (c.focusedId() === win().id ? c.minimize(win().id) : c.activate(win().id))}
             >
-              {windowIcon(win()) ? <img class="panel-task-icon" src={windowIcon(win())} alt="" /> : null}
+              {windowIcon(win()) ? <img class="panel-task-icon" src={windowIcon(win())} alt="" data-shell-icon={isShellIcon(windowIcon(win())) ? "true" : undefined} /> : null}
               {win().title}
             </button>
             );

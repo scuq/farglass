@@ -10,6 +10,7 @@
 import { createSignal, type Signal } from "solid-js";
 import { APPS } from "../apps/registry";
 import logo from "../brand/farglass.svg";
+import calcIcon from "./calc.svg";
 import type { AppsEvent, AppsRequest, Channel, Connection, HostApp } from "../proto";
 import { surfaceManagerFor, surfaceOf } from "../surface/manager";
 
@@ -157,4 +158,12 @@ export function windowIcon(win: { readonly id: string; readonly app: string }): 
     if (icon) return icon;
   }
   return APPS[win.app]?.icon ?? logo;
+}
+
+/**
+ * Reports whether `url` is a line drawing of the shell: the icon of a shell app or of the calculator.
+ * The LCARS theme tints these icons (F072). An icon of a host app and the farglass icon keep their colors.
+ */
+export function isShellIcon(url: string | undefined): boolean {
+  return url !== undefined && (url === calcIcon || Object.values(APPS).some((app) => app?.icon === url));
 }

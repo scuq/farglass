@@ -1,5 +1,6 @@
 import type { JSX } from "@solidjs/web";
 import { type Accessor, onCleanup } from "solid-js";
+import { isShellIcon } from "../launcher/hostApps";
 import { type MenuProvider, setContextMenu } from "../menu/menu";
 import { type Edge, type Rect, resizeRect, type SnapZone, snapZoneAt, unsnapRect } from "./geometry";
 import { shownRect, type Win } from "./model";
@@ -229,7 +230,7 @@ export function WindowFrame(props: {
           }
         }}
       >
-        {props.icon ? <img class="wm-icon" src={props.icon} alt="" draggable={false} /> : null}
+        {props.icon ? <img class="wm-icon" src={props.icon} alt="" draggable={false} data-shell-icon={isShellIcon(props.icon) ? "true" : undefined} /> : null}
         <span class="wm-title">{props.win().title}</span>
         <button type="button" aria-label="Minimize" title={tip("Minimize", "minimize")} onClick={() => props.actions.minimize(props.win().id)}>
           ▁

@@ -207,10 +207,6 @@
   color: var(--on-focus);
   background: var(--focus);
 }
-/* A line drawing turns dark on the bright selection. */
-:root[data-theme="lcars"] .launcher-results li[aria-selected="true"]:not([data-host]) .launcher-icon {
-  filter: brightness(0);
-}
 :root[data-theme="lcars"] .panel-session-menu [role="menuitem"] {
   padding: 0.4rem 0.9rem;
   border: 0;
@@ -332,6 +328,32 @@
 }
 :root[data-theme="lcars"] .settings-swatch[data-accent="orange"] {
   background: var(--lcars-amber);
+}
+
+/*
+ * The shell icons are line drawings in one color (F072). The filters of
+ * index.html paint them in the accent color, or dark on a bar in the
+ * accent color. An icon of a host app keeps its colors.
+ */
+.icon-tints {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+.icon-tint-color {
+  flood-color: var(--focus);
+}
+.icon-tint-on-focus-color {
+  flood-color: var(--on-focus, #100b1a);
+}
+:root[data-theme="lcars"] img[data-shell-icon] {
+  filter: url(#icon-tint);
+}
+:root[data-theme="lcars"] .wm-focused .wm-titlebar img[data-shell-icon],
+:root[data-theme="lcars"] .panel button[aria-pressed="true"] img[data-shell-icon],
+:root[data-theme="lcars"] .launcher-results li[aria-selected="true"] img[data-shell-icon] {
+  filter: url(#icon-tint-on-focus);
 }
 
 /* The terminal. The selector is longer than the rules of terminal.css, which loads later. */

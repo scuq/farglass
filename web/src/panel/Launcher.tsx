@@ -3,7 +3,7 @@ import { APPS } from "../apps/registry";
 import { PAGES } from "../apps/settings/pages";
 import { calculate } from "../launcher/calc";
 import calcIcon from "../launcher/calc.svg";
-import { hostApps } from "../launcher/hostApps";
+import { hostApps, isShellIcon } from "../launcher/hostApps";
 import { search } from "./search";
 
 /** One entry of the launcher: an app of the shell, or an app of the host (F031). */
@@ -174,7 +174,7 @@ export function Launcher(props: {
               onPointerEnter={() => entry.preload?.()}
               onClick={() => open(entry)}
             >
-              <img class="launcher-icon" src={entry.icon()} alt="" />
+              <img class="launcher-icon" src={entry.icon()} alt="" data-shell-icon={isShellIcon(entry.icon()) ? "true" : undefined} />
               <span class="launcher-text">
                 <span class="launcher-title">{entry.title}</span>
                 {entry.description ? <span class="launcher-description">{entry.description}</span> : null}

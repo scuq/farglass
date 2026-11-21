@@ -7,6 +7,17 @@
     <title>farglass</title>
   </head>
   <body>
+    <!-- The tints of the shell icons in the LCARS theme (F072). The CSS sets the flood colors. -->
+    <svg class="icon-tints" width="0" height="0" aria-hidden="true" focusable="false">
+      <filter id="icon-tint" color-interpolation-filters="sRGB">
+        <feFlood class="icon-tint-color" />
+        <feComposite in2="SourceAlpha" operator="in" />
+      </filter>
+      <filter id="icon-tint-on-focus" color-interpolation-filters="sRGB">
+        <feFlood class="icon-tint-on-focus-color" />
+        <feComposite in2="SourceAlpha" operator="in" />
+      </filter>
+    </svg>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

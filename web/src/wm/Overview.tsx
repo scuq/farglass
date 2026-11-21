@@ -1,5 +1,5 @@
 import { For } from "solid-js";
-import { windowIcon } from "../launcher/hostApps";
+import { isShellIcon, windowIcon } from "../launcher/hostApps";
 import type { DesktopController } from "./controller";
 import { overviewLetters, shownRect } from "./model";
 
@@ -70,7 +70,7 @@ export function Overview(props: { controller: DesktopController }) {
                       style={{ width: `${rect().w}px`, height: `${rect().h}px`, transform: `translate(${rect().x}px, ${rect().y}px)` }}
                       onClick={() => go(win.id)}
                     >
-                      {windowIcon(win) ? <img src={windowIcon(win)} alt="" /> : null}
+                      {windowIcon(win) ? <img src={windowIcon(win)} alt="" data-shell-icon={isShellIcon(windowIcon(win)) ? "true" : undefined} /> : null}
                       <span class="wm-overview-title">{win.title}</span>
                       {letterOf(win.id) ? <kbd class="wm-overview-letter">{letterOf(win.id)!.toUpperCase()}</kbd> : null}
                     </button>
