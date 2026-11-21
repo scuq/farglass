@@ -109,9 +109,10 @@ describe("health", () => {
 
 describe("video mode", () => {
   test("the mode comes from the state store, and on the host the client shows no video", async () => {
-    expect(parseVideoMode(null)).toBe("client");
+    expect(parseVideoMode(null)).toBe("smart");
+    expect(parseVideoMode({ mode: "client" })).toBe("client");
     expect(parseVideoMode({ mode: "host" })).toBe("host");
-    expect(parseVideoMode({ mode: "other" })).toBe("client");
+    expect(parseVideoMode({ mode: "other" })).toBe("smart");
     const { connection } = await fakeConnection("alice");
     const manager = new RedirectManager(connection);
     manager.setMode("host");
@@ -144,6 +145,8 @@ describe("smart mode (F073)", () => {
   test("only the smart mode gives a video to the host under the pointer", async () => {
     const { connection } = await fakeConnection("alice");
     const manager = new RedirectManager(connection);
+    manager.setMode("client");
+    await Promise.resolve();
     manager.pointer("m1");
     expect(manager.hostDraws("m1")).toBe(false);
     manager.setMode("smart");

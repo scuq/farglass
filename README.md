@@ -480,7 +480,11 @@ Google Chrome does not load an extension from the command line.
 Encrypted video (DRM) and Media Source Extensions in a worker stay as tiles.
 A semi-transparent element of the page over the video shows in your browser as well as the key can make it: a light graph as translucent white, a dark gray panel as translucent dark gray.
 A panel of nearly black, for example the settings menu of YouTube, is not distinct from the black under it, thus the video shows under its text with no panel.
-Settings > Appearance > Videos in the host browser selects "Play on the host" for the exact page: the host then draws the video, with more load on the host and the connection.
+Settings > Appearance > Videos in the host browser selects where the video plays.
+The default is "Smart": your browser plays the video, and the host draws it while the pointer is on it, thus the controls of the page show with no marks.
+After 3 s with no pointer movement on a playing video, or when the pointer leaves it, your browser shows its own video again.
+While the host draws the video, the agent uses about 40 % of a core of the test host; else about 1 %.
+"Play in this browser" never gives the video to the host, and "Play on the host" shows the exact page, with more load on the host and the connection.
 `npm --prefix spikes/e2e run redirect` tests it with a local page, and `npm --prefix spikes/e2e run youtube` tries a YouTube video (network needed).
 
 To look at the events of a real app:

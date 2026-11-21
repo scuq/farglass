@@ -307,15 +307,15 @@ export const VIDEO_KEY = "video-redirect";
  */
 export type VideoMode = "client" | "host" | "smart";
 
-/** Returns the mode from a value of the state store. The default is the client browser. */
+/** Returns the mode from a value of the state store. The default is smart (F074). */
 export function parseVideoMode(value: unknown): VideoMode {
   const mode = typeof value === "object" && value !== null ? (value as { mode?: unknown }).mode : undefined;
-  return mode === "host" || mode === "smart" ? mode : "client";
+  return mode === "host" || mode === "client" ? mode : "smart";
 }
 
 export class RedirectManager {
   readonly #channel: Channel;
-  readonly #mode = createSignal<VideoMode>("client");
+  readonly #mode = createSignal<VideoMode>("smart");
   readonly #medias = new Map<string, RedirectedMedia>();
   readonly #version = createSignal(0, { equals: false });
   readonly #showing = new Map<string, boolean>();

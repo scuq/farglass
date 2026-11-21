@@ -187,6 +187,8 @@ source.addEventListener("sourceopen", async () => {
   const window = shell.locator('.wm-window[aria-label^="Redirect test"]');
   await window.waitFor({ timeout: 60_000 });
   await raise(shell, window);
+  // Steps 1 to 5 test the client mode; the default is smart (F074).
+  await shell.evaluate(() => globalThis.farglassVideoMode("client"));
   const video = window.locator("video[data-redirect]");
   await video.waitFor({ timeout: 30_000 });
   await shell.waitForFunction(() => {

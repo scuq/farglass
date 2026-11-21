@@ -12,7 +12,7 @@ export function AppearancePage(props: { context: AppContext }) {
   // Each window of Settings has its own radio groups: two windows must not share a group.
   const group = createUniqueId();
   const [value, setValue] = createSignal<Appearance>(DEFAULT_APPEARANCE);
-  const [video, setVideo] = createSignal<VideoMode>("client");
+  const [video, setVideo] = createSignal<VideoMode>("smart");
   props.context.state.watchShared(VIDEO_KEY, (stored) => setVideo(parseVideoMode(stored)));
   const changeVideo = (mode: VideoMode) => {
     setVideo(mode);
@@ -85,7 +85,7 @@ export function AppearancePage(props: { context: AppContext }) {
         </label>
         <label class="settings-choice">
           <input type="radio" name={`${group}-video`} value="smart" checked={video() === "smart"} onChange={() => changeVideo("smart")} />
-          Smart: play in this browser, and on the host while the pointer is on the video. The controls of the page show with no marks.
+          Smart (the default): play in this browser, and on the host while the pointer is on the video. The controls of the page show with no marks.
         </label>
       </fieldset>
       <p class="settings-note">The appearance applies at once in each tab of your session.</p>
