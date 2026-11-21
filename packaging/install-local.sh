@@ -11,7 +11,10 @@
 #   npm --prefix web run build
 # It runs "npm ci" in web first if web/node_modules is missing. If the build
 # fails, install stops and changes nothing. --no-build installs the last build;
-# install refuses a build that is older than its sources.
+# then install refuses a build that is older than its sources. After its own
+# build, install trusts cargo and vite: a change of a source file that does not
+# change a program, for example the license in Cargo.toml, leaves the old file
+# time on the program.
 #
 # install copies the programs, the shell files, the PAM files, and the systemd
 # units, creates the system user farglass, and starts farglass-login.socket and
@@ -88,15 +91,19 @@ install_all() {
             die "$REPO/target/release/$program is missing. Build it first: cargo build --release -p $program"
     done
     [ -f "$REPO/web/dist/index.html" ] || die "The shell is not built. Build it first: npm --prefix web run build"
-    # An old build is a frequent fault: a source file that is newer than a program means that it is not built yet.
-    for program in farglassd farglass-login farglass-session; do
+    # An old build is a frequent fault with --no-build: a source file that is newer than a program means that it is not built yet.
+    # After the build of this script, cargo decided that each program is current. The file times can be older than a source
+    # file that changes no program, thus the check runs only with --no-build.
+    [ "$build" = yes ] || for program in farglassd farglass-login farglass-session; do
         newer=$(find "$REPO/crates" "$REPO/Cargo.toml" "$REPO/Cargo.lock" \( -name '*.rs' -o -name Cargo.toml -o -name Cargo.lock \) -newer "$REPO/target/release/$program" -print -quit 2>/dev/null ||
             true)
         [ -z "$newer" ] ||
-            die "$program is older than $newer. Build it first: cargo build --release -p farglassd -p farglass-login -p farglass-session"
+            die "$program is older than $newer. Run install without --no-build."
     done
-    newer=$(find "$REPO/web/src" "$REPO/crates/farglass-proto/src" -newer "$REPO/web/dist/index.html" -print -quit 2>/dev/null || true)
-    [ -z "$newer" ] || die "The shell is older than $newer. Build it first: npm --prefix web run build"
+    if [ "$build" = no ]; then
+        newer=$(find "$REPO/web/src" "$REPO/crates/farglass-proto/src" -newer "$REPO/web/dist/index.html" -print -quit 2>/dev/null || true)
+        [ -z "$newer" ] || die "The shell is older than $newer. Run install without --no-build."
+    fi
 
     getent group farglass >/dev/null || groupadd --system farglass
     # Only members of farglass-users can log in (F058).
