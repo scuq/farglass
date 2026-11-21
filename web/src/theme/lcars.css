@@ -1,80 +1,96 @@
 /*
- * The LCARS theme (F071, ADR-049): the default theme of the shell, in the
- * colors of the farglass icon. It is always dark.
+ * The LCARS theme (F071, F075, ADR-049, ADR-051): the default theme of the
+ * shell, in the colors of the farglass icon. It is always dark.
+ *
+ * The surfaces are neutral. Each color has one role (ADR-051):
+ *   --focus (amber by default): the active item, the selection, and the main action
+ *   lavender: navigation and identity
+ *   coral: a window that needs attention
+ *   --ok and --bad: a state, always with a text
  *
  * The rules start with :root[data-theme="lcars"], thus they win over the
- * rules of the components, which load later. The bar colors are decoration
- * and carry no state: a state keeps its text, --ok, and --bad.
+ * rules of the components, which load later. The login screen has its own
+ * tokens and rules in shell.css (F070). A rule here that can match an element
+ * of the login screen excludes it, or it stays as F071 wrote it.
  */
 :root[data-theme="lcars"] {
   color-scheme: dark;
+  /* The surfaces: the desktop, a window, and a raised part (a title bar, a menu). */
   --lcars-bg: #100b1a;
-  --lcars-panel: #1b1228;
-  --lcars-raised: #2a1d3b;
+  --lcars-panel: #1b1624;
+  --lcars-raised: #292136;
+  /* A divider, and the border of a control. The border of a control has a contrast of 3:1. */
+  --lcars-border: #493a59;
+  --lcars-control: #7d6b93;
+  --lcars-text: #f2eaf2;
+  --lcars-text-2: #ad9dbd;
   --lcars-amber: #ffb23f;
-  --lcars-orange: #ff9f27;
-  --lcars-copper: #e88b61;
-  --lcars-coral: #d96c79;
   --lcars-lavender: #a98ac6;
-  --lcars-ivory: #fff0d5;
-  --lcars-border: #624b78;
-  --bg: var(--lcars-bg);
-  --fg: var(--lcars-ivory);
-  --muted: var(--lcars-lavender);
+  --lcars-coral: #d96c79;
+  --bg: var(--lcars-panel);
+  --fg: var(--lcars-text);
+  --muted: var(--lcars-text-2);
   --line: var(--lcars-border);
   --ok: #7fd6a4;
   --bad: #ff6b6b;
   --focus: var(--lcars-amber);
-  --title-focused: var(--lcars-amber);
-  --bar: var(--lcars-panel);
-  /* The text on a bar in the accent color. */
+  --title-focused: var(--lcars-raised);
+  --bar: var(--lcars-raised);
+  /* The text on a part in the accent color. */
   --on-focus: var(--lcars-bg);
 }
 /* The accent colors in LCARS hues. Orange is the amber of the icon and the default. */
 :root[data-theme="lcars"][data-accent="blue"] {
   --focus: #8fb8ff;
-  --title-focused: #8fb8ff;
 }
 :root[data-theme="lcars"][data-accent="green"] {
   --focus: #7fd6a4;
-  --title-focused: #7fd6a4;
 }
 :root[data-theme="lcars"][data-accent="purple"] {
   --focus: #c3a6e6;
-  --title-focused: #c3a6e6;
 }
 :root[data-theme="lcars"][data-accent="orange"] {
   --focus: var(--lcars-amber);
-  --title-focused: var(--lcars-amber);
 }
 
+/* On the login screen, the body sets --lcars-bg and --fg again, thus its colors stay. */
 :root[data-theme="lcars"] body {
   background: var(--lcars-bg);
-  color: var(--lcars-ivory);
+  color: var(--fg);
 }
 
 /* Controls in the apps. :where keeps the specificity at zero, so a rule of a component wins. */
 :where(:root[data-theme="lcars"]) :where(button:not(.login *)) {
-  padding: 0.3rem 0.9rem;
-  color: var(--lcars-ivory);
+  padding: 0.3rem 0.8rem;
+  color: var(--fg);
   font: inherit;
   background: var(--lcars-raised);
-  border: 1px solid var(--lcars-border);
-  border-radius: 999px;
+  border: 1px solid var(--lcars-control);
+  border-radius: 6px;
   cursor: pointer;
 }
 :where(:root[data-theme="lcars"]) :where(button:not(.login *)):hover:not(:disabled) {
   border-color: var(--focus);
+}
+/* The main action of a form: the LCARS pill in the accent color. */
+:where(:root[data-theme="lcars"]) :where(button[type="submit"]:not(.login *)) {
+  color: var(--on-focus);
+  background: var(--focus);
+  border-color: var(--focus);
+  border-radius: 999px;
+}
+:where(:root[data-theme="lcars"]) :where(button[type="submit"]:not(.login *)):hover:not(:disabled) {
+  filter: brightness(1.1);
 }
 :where(:root[data-theme="lcars"]) :where(button):disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
 :where(:root[data-theme="lcars"]) :where(input:not([type="radio"], [type="checkbox"], [type="range"], .login *), select:not(.login *), textarea:not(.login *)) {
-  color: var(--lcars-ivory);
-  background: var(--lcars-panel);
-  border: 1px solid var(--lcars-border);
-  border-radius: 0;
+  color: var(--fg);
+  background: var(--lcars-bg);
+  border: 1px solid var(--lcars-control);
+  border-radius: 2px;
 }
 :where(:root[data-theme="lcars"]) :where(input, select, textarea):focus-visible {
   outline: none;
@@ -84,22 +100,29 @@
 :where(:root[data-theme="lcars"]) :where(input[type="radio"], input[type="checkbox"], input[type="range"]) {
   accent-color: var(--focus);
 }
-:where(:root[data-theme="lcars"]) :where(button, a):focus-visible {
+:where(:root[data-theme="lcars"]) :where(button:not(.lcars-page *), a:not(.lcars-page *)):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+:where(:root[data-theme="lcars"]) :where(.lcars-page button, .lcars-page a):focus-visible {
   outline: 2px solid var(--lcars-ivory);
   outline-offset: 2px;
 }
 :where(:root[data-theme="lcars"]) :where(h1, h2, legend) {
   letter-spacing: 0.5px;
 }
-:where(:root[data-theme="lcars"]) :where(fieldset) {
-  border: 1px solid var(--lcars-border);
-  border-radius: 0 0 0 16px;
+/* A group has a label on a divider, and no box. */
+:where(:root[data-theme="lcars"]) :where(fieldset:not(.login *)) {
+  border: 0;
+  border-top: 1px solid var(--lcars-border);
 }
-:where(:root[data-theme="lcars"]) :where(legend) {
-  color: var(--lcars-amber);
+:where(:root[data-theme="lcars"]) :where(legend:not(.login *)) {
+  padding: 0 0.6rem 0 0;
+  color: var(--muted);
   text-transform: uppercase;
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   font-weight: 700;
+  letter-spacing: 1px;
 }
 :root[data-theme="lcars"] button.danger {
   color: var(--bad);
@@ -107,109 +130,163 @@
   background: transparent;
 }
 
-/* The panel: an LCARS bar. The apps button is the elbow at the left. Its button rules skip the menus, which are in the panel too. */
+/*
+ * The panel: an LCARS bar. The apps button is the elbow at the left, and the
+ * session button is the cap at the right. The other buttons are neutral: a
+ * line in the accent color marks the pressed one. The button rules skip the
+ * menus, which are in the panel too.
+ */
 :root[data-theme="lcars"] .panel {
-  gap: 4px;
+  gap: 2px;
   height: 2.25rem;
   padding: 0 0.5rem 0 0;
   background: var(--lcars-bg);
-  border-bottom: 4px solid var(--lcars-orange);
+  border-bottom: 0;
+  box-shadow: inset 0 -2px var(--lcars-border);
+}
+:root[data-theme="lcars"] .panel-workspaces,
+:root[data-theme="lcars"] .panel-tasks {
+  gap: 2px;
+  height: 100%;
+}
+/* A short divider between the workspaces and the windows. */
+:root[data-theme="lcars"] .panel-tasks::before {
+  content: "";
+  flex: none;
+  align-self: center;
+  width: 1px;
+  height: 1rem;
+  margin: 0 0.4rem;
+  background: var(--lcars-border);
 }
 :root[data-theme="lcars"] .panel button:not(.popover *) {
-  height: 1.75rem;
-  padding: 0 0.85rem;
-  color: var(--lcars-bg);
-  font-size: 0.8rem;
-  font-weight: 700;
-  letter-spacing: 0.5px;
+  height: 100%;
+  padding: 0 0.7rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 1px;
   text-transform: uppercase;
-  background: var(--lcars-lavender);
+  background: none;
   border: 0;
-  border-radius: 4px;
+  border-radius: 0;
 }
 :root[data-theme="lcars"] .panel button.panel-apps {
-  height: 100%;
+  margin-right: 0.5rem;
   padding: 0 1.25rem 0 1rem;
-  background: var(--lcars-amber);
+  color: var(--on-focus);
+  font-size: 0.8rem;
+  font-weight: 700;
+  background: var(--focus);
   border-radius: 0 0 0 1.25rem;
 }
 :root[data-theme="lcars"] .panel button.panel-session {
-  background: var(--lcars-coral);
+  height: 1.5rem;
+  margin-left: 0.25rem;
+  padding: 0 0.9rem 0 0.7rem;
+  color: var(--on-focus);
+  font-weight: 700;
+  background: var(--lcars-lavender);
   border-radius: 0 999px 999px 0;
 }
-:root[data-theme="lcars"] .panel button.panel-overview,
-:root[data-theme="lcars"] .panel button.panel-tile,
-:root[data-theme="lcars"] .panel button.panel-sound {
-  background: var(--lcars-copper);
+:root[data-theme="lcars"] .panel .panel-workspaces button {
+  min-width: 1.9rem;
+  padding: 0 0.5rem;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  background: var(--lcars-panel);
 }
 :root[data-theme="lcars"] .panel button.wm-task {
-  color: var(--lcars-ivory);
-  text-transform: none;
+  font-size: 0.85rem;
   font-weight: 500;
   letter-spacing: 0;
-  background: var(--lcars-raised);
-  border-radius: 999px;
+  text-transform: none;
 }
 :root[data-theme="lcars"] .panel button:not(.popover *):hover {
-  filter: brightness(1.12);
+  color: var(--fg);
+  background: var(--lcars-raised);
+}
+:root[data-theme="lcars"] .panel button.panel-apps:hover,
+:root[data-theme="lcars"] .panel button.panel-session:hover {
+  color: var(--on-focus);
+  filter: brightness(1.1);
+}
+:root[data-theme="lcars"] .panel button.panel-apps:hover {
+  background: var(--focus);
+}
+:root[data-theme="lcars"] .panel button.panel-session:hover {
+  background: var(--lcars-lavender);
+}
+/* A window that opened in the background (F041): a coral line and a bold title. */
+:root[data-theme="lcars"] .panel button.wm-task[data-attention="true"] {
+  color: var(--fg);
+  font-weight: 700;
+  box-shadow: inset 0 -2px var(--lcars-coral);
 }
 :root[data-theme="lcars"] .panel button:not(.popover *)[aria-pressed="true"] {
   outline: none;
-  color: var(--on-focus);
-  background: var(--focus);
+  color: var(--fg);
+  box-shadow: inset 0 -2px var(--focus);
 }
 :root[data-theme="lcars"] .panel button:not(.popover *):focus-visible {
-  outline: 2px solid var(--lcars-ivory);
-  outline-offset: 2px;
+  outline: 2px solid var(--fg);
+  outline-offset: -3px;
 }
-:root[data-theme="lcars"] .panel button.wm-task[data-attention="true"] {
-  box-shadow: inset 0 0 0 2px var(--focus);
+:root[data-theme="lcars"] .panel button.panel-apps:focus-visible,
+:root[data-theme="lcars"] .panel button.panel-session:focus-visible {
+  outline-color: var(--on-focus);
 }
 :root[data-theme="lcars"] .panel-clock {
-  padding: 0 0.5rem;
-  color: var(--lcars-amber);
-  font-family: ui-monospace, monospace;
-  letter-spacing: 1px;
+  padding: 0 0.6rem;
+  color: var(--fg);
+  font-size: 0.85rem;
+  letter-spacing: 0.5px;
 }
 
-/* Menus, the launcher, the switcher, and the layout picker: a frame with an elbow at the top left. */
+/* Menus, the launcher, the switcher, the layout picker, notifications, and dialogs: a raised surface. */
 :root[data-theme="lcars"] .popover,
 :root[data-theme="lcars"] .context-menu,
 :root[data-theme="lcars"] .wm-switcher,
 :root[data-theme="lcars"] .wm-layouts,
-:root[data-theme="lcars"] .notification {
-  background: var(--lcars-bg);
-  border: 2px solid var(--lcars-border);
-  border-top: 6px solid var(--lcars-amber);
-  border-radius: 16px 4px 4px 4px;
+:root[data-theme="lcars"] .notification,
+:root[data-theme="lcars"] .settings-confirm {
+  background: var(--lcars-raised);
+  border: 1px solid var(--lcars-border);
+  border-radius: 6px;
   box-shadow: 0 10px 32px rgb(0 0 0 / 0.5);
 }
+/* The line at the left is the urgency of the notification. */
 :root[data-theme="lcars"] .notification {
-  border-left: 6px solid var(--focus);
+  border-left: 3px solid var(--focus);
 }
 :root[data-theme="lcars"] .notification[data-urgency="low"] {
-  border-left-color: var(--lcars-border);
+  border-left-color: var(--lcars-control);
 }
 :root[data-theme="lcars"] .notification[data-urgency="critical"] {
   border-left-color: var(--bad);
+}
+:root[data-theme="lcars"] .notification-close:hover {
+  background: rgb(255 255 255 / 0.08);
 }
 :root[data-theme="lcars"] .launcher-results li,
 :root[data-theme="lcars"] .context-menu-item,
 :root[data-theme="lcars"] .wm-switcher-item,
 :root[data-theme="lcars"] .panel-session-menu [role="menuitem"] {
-  border-radius: 999px;
+  border-radius: 4px;
 }
+/* The selection: a tint and a marker in the accent color at the left. */
 :root[data-theme="lcars"] .launcher-results li[aria-selected="true"],
 :root[data-theme="lcars"] .context-menu-item[data-active="true"],
 :root[data-theme="lcars"] .wm-switcher-item[aria-selected="true"],
 :root[data-theme="lcars"] .panel-session-menu [role="menuitem"]:hover,
 :root[data-theme="lcars"] .panel-session-menu [role="menuitem"]:focus-visible {
-  color: var(--on-focus);
-  background: var(--focus);
+  color: var(--fg);
+  background: color-mix(in srgb, var(--focus) 14%, transparent);
+  box-shadow: inset 3px 0 var(--focus);
 }
 :root[data-theme="lcars"] .panel-session-menu [role="menuitem"] {
   padding: 0.4rem 0.9rem;
-  color: var(--lcars-ivory);
+  color: var(--fg);
   border: 0;
   background: none;
 }
@@ -217,107 +294,144 @@
   color: var(--muted);
 }
 :root[data-theme="lcars"] .launcher-search {
-  padding: 0.5rem 0.75rem;
+  padding: 0.5rem 0.7rem;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--lcars-control);
+  border-radius: 0;
+}
+:root[data-theme="lcars"] .launcher-results li {
+  padding: 0.4rem 0.7rem;
+}
+:root[data-theme="lcars"] .launcher-description {
+  color: var(--muted);
+  font-size: 0.8rem;
+  opacity: 1;
+}
+:root[data-theme="lcars"] .wm-layout-preview {
+  background: var(--lcars-bg);
 }
 
-/* Windows: the title bar is an LCARS bar with a rounded cap at the left. */
+/*
+ * Windows: a dark title bar. The border in the accent color and the cap at
+ * the left of the title bar mark the window that has the focus.
+ */
 :root[data-theme="lcars"] .wm-window {
-  background: var(--lcars-bg);
-  border: 2px solid var(--lcars-border);
-  border-radius: 18px 4px 4px 4px;
-  box-shadow: 0 6px 24px rgb(0 0 0 / 0.45);
+  background: var(--lcars-panel);
+  border: 1px solid var(--lcars-border);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.4);
 }
 :root[data-theme="lcars"] .wm-window.wm-focused {
   border-color: var(--focus);
-  box-shadow: 0 8px 32px rgb(0 0 0 / 0.6);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.55);
 }
 :root[data-theme="lcars"] .wm-window[data-mode="maximized"] {
   border-radius: 0;
 }
 :root[data-theme="lcars"] .wm-titlebar {
   height: 30px;
-  padding: 0 0.25rem 0 0.9rem;
-  color: var(--lcars-ivory);
+  padding: 0 0.25rem 0 0.6rem;
+  color: var(--muted);
   background: var(--lcars-raised);
   border-bottom: 0;
-  border-radius: 16px 2px 0 0;
+  border-radius: 5px 5px 0 0;
 }
 :root[data-theme="lcars"] .wm-window[data-mode="maximized"] .wm-titlebar {
   border-radius: 0;
 }
+:root[data-theme="lcars"] .wm-titlebar::before {
+  content: "";
+  flex: none;
+  width: 4px;
+  height: 14px;
+  margin-right: 0.3rem;
+  background: var(--lcars-border);
+  border-radius: 2px;
+}
 :root[data-theme="lcars"] .wm-focused .wm-titlebar {
-  color: var(--on-focus);
-  background: var(--title-focused);
+  color: var(--fg);
+  background: var(--lcars-raised);
+}
+:root[data-theme="lcars"] .wm-focused .wm-titlebar::before {
+  background: var(--focus);
 }
 :root[data-theme="lcars"] .wm-title {
   font-size: 0.85rem;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
+  font-weight: 600;
 }
 :root[data-theme="lcars"] .wm-titlebar button {
-  width: 30px;
+  width: 28px;
   height: 22px;
   padding: 0;
   color: inherit;
   background: none;
   border: 0;
-  border-radius: 999px;
+  border-radius: 4px;
 }
 :root[data-theme="lcars"] .wm-titlebar button:hover,
 :root[data-theme="lcars"] .wm-titlebar button:focus-visible {
-  background: rgb(16 11 26 / 0.25);
+  background: rgb(255 255 255 / 0.08);
 }
 :root[data-theme="lcars"] .wm-snap-preview {
   border-color: var(--focus);
   background: color-mix(in srgb, var(--focus) 15%, transparent);
 }
 
-/* The overview and the layout picker. */
+/* The overview. A transform makes its boxes small, thus the radii are large. */
 :root[data-theme="lcars"] .wm-overview {
   background: var(--lcars-bg);
 }
 :root[data-theme="lcars"] .wm-overview-workspace {
   background: var(--lcars-panel);
-  border-radius: 48px 8px 8px 8px;
+  border-radius: 24px;
 }
 :root[data-theme="lcars"] .wm-overview-window {
   background: var(--lcars-raised);
-  border-radius: 32px 6px 6px 6px;
+  border-radius: 16px;
 }
 :root[data-theme="lcars"] .wm-overview-letter {
   color: var(--on-focus);
 }
-:root[data-theme="lcars"] .wm-layout {
-  border-radius: 12px 4px 4px 4px;
-}
-:root[data-theme="lcars"] .wm-layout-preview {
-  background: var(--lcars-panel);
-}
 
-/* The settings app: the list of pages is an LCARS column. */
+/* The settings app: the list of pages has neutral rows. Lavender marks the open page. */
 :root[data-theme="lcars"] .settings-nav {
-  gap: 4px;
-  background: var(--lcars-bg);
-  border-right: 4px solid var(--lcars-lavender);
+  gap: 2px;
+  background: none;
+  border-right: 1px solid var(--lcars-border);
 }
 :root[data-theme="lcars"] .settings-nav button {
-  padding: 0.45rem 0.9rem;
-  font-size: 0.85rem;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  color: var(--lcars-bg);
-  background: var(--lcars-lavender);
+  padding: 0.4rem 0.7rem;
+  color: var(--muted);
+  font-weight: 500;
+  background: none;
   border: 0;
-  border-radius: 999px 4px 4px 999px;
+  border-radius: 4px;
 }
 :root[data-theme="lcars"] .settings-nav button:hover {
-  filter: brightness(1.12);
+  color: var(--fg);
+  background: var(--lcars-raised);
 }
 :root[data-theme="lcars"] .settings-nav button[aria-current="page"] {
-  color: var(--on-focus);
-  background: var(--focus);
+  color: var(--fg);
+  background: color-mix(in srgb, var(--lcars-lavender) 20%, transparent);
+  box-shadow: inset 3px 0 var(--lcars-lavender);
+}
+:root[data-theme="lcars"] .settings-page h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+:root[data-theme="lcars"] .settings-page fieldset {
+  padding: 0.5rem 0 0.75rem;
+  border: 0;
+  border-top: 1px solid var(--lcars-border);
+  border-radius: 0;
+}
+:root[data-theme="lcars"] .settings-item {
+  padding: 0.6rem 0;
+  border: 0;
+  border-bottom: 1px solid var(--lcars-border);
+  border-radius: 0;
 }
 
 /* The swatches of the accent colors show the LCARS hues. */
@@ -336,8 +450,8 @@
 
 /*
  * The shell icons are line drawings in one color (F072). The filters of
- * index.html paint them in the accent color, or dark on a bar in the
- * accent color. An icon of a host app keeps its colors.
+ * index.html paint them lavender, or in the accent color for the active
+ * item. An icon of a host app keeps its colors.
  */
 .icon-tints {
   position: absolute;
@@ -346,10 +460,10 @@
   overflow: hidden;
 }
 .icon-tint-color {
-  flood-color: var(--focus);
+  flood-color: var(--lcars-lavender, #a98ac6);
 }
-.icon-tint-on-focus-color {
-  flood-color: var(--on-focus, #100b1a);
+.icon-tint-active-color {
+  flood-color: var(--focus);
 }
 :root[data-theme="lcars"] img[data-shell-icon] {
   filter: url(#icon-tint);
@@ -357,7 +471,7 @@
 :root[data-theme="lcars"] .wm-focused .wm-titlebar img[data-shell-icon],
 :root[data-theme="lcars"] .panel button:not(.popover *)[aria-pressed="true"] img[data-shell-icon],
 :root[data-theme="lcars"] .launcher-results li[aria-selected="true"] img[data-shell-icon] {
-  filter: url(#icon-tint-on-focus);
+  filter: url(#icon-tint-active);
 }
 
 /* The terminal. The selector is longer than the rules of terminal.css, which loads later. */

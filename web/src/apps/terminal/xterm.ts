@@ -32,7 +32,7 @@ function osc52(gate: CopyGate, blocked: (text: string) => void): IClipboardProvi
 /** Returns the colors of the terminal for the theme of the shell. */
 function theme() {
   if (isLcarsTheme()) {
-    return { background: "#100b1a", foreground: "#fff0d5", cursor: "#ffb23f", cursorAccent: "#100b1a", selectionBackground: "#4a3566" };
+    return { background: "#100b1a", foreground: "#f2eaf2", cursor: "#ffb23f", cursorAccent: "#100b1a", selectionBackground: "#4a3566" };
   }
   return isDarkTheme()
     ? { background: "#1a1a19", foreground: "#ececea", cursor: "#ececea", selectionBackground: "#3b5c8f" }
