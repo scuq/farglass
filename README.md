@@ -887,3 +887,11 @@ pkill -HUP farglassd
 ```
 
 If the new files are not valid, farglassd keeps the old certificate and writes an error to the log.
+
+## License
+
+farglass is free software under the GNU Affero General Public License, version 3 only (AGPL-3.0-only).
+Refer to [LICENSE](LICENSE).
+
+A commercial license is available on request.
+Refer to [COMMERCIAL.md](COMMERCIAL.md).
