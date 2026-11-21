@@ -3,6 +3,7 @@ import { setContextMenu } from "../menu/menu";
 import { windowMenu } from "../wm/menus";
 import { soundPlayer } from "../audio/player";
 import { isShellIcon, windowIcon } from "../launcher/hostApps";
+import { EMPTY_LAUNCHER, LAUNCHER_KEY, type LauncherState, parseLauncherState } from "../launcher/usage";
 import { describeUsage, isBusy, statsClient } from "../stats";
 import type { DesktopController } from "../wm/controller";
 import type { Win } from "../wm/model";
@@ -18,6 +19,13 @@ import "./panel.css";
 export function Panel(props: { controller: DesktopController; user: string; onlogout: () => void; onlock: () => void }) {
   const c = props.controller;
   const [sessionOpen, setSessionOpen] = createSignal(false);
+  // The pins and the use of the apps in the launcher (F076). The panel keeps them: the launcher has them at once when it opens.
+  const [launcherState, setLauncherState] = createSignal<LauncherState>(EMPTY_LAUNCHER);
+  onCleanup(c.state.watch(LAUNCHER_KEY, (stored) => setLauncherState(parseLauncherState(stored))));
+  const saveLauncherState = (next: LauncherState) => {
+    setLauncherState(next);
+    c.state.set(LAUNCHER_KEY, next);
+  };
 
   // A minimized window shows how busy its app is, and the details in its tooltip (F045).
   // The dot is for minimized windows only: an open window shows what its app does. The tooltip is for each window.
@@ -64,6 +72,8 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
             c.setLauncherOpen(false);
             c.openApp("settings", { page });
           }}
+          usage={launcherState()}
+          onusage={saveLauncherState}
         />
       </Popover>
 

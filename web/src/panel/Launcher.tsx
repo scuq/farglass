@@ -1,9 +1,10 @@
-import { createSignal, createUniqueId, For, Show } from "solid-js";
+import { createMemo, createSignal, createUniqueId, For, Show } from "solid-js";
 import { APPS } from "../apps/registry";
 import { PAGES } from "../apps/settings/pages";
 import { calculate } from "../launcher/calc";
 import calcIcon from "../launcher/calc.svg";
 import { hostApps, isShellIcon } from "../launcher/hostApps";
+import { EMPTY_LAUNCHER, frequent, type LauncherState, recordUse, togglePin } from "../launcher/usage";
 import { search } from "./search";
 
 /** One entry of the launcher: an app of the shell, or an app of the host (F031). */
@@ -15,12 +16,19 @@ interface Entry {
   readonly icon: () => string | undefined;
   /** The id of the desktop entry of an app of the host. */
   readonly host?: string;
-  /** A page of the settings (F042). */
-  readonly setting?: string;
+  /** The page of the settings that the query found (F042). The entry of the settings opens at this page. */
+  readonly setting?: string | undefined;
   /** The value of a calculation or a conversion, to copy (F042). */
   readonly calc?: string;
   readonly preload?: () => void;
 }
+
+/** A row of the list: the label of a section, or an entry with its position in the selection order. */
+type Row = { readonly label: string } | { readonly entry: Entry; readonly index: number };
+
+const PAGE_ENTRIES = PAGES.map((page) => ({ id: page.id, title: page.label, keywords: page.keywords }));
+/** The settings entry finds each page: the labels and the keywords of the pages are its keywords. */
+const PAGE_KEYWORDS = PAGES.flatMap((page) => [page.label, ...page.keywords]);
 
 /** The icon of an app of the host with no icon of its own. */
 const HOST_ICON = APPS.linux?.icon;
@@ -28,6 +36,11 @@ const HOST_ICON = APPS.linux?.icon;
 /**
  * The launcher: one search field for the apps of the shell, the desktop entries
  * of the host, the pages of the settings, and calculations (F042).
+ *
+ * With no query, the pinned apps come first, then the most used apps, then
+ * all other apps (F076). Alt+P or the button of an entry pins it or removes
+ * the pin. The settings are one entry: a query that finds a page of the
+ * settings opens the settings at that page.
  *
  * The arrow keys select a result, and Enter opens it. A click opens it too.
  * An app of the host starts on the compositor of the session. The launcher
@@ -39,6 +52,9 @@ export function Launcher(props: {
   onclose: () => void;
   onlaunch?: (names: readonly string[]) => void;
   onsetting?: (page: string) => void;
+  /** The pins and the use of the apps, and the function that saves a change (F076). */
+  usage?: LauncherState;
+  onusage?: (next: LauncherState) => void;
 }) {
   const [query, setQuery] = createSignal("");
   const [active, setActive] = createSignal(0);
@@ -48,15 +64,27 @@ export function Launcher(props: {
   // The desktop entries can change while the shell runs, for example after an install.
   hostApps()?.refresh();
 
+  const usage = () => props.usage ?? EMPTY_LAUNCHER;
+
+  /** The page of the settings that the query finds, if the query does not find the settings app by its name. */
+  const settingsPage = () => {
+    const text = query().trim();
+    const app = APPS.settings;
+    if (!text || !app || search([{ id: app.id, title: app.title }], text).length > 0) return undefined;
+    return search(PAGE_ENTRIES, text)[0];
+  };
+
   const entries = (): Entry[] => {
+    const page = settingsPage();
     const own: Entry[] = Object.values(APPS)
       .filter((app) => !app.hidden)
       .map((app) => ({
         id: app.id,
         title: app.title,
-        keywords: app.keywords,
-        description: app.description,
+        keywords: app.id === "settings" ? [...(app.keywords ?? []), ...PAGE_KEYWORDS] : app.keywords,
+        description: app.id === "settings" && page ? `Opens the page ${page.title}` : app.description,
         icon: () => app.icon,
+        setting: app.id === "settings" ? page?.id : undefined,
         preload: () => void app.component.preload(),
       }));
     const apps = hostApps();
@@ -68,22 +96,46 @@ export function Launcher(props: {
       icon: () => apps?.icon(app.id) ?? HOST_ICON,
       host: app.id,
     }));
-    const settings: Entry[] = PAGES.map((page) => ({
-      id: `setting:${page.id}`,
-      title: page.label,
-      keywords: ["settings", ...page.keywords],
-      description: "Settings",
-      icon: () => APPS.settings?.icon,
-      setting: page.id,
-    }));
-    // With no query, the launcher lists the apps only: the settings come as results of a search.
-    return query().trim() ? [...own, ...host, ...settings] : [...own, ...host];
+    return [...own, ...host];
   };
-  const results = (): Entry[] => {
+  /** The rows of the list. A query gives one list. No query gives the sections, if an app is pinned or was used. */
+  const rows = createMemo((): Row[] => {
     const found = search(entries(), query());
+    const sections: { label?: string; entries: Entry[] }[] = [];
     const result = calculate(query());
-    if (!result) return found;
-    return [{ id: "calc", title: result.text, description: "Enter copies the result", icon: () => calcIcon, calc: result.value }, ...found];
+    if (query().trim()) {
+      const calc: Entry[] = result ? [{ id: "calc", title: result.text, description: "Enter copies the result", icon: () => calcIcon, calc: result.value }] : [];
+      sections.push({ entries: [...calc, ...found] });
+    } else {
+      const byId = new Map(found.map((entry) => [entry.id, entry]));
+      const pick = (ids: readonly string[]) => ids.flatMap((id) => byId.get(id) ?? []);
+      const pinned = pick(usage().pinned);
+      const often = pick(frequent(usage(), Date.now()));
+      if (pinned.length === 0 && often.length === 0) {
+        sections.push({ entries: found });
+      } else {
+        const top = new Set([...pinned, ...often]);
+        sections.push({ label: "Pinned", entries: pinned }, { label: "Most used", entries: often }, { label: "All apps", entries: found.filter((entry) => !top.has(entry)) });
+      }
+    }
+    let index = 0;
+    return sections
+      .filter((section) => section.entries.length > 0)
+      .flatMap((section): Row[] => [...(section.label ? [{ label: section.label }] : []), ...section.entries.map((entry) => ({ entry, index: index++ }))]);
+  });
+  const results = (): Entry[] => rows().flatMap((row) => ("entry" in row ? [row.entry] : []));
+  const selected = () => results()[Math.min(active(), results().length - 1)];
+
+  const isPinned = (entry: Entry) => usage().pinned.includes(entry.id);
+  const used = (entry: Entry) => props.onusage?.(recordUse(usage(), entry.id, Date.now()));
+  /** Pins the entry, or removes its pin. The selection stays on the entry at its new place. */
+  const pin = (entry: Entry | undefined) => {
+    if (!entry || entry.calc !== undefined) return;
+    props.onusage?.(togglePin(usage(), entry.id));
+    queueMicrotask(() => {
+      const index = results().findIndex((each) => each.id === entry.id);
+      if (index >= 0) setActive(index);
+    });
   };
 
   const open = (entry: Entry | undefined) => {
@@ -97,10 +149,12 @@ export function Launcher(props: {
       return;
     }
     if (entry.setting) {
+      used(entry);
       props.onsetting?.(entry.setting);
       return;
     }
     if (!entry.host) {
+      used(entry);
       props.onopen(entry.id);
       return;
     }
@@ -113,6 +167,7 @@ export function Launcher(props: {
     apps.launch(entry.host).then(
       () => {
         setStarting(null);
+        used(entry);
         props.onclose();
       },
       (message: string) => {
@@ -132,7 +187,11 @@ export function Launcher(props: {
       setActive((active() - 1 + count) % count);
     } else if (event.key === "Enter") {
       event.preventDefault();
-      open(results()[Math.min(active(), count - 1)]);
+      open(selected());
+    } else if (event.altKey && event.code === "KeyP") {
+      // The code, not the key: Alt+P gives a different character on a Mac.
+      event.preventDefault();
+      pin(selected());
     }
   };
 
@@ -148,7 +207,7 @@ export function Launcher(props: {
         role="combobox"
         aria-expanded="true"
         aria-controls={listId}
-        aria-activedescendant={results().length > 0 ? optionId(results()[Math.min(active(), results().length - 1)]!) : undefined}
+        aria-activedescendant={selected() ? optionId(selected()!) : undefined}
         autocomplete="off"
         spellcheck={false}
         ref={(el) => queueMicrotask(() => el.focus())}
@@ -161,28 +220,55 @@ export function Launcher(props: {
       />
       <Show when={failure()}>{(message) => <p class="launcher-failure" role="alert">{message()}</p>}</Show>
       <ul class="launcher-results" id={listId} role="listbox" aria-label="Apps" aria-busy={starting() ? "true" : undefined}>
-        <For each={results()} fallback={<li class="launcher-empty">No app matches.</li>}>
-          {(entry, index) => (
-            <li
-              id={optionId(entry)}
-              role="option"
-              aria-selected={String(index() === active()) as "true" | "false"}
-              data-host={entry.host ? "true" : undefined}
-              data-starting={starting() === entry.id ? "true" : undefined}
-              onPointerMove={() => setActive(index())}
-              // The module of the app starts to load before the click.
-              onPointerEnter={() => entry.preload?.()}
-              onClick={() => open(entry)}
-            >
-              <img class="launcher-icon" src={entry.icon()} alt="" data-shell-icon={isShellIcon(entry.icon()) ? "true" : undefined} />
-              <span class="launcher-text">
-                <span class="launcher-title">{entry.title}</span>
-                {entry.description ? <span class="launcher-description">{entry.description}</span> : null}
-              </span>
-            </li>
-          )}
+        <For each={rows()} fallback={<li class="launcher-empty">No app matches.</li>}>
+          {(row) => {
+            if ("label" in row) {
+              return (
+                <li class="launcher-section" role="presentation">
+                  {row.label}
+                </li>
+              );
+            }
+            const { entry, index } = row;
+            return (
+              <li
+                id={optionId(entry)}
+                role="option"
+                aria-selected={String(index === active()) as "true" | "false"}
+                data-host={entry.host ? "true" : undefined}
+                data-starting={starting() === entry.id ? "true" : undefined}
+                onPointerMove={() => setActive(index)}
+                // The module of the app starts to load before the click.
+                onPointerEnter={() => entry.preload?.()}
+                onClick={() => open(entry)}
+              >
+                <img class="launcher-icon" src={entry.icon()} alt="" data-shell-icon={isShellIcon(entry.icon()) ? "true" : undefined} />
+                <span class="launcher-text">
+                  <span class="launcher-title">{entry.title}</span>
+                  {entry.description ? <span class="launcher-description">{entry.description}</span> : null}
+                </span>
+                {entry.calc === undefined ? (
+                  <button
+                    type="button"
+                    class="launcher-pin"
+                    tabindex={-1}
+                    aria-label={`${isPinned(entry) ? "Remove the pin of" : "Pin"} ${entry.title}`}
+                    // The keyboard focus stays in the search field.
+                    onPointerDown={(event) => event.preventDefault()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      pin(entry);
+                    }}
+                  >
+                    {isPinned(entry) ? "Unpin" : "Pin"}
+                  </button>
+                ) : null}
+              </li>
+            );
+          }}
         </For>
       </ul>
+      <p class="launcher-hint">Alt+P pins the selected app, or removes its pin.</p>
     </div>
   );
 }

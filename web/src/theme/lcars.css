@@ -24,7 +24,7 @@
   --lcars-control: #7d6b93;
   --lcars-text: #f2eaf2;
   --lcars-text-2: #ad9dbd;
-  --lcars-amber: #ffb23f;
+  --lcars-amber: #e6a446;
   --lcars-lavender: #a98ac6;
   --lcars-coral: #d96c79;
   --bg: var(--lcars-panel);
@@ -302,6 +302,19 @@
 }
 :root[data-theme="lcars"] .launcher-results li {
   padding: 0.4rem 0.7rem;
+}
+:root[data-theme="lcars"] .launcher-results li.launcher-section {
+  padding: 0.7rem 0.7rem 0.25rem;
+}
+:root[data-theme="lcars"] .launcher-pin {
+  color: var(--muted);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  border-color: var(--lcars-control);
+}
+:root[data-theme="lcars"] .launcher-pin:hover {
+  color: var(--fg);
+  border-color: var(--focus);
 }
 :root[data-theme="lcars"] .launcher-description {
   color: var(--muted);

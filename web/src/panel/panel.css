@@ -167,6 +167,38 @@
 .launcher-empty {
   color: var(--muted);
 }
+/* The label of a section: the pinned apps, the most used apps, and all other apps (F076). */
+.launcher-results li.launcher-section {
+  padding: 0.6rem 0.6rem 0.2rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+/* The pin button shows on the selected entry only. Alt+P does the same from the keyboard. */
+.launcher-pin {
+  flex: none;
+  margin-left: auto;
+  padding: 0.1rem 0.45rem;
+  color: inherit;
+  font: inherit;
+  font-size: 0.75rem;
+  background: none;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  cursor: pointer;
+  visibility: hidden;
+}
+.launcher-results li[aria-selected="true"] .launcher-pin {
+  visibility: visible;
+}
+.launcher-hint {
+  margin: 0.5rem 0 0;
+  padding: 0 0.6rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
 
 .visually-hidden {
   position: absolute;

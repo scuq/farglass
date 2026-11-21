@@ -237,7 +237,9 @@ describe("launcher", () => {
     type(input, "timezone");
     await settle();
     const option = host.querySelector("#launcher [aria-selected=true]")!;
-    expect([option.querySelector(".launcher-title")?.textContent, option.querySelector(".launcher-description")?.textContent]).toEqual(["Date and time", "Settings"]);
+    // The settings are one entry (F076): it tells the page that it opens.
+    expect([option.querySelector(".launcher-title")?.textContent, option.querySelector(".launcher-description")?.textContent]).toEqual(["Settings", "Opens the page Date and time"]);
+    expect(host.querySelectorAll("#launcher [role=option]")).toHaveLength(1);
     server.take();
     key("keydown", { key: "Enter" }, input);
     await settle();
@@ -250,6 +252,42 @@ describe("launcher", () => {
       .filter((message) => message.type === "set" && message.key?.startsWith("settings.page."));
     expect(sets.map((message) => message.value)).toEqual(["datetime"]);
     expect(host.querySelector("#launcher [role=option]")).toBeNull();
+  });
+
+  test("a pinned app and a used app come first, in sections, and the state store gets them", async () => {
+    const { host, server } = await mountDesktop();
+    const titles = () => [...host.querySelectorAll("#launcher [role=option]")].map((li) => li.querySelector(".launcher-title")?.textContent);
+    const sections = () => [...host.querySelectorAll("#launcher .launcher-section")].map((li) => li.textContent?.trim());
+    byText(host, "button", "Apps").click();
+    await settle();
+    expect(sections()).toEqual([]);
+    const input = host.querySelector<HTMLInputElement>(".launcher-search")!;
+    key("keydown", { key: "ArrowDown" }, input);
+    await settle();
+    server.take();
+    // Alt+P pins the selected app, Echo. The selection stays on it.
+    key("keydown", { key: "p", code: "KeyP", altKey: true }, input);
+    await settle();
+    expect([sections(), titles()]).toEqual([["Pinned", "All apps"], ["Echo", "About farglass", "Settings", "Terminal"]]);
+    expect(host.querySelector("#launcher [aria-selected=true] .launcher-title")?.textContent).toBe("Echo");
+    const sets = () =>
+      server
+        .take()
+        .filter((frame) => frame.type === FrameType.Control)
+        .map((frame) => parseJson<{ type: string; key?: string; value?: { pinned: string[]; used: Record<string, unknown> } }>(frame))
+        .filter((message) => message.type === "set" && message.key === "launcher");
+    expect(sets().map((message) => message.value?.pinned)).toEqual([["echo"]]);
+    // A start counts: the app is in the most used apps at the next open.
+    byText(host, "#launcher [role=option]", "Terminal").click();
+    await settle();
+    expect(Object.keys(sets().at(-1)?.value?.used ?? {})).toEqual(["terminal"]);
+    byText(host, "button", "Apps").click();
+    await settle();
+    expect([sections(), titles()]).toEqual([["Pinned", "Most used", "All apps"], ["Echo", "Terminal", "About farglass", "Settings"]]);
+    // The button of the entry removes the pin.
+    byText(host, "#launcher [role=option]", "Echo").querySelector<HTMLButtonElement>(".launcher-pin")!.click();
+    await settle();
+    expect([sections(), titles()]).toEqual([["Most used", "All apps"], ["Terminal", "About farglass", "Echo", "Settings"]]);
   });
 
   test("a calculation and a unit conversion are the first result, and Enter copies the value", async () => {
