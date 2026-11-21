@@ -83,6 +83,10 @@ export function AppearancePage(props: { context: AppContext }) {
           <input type="radio" name={`${group}-video`} value="host" checked={video() === "host"} onChange={() => changeVideo("host")} />
           Play on the host: the window shows the video as the host draws it, with more load on the host and the connection.
         </label>
+        <label class="settings-choice">
+          <input type="radio" name={`${group}-video`} value="smart" checked={video() === "smart"} onChange={() => changeVideo("smart")} />
+          Smart: play in this browser, and on the host while the pointer is on the video. The controls of the page show with no marks.
+        </label>
       </fieldset>
       <p class="settings-note">The appearance applies at once in each tab of your session.</p>
     </div>

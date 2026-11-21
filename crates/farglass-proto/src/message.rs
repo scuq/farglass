@@ -459,6 +459,10 @@ pub enum SurfaceAck {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         rect: Option<SurfaceRect>,
+        /// The host draws the video in the rectangle now (F073): the rectangle goes as video at once, not as tiles.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(as = "Option<bool>", optional)]
+        video: bool,
     },
 }
 

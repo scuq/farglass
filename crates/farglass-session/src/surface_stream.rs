@@ -25,8 +25,9 @@ pub struct SurfaceStream {
     key: SharedKey,
 }
 
-/// The key rectangle of the client in buffer pixels, shared with the encoder task (F040).
-type SharedKey = Arc<Mutex<Option<(usize, usize, usize, usize)>>>;
+/// The key rectangle of the client in buffer pixels, shared with the encoder task (F040),
+/// and if the host draws the video in it now (F073).
+type SharedKey = Arc<Mutex<(Option<(usize, usize, usize, usize)>, bool)>>;
 
 /// The most frames that the client did not acknowledge. While the client lags, the commits wait and merge (F029).
 pub const MAX_IN_FLIGHT: u32 = 2;
@@ -58,7 +59,8 @@ fn merge(waiting: &mut Option<FrameUpdate>, update: FrameUpdate) {
 
 impl SurfaceStream {
     /// Sets the rectangle where the client shows a redirected video: it never goes as video (F040).
-    pub fn key(&self, rect: Option<farglass_proto::message::SurfaceRect>) {
+    /// With `video`, the host draws the video there now: the rectangle goes as video at once (F073).
+    pub fn key(&self, rect: Option<farglass_proto::message::SurfaceRect>, video: bool) {
         let rect = rect.and_then(|r| {
             Some((
                 usize::try_from(r.x).ok()?,
@@ -67,7 +69,7 @@ impl SurfaceStream {
                 usize::try_from(r.height).ok()?,
             ))
         });
-        *self.key.lock().unwrap_or_else(PoisonError::into_inner) = rect;
+        *self.key.lock().unwrap_or_else(PoisonError::into_inner) = (rect, video);
     }
 
     /// Turns the video off for this channel: the client cannot decode it (F037).
@@ -112,7 +114,7 @@ impl SurfaceStream {
         let task_acked = acked.clone();
         let task_ack_notify = ack_notify.clone();
         let no_video = Arc::new(AtomicBool::new(false));
-        let key: SharedKey = Arc::new(Mutex::new(None));
+        let key: SharedKey = Arc::new(Mutex::new((None, false)));
         let task_key = key.clone();
         let task_no_video = no_video.clone();
         // FARGLASS_VIDEO=0 turns the video off, for example to find a fault.
@@ -132,7 +134,9 @@ impl SurfaceStream {
                 if !encoder.video || task_no_video.load(Ordering::Acquire) {
                     encoder.disable_video();
                 }
-                encoder.set_exclude(*task_key.lock().unwrap_or_else(PoisonError::into_inner));
+                let (key, host_draws) = *task_key.lock().unwrap_or_else(PoisonError::into_inner);
+                encoder.set_exclude(key.filter(|_| !host_draws));
+                encoder.set_video_hint(key.filter(|_| host_draws));
                 // The lossless pass of the lossy tiles comes when they did not change for a time (F028).
                 let refine_at = encoder.next_refine();
                 let sleep = async {

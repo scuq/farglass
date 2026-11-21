@@ -111,6 +111,18 @@ impl Detector {
     }
 }
 
+/// Returns the block of the tiles that the pixel rectangle `rect` touches, clipped to `columns` x `rows`.
+#[must_use]
+pub fn tile_box(rect: (usize, usize, usize, usize), columns: usize, rows: usize) -> TileBox {
+    let (x, y, w, h) = rect;
+    (
+        (x / TILE).min(columns),
+        (y / TILE).min(rows),
+        (x + w).div_ceil(TILE).min(columns),
+        (y + h).div_ceil(TILE).min(rows),
+    )
+}
+
 /// Returns the pixel rectangle of a block of tiles in a buffer of `width` x `height`: x, y, width, and height.
 /// The width and the height are even, as H.264 with 4:2:0 color needs. `None` if the block is too small.
 #[must_use]
@@ -178,9 +190,24 @@ impl VideoStream {
         block: TileBox,
         now: Instant,
     ) -> Result<Self, openh264::Error> {
+        Self::with_quality(rect, block, now, false)
+    }
+
+    /// Starts a stream as [`VideoStream::new`] does. With `high`, the bit rate is two times higher:
+    /// for a short video that the user looks at closely, for example while the pointer is on a player (F073).
+    ///
+    /// # Errors
+    ///
+    /// The error of OpenH264 if the encoder does not start.
+    pub fn with_quality(
+        rect: (usize, usize, usize, usize),
+        block: TileBox,
+        now: Instant,
+        high: bool,
+    ) -> Result<Self, openh264::Error> {
         let (_, _, w, h) = rect;
-        // About 0.1 bit for each pixel at 30 frames each second, from 0.3 to 8 Mbit/s.
-        let bits = u32::try_from(w * h * 3)
+        // About 0.1 bit for each pixel at 30 frames each second (0.2 bit with `high`), from 0.3 to 8 Mbit/s.
+        let bits = u32::try_from(w * h * if high { 6 } else { 3 })
             .unwrap_or(u32::MAX)
             .clamp(300_000, 8_000_000);
         let config = EncoderConfig::new()

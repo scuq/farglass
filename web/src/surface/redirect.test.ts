@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { dataFrame, encodeJsonFrame, FrameType, parseJson, readyFrame } from "../proto";
 import { fakeConnection } from "../proto/testing";
-import { hostTime, mustSeek, parseVideoMode, placement, RedirectManager, sameTitle } from "./redirect";
+import { hostTime, mustSeek, parseVideoMode, placement, RedirectManager, SMART_IDLE_MS, sameTitle, smartHostDraws, stepRate } from "./redirect";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -116,6 +116,43 @@ describe("video mode", () => {
     const manager = new RedirectManager(connection);
     manager.setMode("host");
     expect(manager.playersFor(4, "Any - Brave")).toEqual([]);
+    manager.close();
+  });
+});
+
+describe("smart mode (F073)", () => {
+  test("the mode smart comes from the state store", () => {
+    expect(parseVideoMode({ mode: "smart" })).toBe("smart");
+  });
+
+  test("the host draws a video while the pointer moves on it, and while it is paused under the pointer", () => {
+    const pointer = { media: "m1", at: 1000 };
+    expect(smartHostDraws(pointer, "m1", 1000 + SMART_IDLE_MS - 1, false)).toBe(true);
+    expect(smartHostDraws(pointer, "m1", 1000 + SMART_IDLE_MS, false)).toBe(false);
+    expect(smartHostDraws(pointer, "m1", 1000 + SMART_IDLE_MS * 10, true)).toBe(true);
+    expect(smartHostDraws(pointer, "m2", 1000, false)).toBe(false);
+    expect(smartHostDraws(null, "m1", 1000, true)).toBe(false);
+  });
+
+  test("the client plays a little faster or slower to come back to the time of the host, with no seek", () => {
+    expect(stepRate(1, 0.01)).toBe(1);
+    expect(stepRate(1, 0.1)).toBeCloseTo(1.05);
+    expect(stepRate(1, -0.1)).toBeCloseTo(0.95);
+    expect(stepRate(2, 0.39)).toBeCloseTo(2.2);
+  });
+
+  test("only the smart mode gives a video to the host under the pointer", async () => {
+    const { connection } = await fakeConnection("alice");
+    const manager = new RedirectManager(connection);
+    manager.pointer("m1");
+    expect(manager.hostDraws("m1")).toBe(false);
+    manager.setMode("smart");
+    // Solid commits the write of a signal on the next microtask.
+    await Promise.resolve();
+    expect(manager.hostDraws("m1")).toBe(true);
+    expect(manager.hostDraws("m2")).toBe(false);
+    manager.pointer(null);
+    expect(manager.hostDraws("m1")).toBe(false);
     manager.close();
   });
 });

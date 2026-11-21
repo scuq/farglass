@@ -385,8 +385,8 @@ where
                                 stream.no_video();
                                 None
                             }
-                            Ok(SurfaceAck::Key { rect }) => {
-                                stream.key(rect);
+                            Ok(SurfaceAck::Key { rect, video }) => {
+                                stream.key(rect, video);
                                 None
                             }
                             Err(error) => Some((

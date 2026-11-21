@@ -22,7 +22,7 @@ function SurfaceCanvas(props: {
   moving: () => boolean;
   onpressed: (press: { pointerId: number; clientX: number; clientY: number; canvas: HTMLCanvasElement } | null) => void;
   /** The rectangle in buffer pixels where black is transparent: a redirected video shows through (F040). */
-  keyRect?: () => { x: number; y: number; width: number; height: number } | null;
+  keyRect?: () => { x: number; y: number; width: number; height: number; video?: boolean } | null;
   /** A request for the edges of a rectangle in buffer pixels: each new object asks again (F047). */
   edgeRequest?: () => { x: number; y: number; width: number; height: number } | null;
   /** Takes the right column and the bottom row of the requested rectangle. */
@@ -113,10 +113,16 @@ function SurfaceCanvas(props: {
   createEffect(
     () => JSON.stringify(props.keyRect?.() ?? null),
     (key) => {
-      const rect = JSON.parse(key) as { x: number; y: number; width: number; height: number } | null;
-      worker.postMessage({ key: rect });
+      const next = JSON.parse(key) as { x: number; y: number; width: number; height: number; video?: boolean } | null;
+      worker.postMessage({ key: next });
       // The encoder of the agent sends this rectangle as tiles, never as video: the key needs their exact black (F040).
-      channel.control(rect ? { type: "key", rect } : { type: "key" });
+      // While the host draws the video there (F073), the rectangle goes as video at once.
+      if (!next) {
+        channel.control({ type: "key" });
+      } else {
+        const { video, ...rect } = next;
+        channel.control(video ? { type: "key", rect, video: true } : { type: "key", rect });
+      }
     },
   );
   createEffect(
@@ -259,7 +265,8 @@ export default function Linux(props: { context: AppContext }) {
       now.add(media.id);
       if (redirects && media.video.parentElement !== redirects) redirects.append(media.video);
       Object.assign(media.video.style, { left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.width}px`, height: `${rect.height}px` });
-      manager.redirect.setShowing(media.id, true);
+      // In the smart mode, the host draws the video while the user uses it, and the client video stays under it (F073).
+      manager.redirect.setShowing(media.id, !manager.redirect.hostDraws(media.id));
     }
     for (const id of shown) {
       if (!now.has(id)) {
@@ -273,11 +280,12 @@ export default function Linux(props: { context: AppContext }) {
   onCleanup(() => {
     for (const id of shown) manager.redirect.setShowing(id, false);
   });
-  /** The key rectangle of the first player, in buffer pixels, inside its rectangle. */
+  /** The key rectangle of the first player, in buffer pixels, inside its rectangle, and if the host draws the video now (F073). */
   const keyRect = () => {
     const first = players()[0];
     const surface = info();
     if (!first || !surface) return null;
+    const video = manager.redirect.hostDraws(first.media.id);
     const geometry = origin(surface.geometry);
     const scale = surface.scale;
     const x = Math.ceil((first.rect.x + geometry.x) * scale);
@@ -287,7 +295,18 @@ export default function Linux(props: { context: AppContext }) {
       y,
       width: Math.floor((first.rect.x + first.rect.width + geometry.x) * scale) - x,
       height: Math.floor((first.rect.y + first.rect.height + geometry.y) * scale) - y,
+      video,
     };
+  };
+
+  /** Gives the video under the pointer to the redirect manager: the smart mode follows it (F073). */
+  const pointerAt = (event: PointerEvent) => {
+    const box = redirects?.getBoundingClientRect();
+    if (!box) return;
+    const x = event.clientX - box.left;
+    const y = event.clientY - box.top;
+    const under = players().find(({ rect }) => x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height);
+    manager.redirect.pointer(under?.media.id ?? null);
   };
 
   // The size of the content goes to the client, after a short quiet time. While the user changes the
@@ -452,7 +471,7 @@ export default function Linux(props: { context: AppContext }) {
       data-size={size() ? `${size()!.w}x${size()!.h}` : undefined}
     >
       {/* The window itself, cut at the frame. Its popups are outside: a menu can reach past the window, as on a desktop. */}
-      <div class="linux-main">
+      <div class="linux-main" onPointerMove={pointerAt} onPointerLeave={() => manager.redirect.pointer(null)}>
         <div
           class="linux-redirects"
           ref={(el) => {

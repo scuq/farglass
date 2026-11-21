@@ -433,7 +433,11 @@ seq: number, } | { "type": "no-video" } | { "type": "key",
 /**
  * The rectangle.
  */
-rect?: SurfaceRect, };
+rect?: SurfaceRect, 
+/**
+ * The host draws the video in the rectangle now (F073): the rectangle goes as video at once, not as tiles.
+ */
+video?: boolean, };
 
 /**
  * The use of the host by one process or by the processes of one window.

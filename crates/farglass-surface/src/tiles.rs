@@ -136,6 +136,8 @@ pub struct Encoder {
     video_failed: bool,
     /// A rectangle that never goes as video, for example a redirected video of the client (F040).
     exclude: Option<(usize, usize, usize, usize)>,
+    /// A rectangle where the host draws a video now: a change there starts a video at once (F073).
+    hint: Option<(usize, usize, usize, usize)>,
 }
 
 /// Ends the video `stream`: the region of the copy of the client gets the last frame of the video,
@@ -302,6 +304,7 @@ impl Default for Encoder {
             stream: None,
             video_failed: false,
             exclude: None,
+            hint: None,
         }
     }
 }
@@ -587,7 +590,24 @@ impl Encoder {
                     }
                 }
             }
-            if let Some(block) = self.detector.record(&seen, now) {
+            let found = self.detector.record(&seen, now);
+            // The hint of the client: the region goes as video with the first change, not after many commits.
+            let hinted = found.is_none()
+                && self.stream.is_none()
+                && self.hint.is_some_and(|rect| {
+                    let (c0, r0, c1, r1) = video::tile_box(rect, columns, rows);
+                    (r0..r1)
+                        .flat_map(|row| (c0..c1).map(move |column| row * columns + column))
+                        .filter(|&index| seen[index])
+                        .count()
+                        >= video::MIN_TILES
+                });
+            let found = found.or_else(|| {
+                hinted
+                    .then(|| self.hint.map(|rect| video::tile_box(rect, columns, rows)))
+                    .flatten()
+            });
+            if let Some(block) = found {
                 // A region that grew: the old video ends, and a video of the new region starts.
                 if let Some(stream) = self.stream.take_if(|s| !contains(s.block, block)) {
                     end_video(
@@ -605,7 +625,7 @@ impl Encoder {
                 if self.stream.is_none()
                     && let Some(rect) = video::pixel_rect(block, width, height)
                 {
-                    match VideoStream::new(rect, block, now) {
+                    match VideoStream::with_quality(rect, block, now, self.hint.is_some()) {
                         Ok(mut stream) => {
                             stream.exclude = self.exclude;
                             tracing::info!(?rect, "a region of the surface goes as video");
@@ -786,6 +806,12 @@ impl Encoder {
                 .checked_sub(video::VIDEO_IDLE)
                 .unwrap_or_else(Instant::now);
         }
+    }
+
+    /// Sets a rectangle in buffer pixels where the host draws a video now, or none: x, y, width, and height.
+    /// A change in it starts a video at once, at a higher quality (F073).
+    pub fn set_video_hint(&mut self, rect: Option<(usize, usize, usize, usize)>) {
+        self.hint = rect;
     }
 
     /// Sets a rectangle in buffer pixels that never goes as video, or none: x, y, width, and height.
@@ -1618,6 +1644,37 @@ mod lossy_tests {
         assert_eq!(late.video, 10);
         // The 2 x 2 excluded tiles change in each frame and go as tiles.
         assert_eq!(late.tiles, 40);
+    }
+
+    #[test]
+    fn a_hint_starts_the_video_at_the_first_change() {
+        let (width, height) = (640, 480);
+        let mut encoder = Encoder::new();
+        encoder.set_video_hint(Some((128, 128, 384, 256)));
+        let start = Instant::now();
+        let full = [Rect {
+            x: 0,
+            y: 0,
+            width: 640,
+            height: 480,
+        }];
+        let mut first = None;
+        for n in 0..4 {
+            let pixels = video_frame(n);
+            let image = Image {
+                width,
+                height,
+                pixels: &pixels,
+            };
+            let now = start + Duration::from_millis(33) * u32::try_from(n).unwrap();
+            let encoded = encoder.encode_at(&image, &full, now).unwrap();
+            if first.is_none() && encoded.stats.video > 0 {
+                first = Some(n);
+            }
+        }
+        // Frame 0 is the first image, and frame 1 is the first change: the video starts there.
+        assert_eq!(first, Some(1));
+        assert_eq!(encoder.video_rect(), Some((128, 128, 384, 256)));
     }
 
     #[test]

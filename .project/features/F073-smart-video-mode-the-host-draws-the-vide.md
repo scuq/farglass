@@ -1,11 +1,11 @@
 ---
 id: F073
 title: Smart video mode: the host draws the video while the pointer is on it
-status: planned
+status: done
 phase: P07
 tags: [surface, video]
 decisions: [ADR-038, ADR-039]
-files: [crates/farglass-session/src/redirect.rs, crates/farglass-surface/src/video.rs, extension/redirect/page.js, web/src/surface/redirect.ts, web/src/surface/worker.ts, web/src/apps/settings/pages/Appearance.tsx, spikes/e2e/redirect.mjs]
+files: [crates/farglass-proto/src/message.rs, crates/farglass-session/src/link.rs, crates/farglass-session/src/surface_stream.rs, crates/farglass-surface/src/tiles.rs, crates/farglass-surface/src/video.rs, web/src/apps/linux/Linux.tsx, web/src/apps/settings/pages/Appearance.tsx, web/src/proto/generated/messages.ts, web/src/surface/redirect.ts, web/src/surface/redirect.test.ts, web/src/surface/worker.ts, spikes/e2e/redirect.mjs]
 ---
 
 ## Goal
@@ -23,3 +23,4 @@ A third video mode, Smart: the client plays the video, and the host draws it onl
 - After the measurement, decide if Smart becomes the default
 
 ## Acceptance
+Settings > Appearance > Videos has a third choice, Smart. spikes/e2e/redirect.mjs step 6 passes: with the pointer on the video the host draws it, after 3 s with no movement or when the pointer leaves the host hides it again, and the client follows the host time with small rate changes. Measured on the 2-core arm64 host (VP8, 640 x 360): host video visible 26 ms and first agent video frame 109 ms after the pointer came; time difference 77 ms at the change and 26 ms at the return; agent CPU 41 % of a core with the pointer moving on a playing video, 1 % on a paused video, 1 % with the pointer off the video. Decision: Smart does not become the default. It costs about 40 times more agent CPU while the pointer is on the video, so the client mode stays the default.

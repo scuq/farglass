@@ -11,7 +11,7 @@
  */
 
 import { avcCodec, SurfaceDecoder, VideoFlag } from "./decoder";
-import { keyArea, unkeyPixel } from "./key";
+import { keyArea, keyPixel, unkeyPixel } from "./key";
 
 let context: OffscreenCanvasRenderingContext2D | null = null;
 let canvas: OffscreenCanvas | null = null;
@@ -98,7 +98,8 @@ function startVideo(codec: string): void {
  * client under the canvas shows through, and the controls of the page stay on top.
  */
 type KeyRect = { x: number; y: number; width: number; height: number };
-let keyRect: KeyRect | null = null;
+/** With `video`, the host draws the video in the key rectangle now (F073): its frames show, and only their black is a key. */
+let keyRect: (KeyRect & { video?: boolean }) | null = null;
 
 /** Returns the part of the rectangle (x, y, w, h) in the key rectangle, or none. */
 function keyPart(x: number, y: number, w: number, h: number): KeyRect | null {
@@ -130,6 +131,14 @@ function rekey(part: KeyRect, transparent: boolean, tolerance = 0): void {
   context.putImageData(image, part.x, part.y);
 }
 
+/** Makes only the near-black pixels of `part` transparent: a frame of the video of the host has dark grays of its own (F073). */
+function keyBlack(part: KeyRect): void {
+  if (!context) return;
+  const image = context.getImageData(part.x, part.y, part.width, part.height);
+  for (let i = 0; i < image.data.length; i += 4) keyPixel(image.data, i, LOSSY_BLACK, false);
+  context.putImageData(image, part.x, part.y);
+}
+
 /** Makes the near-black pixels of a lossy tile in the key rectangle transparent. Its grays stay: they are a picture. */
 function keyLossy(x: number, y: number, w: number, h: number): void {
   const part = keyPart(x, y, w, h);
@@ -144,6 +153,12 @@ function drawVideoFrame(frame: VideoFrame, x: number, y: number, w: number, h: n
     context.drawImage(frame, x, y, w, h);
     return;
   }
+  if (keyRect?.video) {
+    // The host draws the video (F073): its frame covers the client video, and its black shows the client video.
+    context.drawImage(frame, x, y, w, h);
+    keyBlack(part);
+    return;
+  }
   context.save();
   const clip = new Path2D();
   clip.rect(x, y, w, h);
@@ -153,14 +168,17 @@ function drawVideoFrame(frame: VideoFrame, x: number, y: number, w: number, h: n
   context.restore();
 }
 
-function setKey(next: KeyRect | null): void {
-  const same = next && keyRect && next.x === keyRect.x && next.y === keyRect.y && next.width === keyRect.width && next.height === keyRect.height;
+function setKey(next: (KeyRect & { video?: boolean }) | null): void {
+  const same =
+    next && keyRect && next.x === keyRect.x && next.y === keyRect.y && next.width === keyRect.width && next.height === keyRect.height && !next.video === !keyRect.video;
   if (same || (!next && !keyRect)) return;
+  // The host stops to draw the video (F073): the client video shows at once, before the black of the host comes.
+  const handBack = Boolean(keyRect?.video && next && !next.video);
   if (keyRect) rekey(keyRect, false);
   keyRect = next;
   if (canvas && keyRect) {
     const part = keyPart(0, 0, canvas.width, canvas.height);
-    if (part) rekey(part, true);
+    if (part) rekey(part, true, handBack ? 255 : 0);
   }
 }
 

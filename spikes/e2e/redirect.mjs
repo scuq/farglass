@@ -11,8 +11,14 @@
 // the window, the host must draw its video black, and the pause, the seek,
 // and the play of the host must reach the client.
 //
+// Step 6 tests the smart mode (F073): the host draws the video while the
+// pointer is on it, and hides it again after 3 s with no movement.
+//
 // With FARGLASS_MEASURE=1, the script also measures the CPU of the host
-// browser and of the agent with the video drawn, drawn black, and hidden.
+// browser and of the agent with the video drawn, drawn black, and hidden,
+// and in the smart mode the delay to the first host frame, the time
+// difference at the change, and the agent CPU with the pointer on and off
+// the video.
 //
 // Exit status: 0 if all steps pass, 1 if a step fails. The script skips the
 // test with no GStreamer VP8 encoder in Python.
@@ -267,6 +273,68 @@ source.addEventListener("sourceopen", async () => {
   });
   await shell.waitForTimeout(1500);
   check((await sources()) === before && !/spoof/.test(agent.log()), "a script of the page cannot send a message to the agent");
+
+  // 6. The smart mode (F073): the pointer on the video gives it to the host, and 3 s with no movement give it back.
+  await player.goto(pageUrl);
+  await shell.waitForFunction(() => {
+    const v = document.querySelector(".wm-window video[data-redirect]");
+    return v && !v.paused && v.currentTime > 1;
+  }, null, { timeout: 30_000 });
+  await player.waitForFunction(() => getComputedStyle(document.getElementById("v")).visibility === "hidden", null, { timeout: TIMEOUT_MS });
+  await shell.evaluate(() => globalThis.farglassVideoMode("smart"));
+  const smartBox = await window.locator("video[data-redirect]").boundingBox();
+  const centre = { x: smartBox.x + smartBox.width / 2, y: smartBox.y + smartBox.height / 2 };
+  const videoStarts = () => (agent.log().match(/a region of the surface goes as video/g) ?? []).length;
+  const drift = async () => {
+    const [hostTime, clientTime] = [await player.evaluate(() => document.getElementById("v").currentTime), await video.evaluate((v) => v.currentTime)];
+    return hostTime - clientTime;
+  };
+  await shell.mouse.move(5, 880);
+  await shell.waitForTimeout(500);
+  const startsBefore = videoStarts();
+  const atChange = await drift();
+  const movedAt = Date.now();
+  await shell.mouse.move(centre.x, centre.y, { steps: 3 });
+  await player.waitForFunction(() => getComputedStyle(document.getElementById("v")).visibility !== "hidden", null, { timeout: 3000 });
+  check(true, "with the pointer on the video, the host draws it");
+  const shown = Date.now() - movedAt;
+  while (videoStarts() === startsBefore && Date.now() - movedAt < 3000) await shell.waitForTimeout(20);
+  const firstFrame = Date.now() - movedAt;
+  check(videoStarts() > startsBefore, `the agent sends the video of the host at once (${firstFrame} ms after the pointer came)`);
+  check(Math.abs(atChange) < 0.15, `the client and the host are in step at the change (${(atChange * 1000).toFixed(0)} ms)`);
+  await shell.waitForTimeout(3600);
+  await player.waitForFunction(() => getComputedStyle(document.getElementById("v")).visibility === "hidden", null, { timeout: 2000 });
+  check(true, "after 3 s with no pointer movement, the host hides the video again");
+  const atReturn = await drift();
+  check(Math.abs(atReturn) < 0.15, `the client video is in step when it comes back (${(atReturn * 1000).toFixed(0)} ms)`);
+  await shell.mouse.move(centre.x + 10, centre.y);
+  await player.waitForFunction(() => getComputedStyle(document.getElementById("v")).visibility !== "hidden", null, { timeout: 3000 });
+  await shell.mouse.move(5, 880);
+  await player.waitForFunction(() => getComputedStyle(document.getElementById("v")).visibility === "hidden", null, { timeout: 2000 });
+  check(true, "when the pointer leaves the video, the host hides it again");
+  if (MEASURE) {
+    console.log(`MEASURE: smart: host video visible ${shown} ms and first video frame of the agent ${firstFrame} ms after the pointer came; drift at the change ${(atChange * 1000).toFixed(0)} ms, at the return ${(atReturn * 1000).toFixed(0)} ms`);
+    const agentCpu = async (label, during) => {
+      const before = cpuOfTree(agent.child.pid);
+      const end = Date.now() + 10000;
+      while (Date.now() < end) await during();
+      console.log(`MEASURE: smart: ${label}: agent ${(((cpuOfTree(agent.child.pid) - before) / 10) * 100).toFixed(0)} % of a core`);
+    };
+    let wiggle = 0;
+    await agentCpu("pointer moves on the playing video", async () => {
+      wiggle = (wiggle + 1) % 2;
+      await shell.mouse.move(centre.x + wiggle * 8, centre.y);
+      await shell.waitForTimeout(500);
+    });
+    await player.evaluate(() => document.getElementById("v").pause());
+    await shell.waitForTimeout(1000);
+    await agentCpu("pointer on the paused video", () => shell.waitForTimeout(500));
+    await player.evaluate(() => document.getElementById("v").play());
+    await shell.mouse.move(5, 880);
+    await shell.waitForTimeout(1000);
+    await agentCpu("pointer off the video", () => shell.waitForTimeout(500));
+  }
+  await shell.evaluate(() => globalThis.farglassVideoMode("client"));
 
   if (MEASURE) {
     const hostPid = Number(execFileSync("pgrep", ["-o", "-f", "--", `--user-data-dir=${profile}`]).toString().trim());

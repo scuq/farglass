@@ -16,6 +16,18 @@ import type { Channel, Connection, RedirectEvent, RedirectRect, RedirectRequest 
 /** The longest difference of the time from the host before the client seeks, in seconds. */
 const SEEK_AFTER = 0.4;
 
+/**
+ * In the smart mode (F073): the time with no pointer movement on a playing video after which
+ * the host stops to draw it, and the client shows its own video again.
+ */
+export const SMART_IDLE_MS = 3000;
+
+/** A difference of the time from the host that the client does not correct, in seconds. */
+const IN_STEP = 0.03;
+
+/** The largest change of the rate that brings the client back to the time of the host. */
+const MAX_NUDGE = 0.1;
+
 /** The time with no first frame after which the client gives the video back to the host. */
 export const FIRST_FRAME_MS = 8000;
 
@@ -50,6 +62,24 @@ export function placement(state: Pick<HostState, "rect" | "viewport" | "zoom">, 
 /** Returns the time of the host now, from its last state that came `elapsed` ms ago. */
 export function hostTime(state: Pick<HostState, "time" | "paused" | "rate">, elapsed: number): number {
   return state.paused ? state.time : state.time + (elapsed / 1000) * state.rate;
+}
+
+/**
+ * Returns the rate for the client: the rate of the host, a little faster or slower while the client
+ * is `drift` seconds behind (positive) or ahead (negative) of the host. Thus a change between the
+ * video of the client and the video of the host shows no jump (F073).
+ */
+export function stepRate(rate: number, drift: number): number {
+  if (Math.abs(drift) < IN_STEP) return rate;
+  return rate * (1 + Math.max(-MAX_NUDGE, Math.min(MAX_NUDGE, drift / 2)));
+}
+
+/**
+ * Reports whether the host draws the video `media` in the smart mode: the pointer is on it, and it moved
+ * less than {@link SMART_IDLE_MS} ago, or the video is paused (F073).
+ */
+export function smartHostDraws(pointer: { readonly media: string; readonly at: number } | null, media: string, now: number, paused: boolean): boolean {
+  return pointer !== null && pointer.media === media && (paused || now - pointer.at < SMART_IDLE_MS);
 }
 
 /** Reports whether the client must seek: its time is too far from the time of the host. */
@@ -239,8 +269,9 @@ export class RedirectedMedia {
     if (!this.inStep && video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA && !video.seeking) {
       this.inStep = Math.abs(video.currentTime - hostTime(state, now - this.stateAt)) < SEEK_AFTER * 1.5;
     }
-    if (video.playbackRate !== state.rate) video.playbackRate = state.rate;
     const host = hostTime(state, now - this.stateAt);
+    const rate = state.paused || video.seeking ? state.rate : stepRate(state.rate, host - video.currentTime);
+    if (video.playbackRate !== rate) video.playbackRate = rate;
     if (video.readyState >= HTMLMediaElement.HAVE_METADATA && !video.seeking && mustSeek(video.currentTime, host)) {
       video.currentTime = host;
     }
@@ -270,12 +301,16 @@ export interface Player {
 /** The key of the setting in the state store: where the videos of the host browser play. */
 export const VIDEO_KEY = "video-redirect";
 
-/** Where the videos of the host browser play: in the client browser (redirection), or on the host. */
-export type VideoMode = "client" | "host";
+/**
+ * Where the videos of the host browser play: in the client browser (redirection), on the host,
+ * or smart: in the client, and on the host while the pointer is on the video (F073).
+ */
+export type VideoMode = "client" | "host" | "smart";
 
 /** Returns the mode from a value of the state store. The default is the client browser. */
 export function parseVideoMode(value: unknown): VideoMode {
-  return typeof value === "object" && value !== null && (value as { mode?: unknown }).mode === "host" ? "host" : "client";
+  const mode = typeof value === "object" && value !== null ? (value as { mode?: unknown }).mode : undefined;
+  return mode === "host" || mode === "smart" ? mode : "client";
 }
 
 export class RedirectManager {
@@ -284,6 +319,8 @@ export class RedirectManager {
   readonly #medias = new Map<string, RedirectedMedia>();
   readonly #version = createSignal(0, { equals: false });
   readonly #showing = new Map<string, boolean>();
+  /** The video under the pointer and the time of the last pointer movement on it (F073). */
+  #pointer: { media: string; at: number } | null = null;
   #append: { media: string; source: string; offset: number; data: Uint8Array<ArrayBuffer>; got: number } | null = null;
   readonly #timer: ReturnType<typeof setInterval>;
 
@@ -295,6 +332,8 @@ export class RedirectManager {
     this.#timer = setInterval(() => this.#sync(), 250);
     // A diagnosis in the console of the client: farglassRedirect() lists each video and its state.
     (globalThis as { farglassRedirect?: () => unknown }).farglassRedirect = () => this.diagnose();
+    // farglassVideoMode("smart") sets the mode of this tab only, for a test or a measurement (F073).
+    (globalThis as { farglassVideoMode?: (mode: VideoMode) => void }).farglassVideoMode = (mode) => this.setMode(mode);
   }
 
   /** Returns the state of each redirected video, for the diagnosis in the console. */
@@ -305,6 +344,7 @@ export class RedirectManager {
         id: media.id,
         title: media.state?.title,
         showing: this.#showing.get(media.id) ?? false,
+        hostDraws: this.hostDraws(media.id),
         failed: media.reason,
         started: media.started,
         inStep: media.inStep,
@@ -350,6 +390,24 @@ export class RedirectManager {
       if (rect) players.push({ media, rect });
     }
     return players;
+  }
+
+  /**
+   * Takes the video under the pointer of the user, or null when the pointer is on no video.
+   * Each call is a pointer movement. In the smart mode, the host then draws that video (F073).
+   */
+  pointer(media: string | null): void {
+    const before = this.#pointer?.media ?? null;
+    this.#pointer = media === null ? null : { media, at: performance.now() };
+    if (before !== media) this.#changed();
+  }
+
+  /** Reports whether the host draws the video `media` now: only in the smart mode, while the user uses it (F073). */
+  hostDraws(media: string): boolean {
+    this.#version[0]();
+    if (this.#mode[0]() !== "smart") return false;
+    const paused = this.#medias.get(media)?.state?.paused ?? false;
+    return smartHostDraws(this.#pointer, media, performance.now(), paused);
   }
 
   /** Tells the agent if the client shows a media source: the host then draws it black. */
