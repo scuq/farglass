@@ -1,7 +1,22 @@
-# farglass
+# farglass - a Linux desktop in a web browser
 
 farglass shows a Linux desktop in a web browser. The client browser draws the
 shell. Programs on the host supply the data.
+Each user logs in with the PAM stack of the host and gets a real logind session.
+
+![The login screen of farglass in the LCARS theme](docs/images/login.png)
+
+## What farglass has
+
+- Login: PAM, passkeys as a second factor, a machine PIN, and a lock screen.
+- Shell: a window manager, a panel, a launcher, workspaces, an overview, a layout picker, context menus, and keyboard shortcuts with a tour.
+- Shell apps: a terminal, settings, notifications, and the polkit password dialog.
+- Linux apps of the host: a headless Wayland compositor sends their windows as tiles and video, with sound and the clipboard.
+- Video redirection: a video in the host Chromium plays in the client browser.
+- Transport: WebSocket, or WebTransport over HTTP/3.
+- Security: TLS 1.3 only, a session cookie, an Origin check, a Content Security Policy, limits for each address, and a security log.
+- Themes: LCARS in the colors of the farglass icon (the default), light, and dark.
+- Administration: `farglassctl` installs, updates, and removes farglass from signed release tarballs, and manages users, sessions, and the PIN.
 
 ## Parts
 
@@ -486,7 +501,8 @@ The agent changes nothing if the user manager has a display already, for example
 
 The settings app has these pages:
 
-- Appearance: the theme, the accent color, the text size, and the motion. Each tab and each login of the user gets them.
+- Appearance: the theme (LCARS, the setting of your computer, light, or dark), the accent color, the text size, and the motion. Each tab and each login of the user gets them.
+  LCARS is the default theme, with the accent color orange.
   The motion follows the reduced motion setting of your computer, or Full, or Reduced. Reduced has no movement, no pulse, and no blinking cursor in the terminal. A change applies at once, with no reload.
   Videos in the host browser play in this browser (video redirection), or on the host.
 - Keyboard: the shortcut scheme, the hints, the list of shortcuts, and the tour.
