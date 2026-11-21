@@ -84,7 +84,8 @@ case "$MODE" in
         export "CC_${TRIPLE}_unknown_linux_musl=musl-gcc"
         cargo build --release --locked -p farglassctl --target "$target" --manifest-path "$REPO/Cargo.toml"
         bin="$REPO/target/$target/release/farglassctl"
-        file "$bin" | grep -q "statically linked" || die "farglassctl is not static: $(file "$bin")"
+        # file says "statically linked", or "static-pie linked" for the PIE build of musl. Both have no loader.
+        file "$bin" | grep -Eq "statically linked|static-pie linked" || die "farglassctl is not static: $(file "$bin")"
         install -m 0755 "$bin" "$OUT/farglassctl-linux-$ARCH"
         echo "release.sh: wrote $OUT/farglassctl-linux-$ARCH (static)"
         ;;
