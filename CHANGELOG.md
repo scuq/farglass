@@ -6,7 +6,7 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ---
 
-## Unreleased
+## v0.1.0 — 22 November 2026 — First release
 
 ### Added
 - farglass shows a Linux desktop in a web browser: the browser draws the shell, and programs on the host supply the data.
