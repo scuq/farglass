@@ -247,7 +247,7 @@ A tag `vX.Y.Z` starts `.github/workflows/release.yml` (F066):
 
 1. The shell is built once.
 2. The host programs are built for amd64 and arm64 in a Rocky Linux 9 container, the oldest glibc of the supported distributions.
-3. `packaging/release.sh host` fails if a program links a library that ADR-048 does not permit.
+3. `packaging/release.sh host` fails if a program links a library directly that ADR-048 does not permit (ADR-053).
 4. farglassctl is built static with musl.
 5. Each program starts on Debian 12, Ubuntu 24.04, Rocky Linux 9, and Fedora 44.
 6. `SHA256SUMS` lists each file and gets a cosign keyless signature (`SHA256SUMS.sigstore.json`).

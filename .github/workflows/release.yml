@@ -75,7 +75,7 @@ jobs:
         run: |
           dnf install -y dnf-plugins-core epel-release
           dnf config-manager --set-enabled crb
-          dnf install -y gcc gcc-c++ libstdc++-static clang cmake nasm make perl git tar gzip file \
+          dnf install -y gcc gcc-c++ binutils libstdc++-static clang cmake nasm make perl git tar gzip file \
             findutils pam-devel pipewire-devel libxkbcommon-devel pkgconf-pkg-config
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4

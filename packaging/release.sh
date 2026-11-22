@@ -37,12 +37,17 @@ mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
 export FARGLASS_VERSION="$VERSION"
 
-# The dynamic libraries that a host program can link (ADR-048).
+# The dynamic libraries that a host program can link directly (ADR-048, ADR-053).
 ALLOWED='linux-vdso.so.1 ld-linux-x86-64.so.2 ld-linux-aarch64.so.1 libc.so.6 libm.so.6 libgcc_s.so.1 libpam.so.0 libaudit.so.1 libcap-ng.so.0 libpipewire-0.3.so.0 libxkbcommon.so.0'
 
-# check_libraries - fails if FILE links a library that ALLOWED does not name
+# check_libraries - fails if FILE has a NEEDED entry that ALLOWED does not name
+#
+# ldd is not used: it also shows the libraries that libpam of the build
+# container loads, for example libeconf on Rocky Linux 9.
 check_libraries() {
-    for lib in $(ldd "$1" | awk '{print $1}' | sed 's|.*/||'); do
+    libs=$(readelf -d "$1" | awk '/\(NEEDED\)/ { gsub(/[][]/, "", $NF); print $NF }')
+    [ -n "$libs" ] || die "readelf shows no library for $1."
+    for lib in $libs; do
         case " $ALLOWED " in
             *" $lib "*) ;;
             *) die "$1 links $lib, which ADR-048 does not permit." ;;

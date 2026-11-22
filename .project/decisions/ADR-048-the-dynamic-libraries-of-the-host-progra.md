@@ -1,10 +1,10 @@
 ---
 id: ADR-048
 title: The dynamic libraries of the host programs
-status: accepted
+status: superseded
 date: 2026-11-21
 tags: [packaging]
-superseded_by:
+superseded_by: ADR-053
 files: []
 ---
 
