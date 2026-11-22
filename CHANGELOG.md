@@ -6,7 +6,7 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ---
 
-## Unreleased
+## v0.1.2 — 22 November 2026 — Login on a host with SELinux
 
 ### Fixed
 - A login on a host with SELinux in enforcing mode, for example RHEL, now starts the desktop. Before, farglass accepted the password, and the login failed after 15 seconds. `farglassctl install` and `farglassctl update` load a policy module that permits the start, and `farglassctl uninstall` removes it.
