@@ -1,5 +1,6 @@
 import type { JSX } from "@solidjs/web";
 import logo from "./farglass.svg";
+import { VERSION_CODE } from "./version";
 
 /** The URL of the farglass icon. It is also the image of a window or an app with no icon. */
 export { logo };
@@ -35,7 +36,7 @@ export function LcarsFrame(props: { children: JSX.Element }) {
             {props.children}
             <div class="lcars-status">
               <span>{window.location.hostname}</span>
-              <span>FG-01</span>
+              <span>{VERSION_CODE}</span>
             </div>
           </div>
         </div>

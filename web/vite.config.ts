@@ -1,8 +1,13 @@
 import { defineConfig } from "vitest/config";
 import solid from "@solidjs/vite-plugin";
+import pkg from "./package.json" with { type: "json" };
 
 export default defineConfig({
   plugins: [solid()],
+  // The release sets the version of package.json to the version of the tag.
+  define: {
+    __FARGLASS_VERSION__: JSON.stringify(pkg.version),
+  },
   build: {
     target: "es2024",
   },
