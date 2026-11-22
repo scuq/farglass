@@ -76,7 +76,7 @@ case "$MODE" in
         done
         cp -R "$REPO/web/dist/." "$root/web/"
         cp -R "$REPO/extension/redirect" "$root/extension/redirect"
-        cp -R "$REPO/packaging/systemd" "$REPO/packaging/pam.d" "$REPO/packaging/xdg-desktop-portal" "$root/packaging/"
+        cp -R "$REPO/packaging/systemd" "$REPO/packaging/pam.d" "$REPO/packaging/selinux" "$REPO/packaging/xdg-desktop-portal" "$root/packaging/"
         cp "$REPO/packaging/farglassd.conf" "$root/packaging/"
         echo "$VERSION" > "$root/VERSION"
         tar -C "$stage" --owner=0 --group=0 --numeric-owner -czf "$OUT/$name.tar.gz" "$name"

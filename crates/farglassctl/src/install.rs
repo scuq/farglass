@@ -248,6 +248,15 @@ pub fn install_plan(
             UNITS_DIR,
             SELF,
         ]));
+        // The default policy refuses the start of the agent in the context of the user (F081).
+        let module = root.join("packaging/selinux/farglass.cil");
+        plan.push(run(&[
+            "semodule",
+            "-X",
+            "200",
+            "-i",
+            &module.to_string_lossy(),
+        ]));
     }
     plan.push(run(&["systemctl", "daemon-reload"]));
     plan.push(run(&[
@@ -296,6 +305,8 @@ pub fn uninstall_plan(purge: bool) -> Vec<Step> {
     for file in PAM_FILES {
         plan.push(Step::Remove(Path::new("/etc/pam.d").join(file)));
     }
+    // The shell gives an exit status on a host with no semodule, where the plan must continue.
+    plan.push(try_run(&["sh", "-c", "semodule -X 200 -r farglass"]));
     if purge {
         for path in ["/etc/farglass", STATE, crate::release::TOOLS_DIR, SELF] {
             plan.push(Step::Remove(PathBuf::from(path)));
@@ -377,7 +388,7 @@ mod tests {
                     .join("\n")
             );
         }
-        assert!(!has(&plan, "restorecon") && !has(&plan, "firewall"));
+        assert!(!has(&plan, "restorecon") && !has(&plan, "semodule") && !has(&plan, "firewall"));
         let config = plan.iter().find_map(|step| match step {
             Step::Write { to, content, .. } if to == Path::new(CONF) => Some(content.clone()),
             _ => None,
@@ -413,6 +424,8 @@ mod tests {
             "packaging/pam.d/rhel/farglass-session to /etc/pam.d/farglass-session"
         ));
         assert!(has(&plan, "run: restorecon -R"));
+        assert!(has(&plan, "run: semodule -X 200 -i"));
+        assert!(has(&plan, "packaging/selinux/farglass.cil"));
         assert!(has(&plan, "note: firewalld runs"));
         for text in [
             "groupadd",
@@ -450,6 +463,7 @@ mod tests {
         assert!(
             has(&plan, "remove /usr/libexec/farglass")
                 && has(&plan, "remove /etc/pam.d/farglass-session")
+                && has(&plan, "semodule -X 200 -r farglass")
         );
         assert!(
             !has(&plan, "remove /etc/farglass\n")

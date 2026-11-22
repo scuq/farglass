@@ -1,0 +1,14 @@
+; farglass - the SELinux policy module of farglass (F081)
+;
+; farglassctl loads this file with: semodule -X 200 -i farglass.cil
+;
+; The session worker of farglass-login runs in the domain unconfined_service_t.
+; pam_selinux sets the context of the user for the agent, usually unconfined_t.
+; The default policy of RHEL and Fedora refuses that domain transition, and the
+; agent does not start. This rule permits it.
+;
+; The rule applies to each program in unconfined_service_t, not only to farglass.
+; A policy without these types ignores the optional block.
+(optional farglass_session
+    (allow unconfined_service_t unconfined_t (process (transition)))
+)

@@ -262,10 +262,17 @@ impl Host for Systemd {
         }
         run(&mut command)?;
 
+        let unit = format!("farglass-session-{uid}.service");
         let start = Instant::now();
         while start.elapsed() < START_TIMEOUT {
             if !self.web_sessions(uid)?.is_empty() {
                 return Ok(Started::New);
+            }
+            // is-active fails for a unit that stopped, and for one that systemd removed (--collect).
+            if run(Command::new("systemctl").args(["is-active", "--quiet", &unit])).is_err() {
+                return Err(io::Error::other(format!(
+                    "the session worker of {user} stopped before the web session started; the journal of the host at this time can show the cause, and on a host with SELinux also: ausearch -m avc -ts recent"
+                )));
             }
             std::thread::sleep(Duration::from_millis(100));
         }

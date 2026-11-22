@@ -205,7 +205,7 @@ The section [Quick start](#quick-start) shows the download and the install comma
 5. It installs the runtime packages with apt or dnf, and the user `farglass` and the groups `farglass` and `farglass-users`.
 6. It installs the programs in `/usr/libexec/farglass`, the web files in `/usr/share/farglass`, the units, the PAM files of the distribution family, the bash completion, and itself as `/usr/local/sbin/farglassctl`.
 7. It writes `/etc/farglass/farglassd.conf` only if it does not exist.
-8. On SELinux it runs `restorecon`. If firewalld runs, `--open-firewall` opens port 8443 for TCP and UDP.
+8. On SELinux it runs `restorecon` and loads the policy module `farglass`. The module lets the session worker start the desktop in the SELinux context of the user. If firewalld runs, `--open-firewall` opens port 8443 for TCP and UDP.
 9. It starts `farglass-login.socket` and `farglassd.service`.
 
 `--dry-run` shows the steps and changes nothing.
