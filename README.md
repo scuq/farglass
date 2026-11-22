@@ -18,6 +18,71 @@ Each user logs in with the PAM stack of the host and gets a real logind session.
 - Themes: LCARS in the colors of the farglass icon (the default), light, and dark.
 - Administration: `farglassctl` installs, updates, and removes farglass from signed release tarballs, and manages users, sessions, and the PIN.
 
+## Quick start
+
+To install farglass, you need a host with one of these distributions, on amd64 or arm64, and root access:
+
+- Debian 12 and later, Ubuntu 22.04 and later
+- RHEL, Rocky Linux, and AlmaLinux 9 and later
+- Fedora 41 and later
+
+Download `farglassctl` of the newest release. On arm64, replace `amd64` with `arm64`:
+
+```sh
+curl -fLO https://github.com/scuq/farglass/releases/latest/download/farglassctl-linux-amd64
+chmod +x farglassctl-linux-amd64
+```
+
+Install farglass, and let the Linux user `alice` log in:
+
+```sh
+sudo ./farglassctl-linux-amd64 install --user alice --open-firewall
+```
+
+`alice` must be a user of the host.
+Only the members of the group `farglass-users` can log in, and `--user` adds a user to it.
+`--open-firewall` opens port 8443 for TCP and UDP if firewalld runs.
+`install` checks the signature of the release, installs the runtime packages, and starts farglass.
+It also installs itself as `/usr/local/sbin/farglassctl`.
+
+Open `https://HOST:8443` in a browser, where HOST is the hostname or the address of the host.
+farglass makes a self-signed certificate, thus the browser shows a warning the first time.
+Log in with the username and the password of the Linux user.
+
+To let more users log in, or to see who can:
+
+```sh
+sudo farglassctl user add bob
+sudo farglassctl user list
+sudo farglassctl user remove bob
+```
+
+To change the port, set `listen` in `/etc/farglass/farglassd.conf`, and start farglassd again:
+
+```toml
+listen = "[::]:9443"
+```
+
+```sh
+sudo systemctl restart farglassd
+```
+
+If firewalld runs, open the new port for TCP and UDP.
+`sudo farglassctl doctor` checks the port and firewalld, and prints the command.
+
+To use your own certificate, set `cert` and `key` in the `[tls]` section of the same file.
+
+To see the state, to find a fault, and to install a newer release:
+
+```sh
+sudo farglassctl status
+sudo farglassctl doctor
+sudo farglassctl update
+```
+
+The section [farglassctl](#farglassctl) describes each command and each step of the install.
+`CHANGELOG.md` lists the changes of each release.
+
 ## Parts
 
 | Part | Path | Function |
@@ -127,12 +192,7 @@ The install was tested on Fedora 45 and RHEL 10 (F078).
 On RHEL, register the system with `subscription-manager register` before the install.
 farglassctl needs pipewire, wireplumber, and xdg-desktop-portal-gtk from the AppStream repository, and the UBI repositories do not have them.
 
-To install farglass on a host, download `farglassctl-linux-amd64` or `farglassctl-linux-arm64` of a release, then:
-
-```sh
-chmod +x farglassctl-linux-amd64
-sudo ./farglassctl-linux-amd64 install --user alice
-```
+The section [Quick start](#quick-start) shows the download and the install command.
 
 `install` does these steps (F067):
 
@@ -189,11 +249,17 @@ A tag `vX.Y.Z` starts `.github/workflows/release.yml` (F066):
 4. farglassctl is built static with musl.
 5. Each program starts on Debian 12, Ubuntu 22.04, and Rocky Linux 9.
 6. `SHA256SUMS` lists each file and gets a cosign keyless signature (`SHA256SUMS.sigstore.json`).
+7. The GitHub release gets the `## vX.Y.Z` section of `CHANGELOG.md` as its notes. With no such section, the workflow publishes nothing.
 
-To start a release, push a tag, or run the workflow at an existing tag:
+`CHANGELOG.md` collects the changes under `## Unreleased`.
+The `/release` skill of Claude Code (`.claude/skills/release/SKILL.md`) prepares a release.
+It renames that block to the version, sets the version in `Cargo.toml` and `web/package.json`, runs the tests, and commits.
+
+Then start the release: push an annotated tag, or run the workflow at an existing tag:
 
 ```sh
-git tag v0.2.0 && git push origin v0.2.0
+git push
+git tag -a v0.2.0 -m "v0.2.0" && git push origin v0.2.0
 gh workflow run release.yml --ref v0.2.0
 ```
 

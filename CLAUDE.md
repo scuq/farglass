@@ -34,3 +34,22 @@ Rules
 - When the work is done, report in at most three lines.
 - Single words from the user: "next" means run `pmm brief --files` and do
   that task. "done" means `pmm done ID`. "status" means `pmm board`.
+
+## Changelog, quick start, and release
+
+- If a user or an administrator can see the change, add a bullet to
+  `CHANGELOG.md` under `## Unreleased`, in `### Added`, `### Changed`, or
+  `### Fixed`. Add it in the same edit call as the code, before `pmm done`.
+  If `## Unreleased` is missing, add it above the topmost version heading.
+- Do not add a bullet for a refactor, a test, or internal work. If you are
+  not sure, add the bullet.
+- Write the bullet for a farglass user: what they can do now, or what went
+  wrong before and does not now. No record id, no filename, no symbol name.
+- Never write a version heading in `CHANGELOG.md`. Only the `/release` skill does.
+- `## Quick start` in `README.md` must always be correct. If a change touches
+  a `farglassctl` command or option, the install steps, the default port, the
+  supported distributions, or a key of `packaging/farglassd.conf`, update the
+  quick start in the same edit call.
+- Write the changelog and the README with the `scuq-scraibe` skill loaded.
+- To cut a release, use the `/release` skill. Do not do it by hand. Never push
+  a tag: the user does.

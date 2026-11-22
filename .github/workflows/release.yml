@@ -160,6 +160,27 @@ jobs:
       contents: write
       id-token: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: CHANGELOG.md
+          sparse-checkout-cone-mode: false
+      # The notes are the section of this version in CHANGELOG.md.
+      # A tag with no section publishes nothing.
+      - name: Release notes from CHANGELOG.md
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          set -eu
+          awk -v version="$VERSION" '/^## /{ on = ($2 == version); next } on' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "::error::CHANGELOG.md has no section '## $VERSION'. Cut the release with the release skill."
+            exit 1
+          fi
+          {
+            echo
+            echo "Install: download farglassctl-linux-ARCH, then run: \`sudo ./farglassctl-linux-ARCH install --user YOURNAME\`"
+          } >> notes.md
+          cat notes.md
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -183,5 +204,5 @@ jobs:
           VERSION: ${{ needs.meta.outputs.version }}
         run: |
           gh release create "$VERSION" --repo "$GITHUB_REPOSITORY" --title "farglass $VERSION" \
-            --notes "Install: download farglassctl-linux-ARCH, then run: sudo ./farglassctl-linux-ARCH install --user YOURNAME" \
+            --notes-file notes.md \
             dist/*
