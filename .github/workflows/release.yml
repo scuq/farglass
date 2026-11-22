@@ -85,11 +85,16 @@ jobs:
       - name: Install Rust
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      # Do not write to GITHUB_PATH here. The rockylinux:9 image sets no PATH,
+      # and the runner then starts each later step with only the added
+      # directory in PATH: "sh" is not found.
       - name: Install the toolchain of rust-toolchain.toml
-        run: rustup toolchain install
+        run: |
+          . "$HOME/.cargo/env"
+          rustup toolchain install
       - name: Build the host programs and the tarball
         run: |
+          . "$HOME/.cargo/env"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           packaging/release.sh host "${{ needs.meta.outputs.version }}" dist
       - uses: actions/upload-artifact@v4
