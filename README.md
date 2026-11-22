@@ -494,6 +494,8 @@ A Wayland app that starts in a farglass terminal, for example `gnome-calculator`
 The compositor gives each window, its title, and the changed parts of each frame to the shell.
 Each window shows in the shell as a window of the window manager: a worker draws its tiles on a canvas.
 The size, the focus, the close, the keyboard, and the pointer of the window go to the app, and the cursor of the app shows on it.
+A menu of the app can reach past the frame of its window, as on a local desktop.
+A subsurface of the window stays in the frame, for example a video or the list of suggestions of Chromium.
 `npm --prefix spikes/e2e run surface` starts gnome-calculator, and the shell must show its window.
 `npm --prefix spikes/e2e run apps` starts gnome-calculator and VS Code side by side.
 It moves each window by the own title bar of the app, types in the two windows, and switches the focus between them: each key must go to the window where it was typed.

@@ -11,6 +11,7 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 ### Fixed
 - A Linux app window now takes the size of the app after a resize, also when the app selects its own size, for example a terminal that snaps to its text cells. Before, the frame kept the size of the drag, and the app drew a smaller window in it.
 - An X11 window now stays in the smallest and the largest size of the app.
+- The border of a Brave or Chromium window no longer disappears at its right edge, for example while the host draws a YouTube video in the smart mode. A part of the browser window covered the border.
 
 ## v0.1.3 — 22 November 2026 — X11 apps through Xwayland
 

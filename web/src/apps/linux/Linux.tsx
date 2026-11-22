@@ -471,6 +471,30 @@ export default function Linux(props: { context: AppContext }) {
     const own = origin(popup.geometry);
     return { left: base.left + parentGeometry.x + place.x - own.x, top: base.top + parentGeometry.y + place.y - own.y };
   };
+  /**
+   * Reports whether a popup is a part of the window: a subsurface of the window, or of such a
+   * subsurface, for example a video that Chromium gives to the compositor. The frame cuts it as it
+   * cuts the window, thus it never covers the border of the frame. A menu can reach past the frame.
+   */
+  const partOfWindow = (popup: SurfaceInfo): boolean => {
+    if (!popup.subsurface) return false;
+    if (popup.parent === id) return true;
+    const parent = popup.parent === null ? undefined : manager.surfaces().get(popup.parent);
+    return parent ? partOfWindow(parent) : false;
+  };
+  const popupCanvas = (popup: () => SurfaceInfo) => (
+    <SurfaceCanvas
+      connection={props.context.connection}
+      manager={manager}
+      onpress={pressAt}
+      moving={() => moving}
+      onpressed={onpressed}
+      id={popup().id}
+      left={placeOf(popup()).left}
+      top={placeOf(popup()).top}
+      scale={popup().scale}
+    />
+  );
   /** Each popup of this window, also the popups of its popups. */
   const popups = () => {
     const all: SurfaceInfo[] = [];
@@ -538,6 +562,9 @@ export default function Linux(props: { context: AppContext }) {
             />
           )}
         </Show>
+        <For each={popups().filter(partOfWindow)} keyed={(popup: SurfaceInfo) => popup.id}>
+          {popupCanvas}
+        </For>
         <canvas
           class="linux-edge"
           aria-hidden="true"
@@ -555,20 +582,8 @@ export default function Linux(props: { context: AppContext }) {
           style={stripStyle("bottom")}
         />
       </div>
-      <For each={popups()} keyed={(popup: SurfaceInfo) => popup.id}>
-        {(popup) => (
-          <SurfaceCanvas
-            connection={props.context.connection}
-            manager={manager}
-            onpress={pressAt}
-            moving={() => moving}
-            onpressed={onpressed}
-            id={popup().id}
-            left={placeOf(popup()).left}
-            top={placeOf(popup()).top}
-            scale={popup().scale}
-          />
-        )}
+      <For each={popups().filter((popup) => !partOfWindow(popup))} keyed={(popup: SurfaceInfo) => popup.id}>
+        {popupCanvas}
       </For>
     </div>
   );
