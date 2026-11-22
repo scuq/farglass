@@ -119,8 +119,14 @@ fn apply_step(step: &Step) -> Result<(), String> {
     match step {
         Step::Run(args) | Step::TryRun(args) => {
             let (program, rest) = args.split_first().ok_or("no program")?;
-            let status = Command::new(program)
-                .args(rest)
+            let mut command = Command::new(program);
+            command.args(rest);
+            // The errors of a TryRun step are expected, for example groupdel of a group
+            // that userdel removed. Their messages would only confuse the administrator.
+            if matches!(step, Step::TryRun(_)) {
+                command.stderr(std::process::Stdio::null());
+            }
+            let status = command
                 .status()
                 .map_err(|error| format!("{program} did not start: {error}"))?;
             if !status.success() && matches!(step, Step::Run(_)) {

@@ -124,6 +124,18 @@ impl Distro {
         }
     }
 
+    /// Returns a hint for a failed package install, or `None`.
+    ///
+    /// RHEL gets pipewire, wireplumber, and the portal from the AppStream
+    /// repository. A host with no subscription has only the UBI repositories,
+    /// which do not have these packages.
+    #[must_use]
+    pub fn package_hint(&self) -> Option<&'static str> {
+        (self.id == "rhel").then_some(
+            "On RHEL, dnf finds pipewire, wireplumber, and xdg-desktop-portal-gtk only in the AppStream repository. Register the system (subscription-manager register), then run the install again.",
+        )
+    }
+
     /// Returns the directory of the PAM files for this family in a release.
     #[must_use]
     pub fn pam_dir(&self) -> &'static str {
@@ -150,10 +162,13 @@ mod tests {
             ("ubuntu", "22.04", Family::Debian),
             ("ubuntu", "24.04", Family::Debian),
             ("rhel", "9.5", Family::Rhel),
+            ("rhel", "10.3", Family::Rhel),
             ("rocky", "9.6", Family::Rhel),
             ("rocky", "10.0", Family::Rhel),
             ("almalinux", "9.4", Family::Rhel),
+            ("almalinux", "10.1", Family::Rhel),
             ("fedora", "42", Family::Rhel),
+            ("fedora", "45", Family::Rhel),
         ] {
             let distro = Distro::parse(&release(id, version)).unwrap();
             assert_eq!(distro.family, family, "{id} {version}");
@@ -171,6 +186,21 @@ mod tests {
         ] {
             let error = Distro::parse(&release(id, version)).unwrap_err();
             assert!(error.contains("Debian 12"), "{error}");
+        }
+    }
+
+    #[test]
+    fn only_rhel_gets_the_hint_for_the_appstream_repository() {
+        let rhel = Distro::parse(&release("rhel", "10.3")).unwrap();
+        assert!(
+            rhel.package_hint()
+                .unwrap()
+                .contains("subscription-manager")
+        );
+        for id in ["rocky", "almalinux", "fedora", "debian"] {
+            let version = if id == "fedora" { "45" } else { "13" };
+            let distro = Distro::parse(&release(id, version)).unwrap();
+            assert_eq!(distro.package_hint(), None, "{id}");
         }
     }
 

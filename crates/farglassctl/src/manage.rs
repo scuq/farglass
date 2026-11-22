@@ -58,6 +58,26 @@ pub fn parse_session(id: &str, text: &str) -> Option<WebSession> {
     })
 }
 
+/// Reports whether farglassd answers on `port` on the loopback address.
+///
+/// It tries again until `wait` is over, because a farglassd that systemd just
+/// started needs some time to open its port.
+#[must_use]
+pub fn answers(port: u16, wait: std::time::Duration) -> bool {
+    let end = std::time::Instant::now() + wait;
+    loop {
+        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok()
+            || std::net::TcpStream::connect(("::1", port)).is_ok()
+        {
+            return true;
+        }
+        if std::time::Instant::now() >= end {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+}
+
 /// Returns the port of the `listen` line of the configuration, or the default port.
 #[must_use]
 pub fn listen_port(config: &str) -> u16 {
@@ -384,30 +404,31 @@ fn unit_state(unit: &str) -> String {
 
 /// `status`.
 pub fn status() {
+    let row = |label: &str, value: &str| println!("{label:<23}{value}");
     let version = install::installed().unwrap_or_else(|| "not installed".to_owned());
-    println!("farglass:           {version}");
-    println!("farglassctl:        {}", crate::version());
+    row("farglass:", &version);
+    row("farglassctl:", crate::version());
     for unit in ["farglassd.service", "farglass-login.socket"] {
-        println!("{unit:<20}{}", unit_state(unit));
+        row(&format!("{unit}:"), &unit_state(unit));
     }
     let port = listen_port(&std::fs::read_to_string(CONF).unwrap_or_default());
-    println!("Port:               {port} (TCP and UDP)");
+    row("Port:", &format!("{port} (TCP and UDP)"));
     let pin = match std::fs::metadata(Path::new(STATE).join("pin")) {
         Ok(_) => "on",
         Err(error) if error.kind() == io::ErrorKind::NotFound => "off",
         Err(_) => "unknown (the state cannot be read)",
     };
-    println!("Machine PIN:        {pin}");
+    row("Machine PIN:", pin);
     let members = members();
-    println!(
-        "Users who can log in: {}",
-        if members.is_empty() {
+    row(
+        "Users who can log in:",
+        &if members.is_empty() {
             "none".to_owned()
         } else {
             members.join(", ")
-        }
+        },
     );
-    println!("Web sessions:       {}", web_sessions().len());
+    row("Web sessions:", &web_sessions().len().to_string());
 }
 
 /// The result of one check of `doctor`.
@@ -468,10 +489,16 @@ pub fn doctor() -> Result<(), String> {
         "a user can log in (farglass-users has members)",
         "Run: farglassctl user add USER",
     );
+    // farglass-login needs logind for the web session (ADR-015). Some container
+    // images mask systemd-logind.
+    check(
+        succeeds(&["loginctl", "list-sessions", "--no-legend"]),
+        "systemd-logind answers",
+        "Run: systemctl unmask systemd-logind && systemctl start systemd-logind",
+    );
     let port = listen_port(&std::fs::read_to_string(CONF).unwrap_or_default());
     check(
-        std::net::TcpStream::connect(("127.0.0.1", port)).is_ok()
-            || std::net::TcpStream::connect(("::1", port)).is_ok(),
+        answers(port, std::time::Duration::from_secs(5)),
         &format!("farglassd answers on port {port}"),
         "Run: farglassctl logs",
     );

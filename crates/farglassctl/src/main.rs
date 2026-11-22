@@ -201,13 +201,22 @@ fn setup(
         print_plan(&steps);
         return Ok(());
     }
-    plan::apply(&steps)?;
+    plan::apply(&steps).map_err(|error| match distro.package_hint() {
+        Some(hint) if error.contains("dnf install") => format!("{error}\n{hint}"),
+        _ => error,
+    })?;
     println!();
-    println!(
-        "farglass {version} runs. Open https://{}:{}/ in a browser.",
-        facts.address.as_deref().unwrap_or("HOST"),
-        install::PORT
-    );
+    let port = manage::listen_port(&std::fs::read_to_string(install::CONF).unwrap_or_default());
+    if manage::answers(port, std::time::Duration::from_secs(15)) {
+        println!(
+            "farglass {version} runs. Open https://{}:{port}/ in a browser.",
+            facts.address.as_deref().unwrap_or("HOST"),
+        );
+    } else {
+        println!(
+            "WARNING: farglass {version} is installed, but farglassd does not answer on port {port}. Run: farglassctl doctor, and farglassctl logs"
+        );
+    }
     let members = plan::output(&["getent", "group", install::USERS_GROUP]).unwrap_or_default();
     if members.trim_end().ends_with(':') {
         println!(

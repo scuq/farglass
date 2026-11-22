@@ -117,6 +117,16 @@ The other commands manage a running host (F068):
 
 When the agent of a user stops and does not come back in 10 seconds, farglassd logs the user out: the cookies of the user go, and each tab shows the login screen.
 
+farglassctl installs farglass on these distributions, on amd64 and arm64:
+
+- Debian 12 and later, Ubuntu 22.04 and later
+- RHEL, Rocky Linux, and AlmaLinux 9 and later
+- Fedora 41 and later
+
+The install was tested on Fedora 45 and RHEL 10 (F078).
+On RHEL, register the system with `subscription-manager register` before the install.
+farglassctl needs pipewire, wireplumber, and xdg-desktop-portal-gtk from the AppStream repository, and the UBI repositories do not have them.
+
 To install farglass on a host, download `farglassctl-linux-amd64` or `farglassctl-linux-arm64` of a release, then:
 
 ```sh
