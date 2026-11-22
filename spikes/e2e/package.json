@@ -24,6 +24,7 @@
     "sound": "node sound.mjs",
     "redirect": "node redirect.mjs",
     "popups": "node popups.mjs",
+    "border": "node border.mjs",
     "resize": "node resize.mjs",
     "pace": "node pace.mjs",
     "passkey": "node passkey.mjs",

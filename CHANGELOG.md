@@ -10,6 +10,7 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ### Fixed
 - The border of a Linux app window, for example Brave, now shows at the two bottom corners. Before, the app covered the round corners of the border.
+- The border of a browser window on the host no longer disappears at the left or the right of a video, for example after a change of the focus or when another window moved over it. A video that the client plays at the edge of the window covered the border in some browsers.
 
 ## v0.1.4 — 22 November 2026 — farglassctl updates itself
 

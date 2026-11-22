@@ -36,12 +36,18 @@
   image-rendering: pixelated;
 }
 
-/* The container of the redirected videos: it covers the window and takes no pointer. */
+/*
+ * The container of the redirected videos: it covers the window and takes no pointer.
+ * The clip keeps a video 1px off the border. The client browser can draw a video in a GPU
+ * overlay, which rounds its rectangle out to device pixels, and a video at the edge of the
+ * window then covers the border while no other window covers the video.
+ */
 .linux-redirects {
   position: absolute;
   inset: 0;
   z-index: 0;
   pointer-events: none;
+  clip-path: inset(1px);
 }
 
 /* A video of the host browser that the client plays (F040): under the canvas, which is transparent where the host draws it black. */
