@@ -6,7 +6,7 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ---
 
-## Unreleased
+## v0.1.4 — 22 November 2026 — farglassctl updates itself
 
 ### Added
 - `farglassctl update` also installs the `farglassctl` of the new release. Before, farglassctl stayed at the version of the install. An older farglassctl does not do this, so the update to this release keeps the old farglassctl one more time.
