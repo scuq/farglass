@@ -11,7 +11,7 @@ Each user logs in with the PAM stack of the host and gets a real logind session.
 - Login: PAM, passkeys as a second factor, a machine PIN, and a lock screen.
 - Shell: a window manager, a panel, a launcher, workspaces, an overview, a layout picker, context menus, and keyboard shortcuts with a tour.
 - Shell apps: a terminal, settings, notifications, and the polkit password dialog.
-- Linux apps of the host: a headless Wayland compositor sends their windows as tiles and video, with sound and the clipboard. X11 apps show through Xwayland.
+- Linux apps of the host: a headless Wayland compositor sends their windows as tiles and video, with sound and the clipboard. X11 apps can show through Xwayland, off by default.
 - Video redirection: a video in the host Chromium plays in the client browser.
 - Transport: WebSocket, or WebTransport over HTTP/3.
 - Security: TLS 1.3 only, a session cookie, an Origin check, a Content Security Policy, limits for each address, and a security log.
@@ -74,7 +74,7 @@ To use your own certificate, set `cert` and `key` in the `[tls]` section of the 
 
 To show X11 apps, for example Java Swing apps, Wine, or SecureCRT, set `x11_apps = true` in the same file.
 The users must log out and log in again.
-The section [Linux apps](#linux-apps) gives the risk.
+The section [X11 apps](#x11-apps) gives the risk.
 
 To see the state, to find a fault, and to install a newer release:
 
@@ -514,24 +514,6 @@ If the app does not start, the launcher shows why.
 `npm --prefix spikes/e2e run launcher` starts gnome-calculator from a desktop entry in the launcher.
 
 The clipboard goes between the apps and your computer, as text or as a PNG image.
-
-An app with only an X11 backend, for example a Java Swing app, Wine, or SecureCRT, can show through Xwayland.
-X11 apps are off by default.
-To turn them on, set `x11_apps = true` in `/etc/farglass/farglassd.conf`.
-To turn them off again, set `x11_apps = false` or remove the line.
-The agent reads the option when a session starts, thus a change applies to the next login of each user, after a logout.
-If the option is on, the compositor starts Xwayland and is its X11 window manager.
-`farglassctl install` installs the package `xwayland` on Debian and Ubuntu, and `xorg-x11-server-Xwayland` on RHEL and Fedora.
-Each terminal and each app of the launcher gets `DISPLAY` of the session.
-An app with a Wayland backend continues to use Wayland.
-A menu or a tooltip of an X11 app shows at its place on its window.
-A click outside an X11 menu closes it, also a click on the desktop of the shell.
-The clipboard goes between X11 apps, Wayland apps, and your computer, as for Wayland apps.
-The pointer of an X11 app shows with the shape that the app selected.
-
-CAUTION: Each X11 app can read the keys and the windows of each other X11 app of the same session, and the clipboard at each time.
-Wayland apps do not have this problem.
-
 A copy in an app goes to the clipboard of your browser.
 Before a paste key goes to an app (Ctrl+V, Ctrl+Shift+V, or Shift+Insert), the shell reads the clipboard of your browser and gives it to the apps.
 Thus the browser asks one time for the permission to read the clipboard.
@@ -604,6 +586,59 @@ In a web session, the agent gives `WAYLAND_DISPLAY`, `XDG_SESSION_TYPE=wayland`,
 Thus a program that D-Bus starts, for example the desktop portal, finds the compositor.
 The agent changes nothing if the user manager has a display already, for example from a local GNOME session.
 `packaging/xdg-desktop-portal/farglass-portals.conf` selects the GTK portal backend for the farglass desktop.
+
+### X11 apps
+
+An app with only an X11 backend can show as a window of the desktop through Xwayland.
+Examples are a Java Swing app, an app in Wine, and SecureCRT.
+X11 apps are off by default.
+
+CAUTION: Each X11 app can read the keys, the windows, and the clipboard of each other X11 app of the same session.
+Wayland apps do not have this problem.
+Turn X11 apps on only if the users need them.
+
+To turn X11 apps on:
+
+1. Set `x11_apps = true` in `/etc/farglass/farglassd.conf`.
+2. Tell each user to log out and log in again.
+
+The agent reads the option when a session starts, thus a session that runs keeps its state.
+To turn X11 apps off, set `x11_apps = false` or remove the line.
+The change applies to the next login of each user too.
+farglassd does not need a restart for the option.
+
+`farglassctl install` and `farglassctl update` install Xwayland: the package `xwayland` on Debian and Ubuntu, and `xorg-x11-server-Xwayland` on RHEL, Rocky Linux, AlmaLinux, and Fedora.
+
+To see if a session has X11 apps, read the journal of its agent:
+
+```sh
+journalctl -u farglass-session-"$(id -u alice)" | grep -E 'x11_display|X11 apps|Xwayland'
+```
+
+`x11_display=Some(N)` shows that X11 apps are on, with `DISPLAY=:N`.
+If `x11_apps` is true and Xwayland is not installed, the journal says so.
+
+When X11 apps are on:
+
+- Each terminal and each app of the launcher gets `DISPLAY` of the session. An app with a Wayland backend continues to use Wayland.
+- A Qt app with no Wayland plugin uses X11 (`QT_QPA_PLATFORM=wayland;xcb`).
+- Each X11 window gets a frame of the shell, as a Wayland window does: move, resize, focus, and close.
+- A menu or a tooltip shows at its place on its window. A click outside a menu closes it, also a click on the desktop of the shell.
+- The clipboard goes between X11 apps, Wayland apps, and your computer. The primary selection of X11 (select, then middle-click) stays between the X11 apps.
+- The pointer shows with the shape that the app selected.
+- An X11 window gets the frame rate, the tiles, the scroll moves, and the video regions of a Wayland window.
+
+A test with xterm measured these values:
+
+- No frames while xterm is idle or hidden
+- About 60 frames each second while xterm scrolls with input
+- About 2 ms from a key to its frame
+
+A request of an X11 app to maximize, minimize, or go to full screen has no effect: use the buttons of the window frame.
+
+`cargo test -p farglass-surface --test x11` runs real X11 clients: xclock, xev, xterm, xclip, and a small X11 client with a menu.
+A test that needs a program that is not installed does nothing.
+`FARGLASS_XWAYLAND=1` or `0` in the environment of the agent overrides `x11_apps`, for tests.
 
 ## Settings
 
