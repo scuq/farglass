@@ -6,7 +6,7 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ---
 
-## Unreleased
+## v0.1.3 — 22 November 2026 — X11 apps through Xwayland
 
 ### Added
 - X11 apps, for example Java Swing apps, apps in Wine, and SecureCRT, can show as windows of the desktop through Xwayland.
@@ -17,6 +17,7 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ### Fixed
 - A Wayland app that draws its own pointer now shows that pointer. Before, the desktop showed the default arrow.
+- farglassd uses a passkey library with a fixed URL parser (RUSTSEC-2026-0592). The old parser overflowed the stack on a nested `blob:` URL.
 
 ## v0.1.2 — 22 November 2026 — Login on a host with SELinux
 
