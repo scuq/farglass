@@ -21,6 +21,14 @@
   position: absolute;
   inset: 0;
   overflow: hidden;
+  /*
+   * The inner radius of the window: its radius less the border. The window does not cut its
+   * content (no paint containment, for the popups), so a square app covers the round border.
+   */
+  border-radius: 0 0 5px 5px;
+}
+.wm-window[data-mode="maximized"] .linux-main {
+  border-radius: 0;
 }
 .linux-app canvas {
   position: absolute;

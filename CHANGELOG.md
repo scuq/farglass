@@ -6,6 +6,11 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ---
 
+## Unreleased
+
+### Fixed
+- The border of a Linux app window, for example Brave, now shows at the two bottom corners. Before, the app covered the round corners of the border.
+
 ## v0.1.4 — 22 November 2026 — farglassctl updates itself
 
 ### Added
