@@ -111,6 +111,7 @@ impl Distro {
                     "wireplumber",
                     "dbus-user-session",
                     "xdg-desktop-portal-gtk",
+                    "xwayland",
                 ]),
             ],
             Family::Rhel => vec![words(&[
@@ -123,6 +124,7 @@ impl Distro {
                 "pipewire-pulseaudio",
                 "wireplumber",
                 "xdg-desktop-portal-gtk",
+                "xorg-x11-server-Xwayland",
             ])],
         }
     }

@@ -18,10 +18,43 @@ use crate::dbus::Buses;
 /// The name of the desktop in `XDG_CURRENT_DESKTOP`. The portal reads `farglass-portals.conf` for it.
 pub const DESKTOP: &str = "farglass";
 
-/// Returns the variables of the desktop for the Wayland socket `socket`.
+/// The number of the X11 display of Xwayland, if the compositor of the session started it (F082).
+static X11_DISPLAY: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+
+/// Sets the number of the X11 display of the session. Only the first call has an effect.
+pub fn set_x11_display(number: u32) {
+    let _ = X11_DISPLAY.set(number);
+}
+
+/// Returns `true` if the session has an X11 display.
+#[must_use]
+pub fn has_x11() -> bool {
+    X11_DISPLAY.get().is_some()
+}
+
+/// Returns `true` if the agent must start Xwayland: the program is in `PATH`,
+/// and `FARGLASS_XWAYLAND` is not `0`.
+#[must_use]
+pub fn x11_wanted() -> bool {
+    std::env::var_os("FARGLASS_XWAYLAND").is_none_or(|value| value != "0")
+        && std::env::var_os("PATH").is_some_and(|path| {
+            std::env::split_paths(&path).any(|dir| dir.join("Xwayland").is_file())
+        })
+}
+
+/// Returns the variables of the desktop for the Wayland socket `socket`,
+/// with `DISPLAY` if the session has an X11 display.
 /// The sound of PulseAudio and PipeWire clients goes to the sink of the browser (F038).
 #[must_use]
 pub fn variables(socket: &Path) -> Vec<(String, String)> {
+    let mut variables = base_variables(socket);
+    if let Some(number) = X11_DISPLAY.get() {
+        variables.push(("DISPLAY".to_owned(), format!(":{number}")));
+    }
+    variables
+}
+
+fn base_variables(socket: &Path) -> Vec<(String, String)> {
     vec![
         ("WAYLAND_DISPLAY".to_owned(), socket.display().to_string()),
         ("XDG_SESSION_TYPE".to_owned(), "wayland".to_owned()),

@@ -357,7 +357,10 @@ fn spawn(
     };
     // The Wayland apps of a terminal show in the shell (F024).
     let command = match options.wayland.as_deref().filter(|path| path.exists()) {
-        Some(socket) => command.envs(crate::desktop::variables(socket)),
+        // A terminal of a local desktop must not give the display of that desktop to its apps.
+        Some(socket) => command
+            .env_remove("DISPLAY")
+            .envs(crate::desktop::variables(socket)),
         None => command,
     };
     let child = command

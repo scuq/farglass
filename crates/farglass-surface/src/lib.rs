@@ -57,6 +57,7 @@ pub enum SurfaceError {
 #[derive(Debug)]
 pub struct Compositor {
     socket: PathBuf,
+    x11_display: Option<u32>,
     commands: Sender<Command>,
     signal: LoopSignal,
     stop: Arc<AtomicBool>,
@@ -75,22 +76,39 @@ impl Compositor {
         socket: &Path,
         events: impl FnMut(Event) + Send + 'static,
     ) -> Result<Self, SurfaceError> {
+        Self::spawn_with(socket, false, events)
+    }
+
+    /// Starts a compositor as [`Compositor::spawn`] does. With `x11`, it also starts Xwayland
+    /// for X11 apps (F082). The program `Xwayland` must be in `PATH`.
+    /// If Xwayland does not start, the compositor runs with no X11 display.
+    ///
+    /// # Errors
+    ///
+    /// [`SurfaceError`] if the socket does not open or the event loop does not start.
+    pub fn spawn_with(
+        socket: &Path,
+        x11: bool,
+        events: impl FnMut(Event) + Send + 'static,
+    ) -> Result<Self, SurfaceError> {
         let listener = bind(socket)?;
         let (commands, receiver) = channel::channel::<Command>();
-        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<LoopSignal, String>>();
+        let (ready_tx, ready_rx) =
+            std::sync::mpsc::channel::<Result<(LoopSignal, Option<u32>), String>>();
         let events: Box<dyn FnMut(Event) + Send> = Box::new(events);
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = stop.clone();
         let thread = std::thread::Builder::new()
             .name("farglass-wayland".to_owned())
-            .spawn(move || state::run(listener, receiver, events, &thread_stop, &ready_tx))
+            .spawn(move || state::run(listener, receiver, events, x11, &thread_stop, &ready_tx))
             .map_err(|e| SurfaceError::Start(e.to_string()))?;
-        let signal = ready_rx
+        let (signal, x11_display) = ready_rx
             .recv()
             .map_err(|e| SurfaceError::Start(e.to_string()))?
             .map_err(SurfaceError::Start)?;
         Ok(Self {
             socket: socket.to_owned(),
+            x11_display,
             commands,
             signal,
             stop,
@@ -102,6 +120,13 @@ impl Compositor {
     #[must_use]
     pub fn socket(&self) -> &Path {
         &self.socket
+    }
+
+    /// Returns the number of the X11 display of Xwayland, the `N` of `DISPLAY=:N`.
+    /// `None` if the compositor has no Xwayland.
+    #[must_use]
+    pub fn x11_display(&self) -> Option<u32> {
+        self.x11_display
     }
 
     /// Gives a command to the compositor. Returns `false` if the compositor stopped.

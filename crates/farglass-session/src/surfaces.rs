@@ -254,6 +254,7 @@ impl Surfaces {
     }
 
     /// Starts the compositor on `socket`. Its events come to this set, and the requests of the shell go to it.
+    /// The compositor also starts Xwayland for X11 apps, if [`crate::desktop::x11_wanted`] permits it.
     /// The compositor stops when the returned value drops.
     ///
     /// # Errors
@@ -261,7 +262,12 @@ impl Surfaces {
     /// [`SurfaceError`] if the compositor does not start.
     pub fn start(self: &Arc<Self>, socket: &Path) -> Result<Compositor, SurfaceError> {
         let surfaces = self.clone();
-        let compositor = Compositor::spawn(socket, move |event| surfaces.handle(event))?;
+        let x11 = crate::desktop::x11_wanted();
+        let compositor = Compositor::spawn_with(socket, x11, move |event| surfaces.handle(event))?;
+        // Each terminal and each app gets the X11 display from now on (F082).
+        if let Some(number) = compositor.x11_display() {
+            crate::desktop::set_x11_display(number);
+        }
         let sender = compositor.commands();
         self.set_commands(move |command| {
             sender.send(command);

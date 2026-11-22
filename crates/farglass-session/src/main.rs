@@ -148,7 +148,11 @@ async fn agent() {
     let _compositor = farglass_session::surfaces::socket_path().and_then(|socket| {
         match session.surfaces.start(&socket) {
             Ok(compositor) => {
-                tracing::info!(socket = %socket.display(), "the Wayland compositor listens");
+                tracing::info!(
+                    socket = %socket.display(),
+                    x11_display = ?compositor.x11_display(),
+                    "the Wayland compositor listens"
+                );
                 // A web session: programs that D-Bus starts must find the compositor, not a GNOME that is not there.
                 if std::env::var_os("XDG_SESSION_ID").is_some() {
                     let buses = session.buses.clone();

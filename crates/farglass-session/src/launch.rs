@@ -626,11 +626,18 @@ impl Launcher {
         };
         if let Some(socket) = self.options.wayland.as_deref().filter(|path| path.exists()) {
             // The app shows on the compositor of the session, not on a local display of the same user.
+            // With Xwayland, `variables` gives the X11 display of the session. A Qt app with
+            // no Wayland plugin, for example one with its own Qt, then uses X11 (F082).
+            let qt = if crate::desktop::has_x11() {
+                "wayland;xcb"
+            } else {
+                "wayland"
+            };
             command
-                .envs(crate::desktop::variables(socket))
                 .env_remove("DISPLAY")
+                .envs(crate::desktop::variables(socket))
                 .env("MOZ_ENABLE_WAYLAND", "1")
-                .env("QT_QPA_PLATFORM", "wayland")
+                .env("QT_QPA_PLATFORM", qt)
                 .env("ELECTRON_OZONE_PLATFORM_HINT", "wayland");
         }
         let home = std::env::var_os("HOME").map_or_else(|| PathBuf::from("/"), PathBuf::from);

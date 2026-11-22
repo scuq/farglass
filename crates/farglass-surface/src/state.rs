@@ -33,7 +33,7 @@ use smithay::reexports::wayland_server::protocol::wl_seat::WlSeat;
 use smithay::reexports::wayland_server::protocol::wl_shm;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::{Client, Display, DisplayHandle, Resource as _};
-use smithay::utils::{SERIAL_COUNTER, Serial, Transform};
+use smithay::utils::{Rectangle, SERIAL_COUNTER, Serial, Transform};
 use smithay::wayland::buffer::BufferHandler;
 use smithay::wayland::compositor::{
     BufferAssignment, CompositorClientState, CompositorHandler, CompositorState, Damage,
@@ -41,6 +41,7 @@ use smithay::wayland::compositor::{
 };
 use smithay::wayland::cursor_shape::CursorShapeManagerState;
 use smithay::wayland::output::{OutputHandler, OutputManagerState};
+use smithay::wayland::seat::WaylandFocus as _;
 use smithay::wayland::selection::data_device::{
     ClientDndGrabHandler, DataDeviceHandler, DataDeviceState, ServerDndGrabHandler,
     request_data_device_client_selection, set_data_device_focus, set_data_device_selection,
@@ -53,9 +54,14 @@ use smithay::wayland::shell::xdg::{
 };
 use smithay::wayland::shm::{ShmHandler, ShmState, with_buffer_contents};
 use smithay::wayland::tablet_manager::TabletSeatHandler;
+use smithay::xwayland::XWaylandClientData;
 
 use crate::clipboard::{self, Clip, ClipKind};
 use crate::pace::{Decision, Pace};
+
+mod x11;
+
+use x11::Focus;
 
 /// The interval of the frame callbacks: a client draws at most this often.
 const FRAME_INTERVAL: Duration = Duration::from_millis(16);
@@ -281,6 +287,8 @@ pub(crate) struct State {
     seat: Seat<Self>,
     toplevels: HashMap<u32, ToplevelSurface>,
     popups: HashMap<u32, PopupSurface>,
+    /// The X11 windows of Xwayland (F082).
+    x11: x11::X11,
     /// The subsurfaces with their parent and their last place for the shell.
     subsurfaces: HashMap<u32, (WlSurface, u32, Option<Rect>)>,
     next_id: u32,
@@ -313,7 +321,8 @@ impl std::fmt::Debug for State {
     }
 }
 
-/// Runs the compositor until `stop` is set. Gives the signal for the wakeup to `ready` first.
+/// Runs the compositor until `stop` is set. Gives the signal for the wakeup to `ready` first,
+/// and with `x11` the number of the X11 display of Xwayland.
 ///
 /// The loop checks `stop` after each dispatch. A stop through the loop signal alone can
 /// come before the loop runs, and then the loop does not see it.
@@ -321,12 +330,18 @@ pub(crate) fn run(
     listener: UnixListener,
     commands: Channel<Command>,
     events: Box<dyn FnMut(Event) + Send>,
+    x11: bool,
     stop: &std::sync::atomic::AtomicBool,
-    ready: &std::sync::mpsc::Sender<Result<LoopSignal, String>>,
+    ready: &std::sync::mpsc::Sender<Result<(LoopSignal, Option<u32>), String>>,
 ) {
     match setup(listener, commands, events) {
         Ok((mut event_loop, mut state)) => {
-            let _ = ready.send(Ok(event_loop.get_signal()));
+            let display = if x11 {
+                x11::start(&state.display, &event_loop.handle())
+            } else {
+                None
+            };
+            let _ = ready.send(Ok((event_loop.get_signal(), display)));
             while !stop.load(std::sync::atomic::Ordering::Acquire) {
                 if let Err(error) = event_loop.dispatch(None, &mut state) {
                     tracing::error!(%error, "the Wayland compositor stopped");
@@ -395,6 +410,7 @@ fn setup(
         seat,
         toplevels: HashMap::new(),
         popups: HashMap::new(),
+        x11: x11::X11::new(&dh),
         subsurfaces: HashMap::new(),
         next_id: 0,
         parents: HashMap::new(),
@@ -470,8 +486,19 @@ impl State {
     }
 
     fn new_id(&mut self, surface: &WlSurface) -> u32 {
+        let id = self.alloc_id();
+        Self::tag(surface, id);
+        id
+    }
+
+    /// Returns an id that no surface had before.
+    fn alloc_id(&mut self) -> u32 {
         self.next_id += 1;
-        let id = self.next_id;
+        self.next_id
+    }
+
+    /// Sets the id of a surface. 0 removes it.
+    fn tag(surface: &WlSurface, id: u32) {
         with_states(surface, |states| {
             states
                 .data_map
@@ -482,7 +509,6 @@ impl State {
                     .0 = id;
             }
         });
-        id
     }
 
     fn id_of(surface: &WlSurface) -> Option<u32> {
@@ -515,9 +541,23 @@ impl State {
                 toplevel.send_pending_configure();
             }
         }
-        let focus = id
-            .and_then(|id| self.toplevels.get(&id))
-            .map(|toplevel| toplevel.wl_surface().clone());
+        for (each, window) in &self.x11.windows {
+            if let Err(error) = window.set_activated(Some(*each) == id) {
+                tracing::debug!(%error, "an X11 window did not get its activated state");
+            }
+        }
+        let focus = id.and_then(|id| {
+            self.toplevels
+                .get(&id)
+                .map(|toplevel| Focus::Wayland(toplevel.wl_surface().clone()))
+                .or_else(|| self.x11.windows.get(&id).cloned().map(Focus::X11))
+        });
+        // An X11 app must see its window above the other X11 windows, for example for its menus.
+        if let (Some(Focus::X11(window)), Some(wm)) = (&focus, self.x11.wm.as_mut())
+            && let Err(error) = wm.raise_window(window)
+        {
+            tracing::debug!(%error, "an X11 window did not go to the top");
+        }
         if let Some(keyboard) = self.seat.get_keyboard() {
             keyboard.set_focus(self, focus, SERIAL_COUNTER.next_serial());
         }
@@ -640,6 +680,13 @@ impl State {
                     if toplevel.is_initial_configure_sent() {
                         toplevel.send_pending_configure();
                     }
+                } else if let Some(window) = self.x11.windows.get(&id)
+                    && width > 0
+                    && height > 0
+                    && let Err(error) =
+                        window.configure(Rectangle::new((0, 0).into(), (width, height).into()))
+                {
+                    tracing::debug!(%error, "an X11 window did not get its size");
                 }
             }
             Command::Activate { id } => {
@@ -656,6 +703,10 @@ impl State {
             Command::Close { id } => {
                 if let Some(toplevel) = self.toplevels.get(&id) {
                     toplevel.send_close();
+                } else if let Some(window) = self.x11.windows.get(&id)
+                    && let Err(error) = window.close()
+                {
+                    tracing::debug!(%error, "an X11 window did not get the close request");
                 }
             }
             Command::PopupDismiss { id } => {
@@ -672,7 +723,8 @@ impl State {
                     .get(&id)
                     .map(|t| t.wl_surface().clone())
                     .or_else(|| self.popups.get(&id).map(|p| p.wl_surface().clone()))
-                    .or_else(|| self.subsurfaces.get(&id).map(|(s, _, _)| s.clone()));
+                    .or_else(|| self.subsurfaces.get(&id).map(|(s, _, _)| s.clone()))
+                    .or_else(|| self.x11.surface(id));
                 if let (Some(pointer), Some(surface)) = (self.seat.get_pointer(), surface) {
                     // The location is local to the surface: the focus has the origin (0, 0).
                     let event = MotionEvent {
@@ -733,7 +785,7 @@ impl State {
                 self.touch(id.or(self.focused));
                 if let Some(id) = id
                     && self.focused != Some(id)
-                    && self.toplevels.contains_key(&id)
+                    && (self.toplevels.contains_key(&id) || self.x11.windows.contains_key(&id))
                 {
                     self.activate(Some(id));
                 }
@@ -912,6 +964,9 @@ impl CompositorHandler for State {
     }
 
     fn client_compositor_state<'a>(&self, client: &'a Client) -> &'a CompositorClientState {
+        if let Some(xwayland) = client.get_data::<XWaylandClientData>() {
+            return &xwayland.compositor_state;
+        }
         &client
             .get_data::<ClientState>()
             .expect("each client has a ClientState")
@@ -1236,7 +1291,7 @@ impl XdgDecorationHandler for State {
 }
 
 impl SeatHandler for State {
-    type KeyboardFocus = WlSurface;
+    type KeyboardFocus = Focus;
     type PointerFocus = WlSurface;
     type TouchFocus = WlSurface;
 
@@ -1255,9 +1310,11 @@ impl SeatHandler for State {
         self.emit(Event::Cursor(name));
     }
 
-    fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) {
+    fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&Focus>) {
         // The app with the keyboard focus gets the selection, and only it can set a new one.
-        let client = focused.and_then(WlSurface::client);
+        let client = focused
+            .and_then(|focus| focus.wl_surface())
+            .and_then(|surface| surface.client());
         set_data_device_focus(&self.display, seat, client);
     }
 }

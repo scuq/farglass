@@ -32,7 +32,7 @@ hyper-util = { version = "0.1.21", features = ["http1", "http2", "server-auto", 
 proptest = "1.12"
 pty-process = { version = "0.5.4", features = ["async"] }
 quinn = { version = "0.11.12", default-features = false, features = ["runtime-tokio", "rustls-aws-lc-rs"] }
-smithay = { version = "0.7.0", default-features = false, features = ["wayland_frontend", "desktop"] }
+smithay = { version = "0.7.0", default-features = false, features = ["wayland_frontend", "desktop", "xwayland"] }
 wayland-client = "0.31.15"
 wayland-protocols = { version = "0.32.13", features = ["client"] }
 lz4_flex = { version = "0.14.2", default-features = false, features = ["safe-encode", "safe-decode", "std"] }

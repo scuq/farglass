@@ -1,9 +1,9 @@
 ---
 id: I004
 title: XWayland for X11 apps on the compositor
-status: open
+status: promoted
 tags: []
-promoted_to:
+promoted_to: F082
 ---
 
 ## Idea

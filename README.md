@@ -11,7 +11,7 @@ Each user logs in with the PAM stack of the host and gets a real logind session.
 - Login: PAM, passkeys as a second factor, a machine PIN, and a lock screen.
 - Shell: a window manager, a panel, a launcher, workspaces, an overview, a layout picker, context menus, and keyboard shortcuts with a tour.
 - Shell apps: a terminal, settings, notifications, and the polkit password dialog.
-- Linux apps of the host: a headless Wayland compositor sends their windows as tiles and video, with sound and the clipboard.
+- Linux apps of the host: a headless Wayland compositor sends their windows as tiles and video, with sound and the clipboard. X11 apps show through Xwayland.
 - Video redirection: a video in the host Chromium plays in the client browser.
 - Transport: WebSocket, or WebTransport over HTTP/3.
 - Security: TLS 1.3 only, a session cookie, an Origin check, a Content Security Policy, limits for each address, and a security log.
@@ -510,6 +510,18 @@ If the app does not start, the launcher shows why.
 `npm --prefix spikes/e2e run launcher` starts gnome-calculator from a desktop entry in the launcher.
 
 The clipboard goes between the apps and your computer, as text or as a PNG image.
+
+An app with only an X11 backend, for example a Java Swing app, Wine, or SecureCRT, shows through Xwayland.
+If the program `Xwayland` is installed, the compositor starts it and is its X11 window manager.
+`farglassctl install` installs the package `xwayland` on Debian and Ubuntu, and `xorg-x11-server-Xwayland` on RHEL and Fedora.
+Each terminal and each app of the launcher gets `DISPLAY` of the session.
+An app with a Wayland backend continues to use Wayland.
+A menu or a tooltip of an X11 app shows at its place on its window.
+X11 apps do not have these functions yet: the clipboard, the close of a menu after a click outside it, and the pointer shapes of the app.
+
+CAUTION: Each X11 app can read the keys and the windows of each other X11 app of the same session.
+Wayland apps do not have this problem.
+To turn X11 apps off on a host, remove the Xwayland package: the agent starts Xwayland only if the program is in `PATH`.
 A copy in an app goes to the clipboard of your browser.
 Before a paste key goes to an app (Ctrl+V, Ctrl+Shift+V, or Shift+Insert), the shell reads the clipboard of your browser and gives it to the apps.
 Thus the browser asks one time for the permission to read the clipboard.
