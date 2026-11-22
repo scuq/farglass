@@ -72,6 +72,10 @@ If firewalld runs, open the new port for TCP and UDP.
 
 To use your own certificate, set `cert` and `key` in the `[tls]` section of the same file.
 
+To show X11 apps, for example Java Swing apps, Wine, or SecureCRT, set `x11_apps = true` in the same file.
+The users must log out and log in again.
+The section [Linux apps](#linux-apps) gives the risk.
+
 To see the state, to find a fault, and to install a newer release:
 
 ```sh
@@ -511,8 +515,12 @@ If the app does not start, the launcher shows why.
 
 The clipboard goes between the apps and your computer, as text or as a PNG image.
 
-An app with only an X11 backend, for example a Java Swing app, Wine, or SecureCRT, shows through Xwayland.
-If the program `Xwayland` is installed, the compositor starts it and is its X11 window manager.
+An app with only an X11 backend, for example a Java Swing app, Wine, or SecureCRT, can show through Xwayland.
+X11 apps are off by default.
+To turn them on, set `x11_apps = true` in `/etc/farglass/farglassd.conf`.
+To turn them off again, set `x11_apps = false` or remove the line.
+The agent reads the option when a session starts, thus a change applies to the next login of each user, after a logout.
+If the option is on, the compositor starts Xwayland and is its X11 window manager.
 `farglassctl install` installs the package `xwayland` on Debian and Ubuntu, and `xorg-x11-server-Xwayland` on RHEL and Fedora.
 Each terminal and each app of the launcher gets `DISPLAY` of the session.
 An app with a Wayland backend continues to use Wayland.
@@ -521,7 +529,7 @@ X11 apps do not have these functions yet: the clipboard, the close of a menu aft
 
 CAUTION: Each X11 app can read the keys and the windows of each other X11 app of the same session.
 Wayland apps do not have this problem.
-To turn X11 apps off on a host, remove the Xwayland package: the agent starts Xwayland only if the program is in `PATH`.
+
 A copy in an app goes to the clipboard of your browser.
 Before a paste key goes to an app (Ctrl+V, Ctrl+Shift+V, or Shift+Insert), the shell reads the clipboard of your browser and gives it to the apps.
 Thus the browser asks one time for the permission to read the clipboard.

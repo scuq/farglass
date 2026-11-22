@@ -5,7 +5,7 @@ use std::process::{Command as Process, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use farglass_surface::{Command, Compositor, Event};
+use farglass_surface::{Command, Compositor, Event, scroll};
 
 const WAIT: Duration = Duration::from_secs(20);
 
@@ -281,6 +281,113 @@ fn keys_and_the_pointer_of_the_shell_reach_an_x11_window() {
     expect("ButtonPress event");
     expect("button 1,");
 
+    let _ = client.kill();
+    let _ = client.wait();
+}
+
+/// The share of the window that one key may change: the cell of the character and the cursor.
+const KEY_DAMAGE: f64 = 0.01;
+
+#[test]
+fn an_x11_window_gets_the_same_frame_economy_as_a_wayland_window() {
+    let _serial = one_at_a_time();
+    if !installed("Xwayland") || !installed("xterm") {
+        eprintln!("skipped: the host has no Xwayland or no xterm");
+        return;
+    }
+    // One key into cat: the damage is the cell of the character, not the window.
+    let dir = tempfile::tempdir().unwrap();
+    let (compositor, events, mut client, id) = start_client(
+        dir.path(),
+        "xterm",
+        &["-geometry", "100x40", "-e", "cat"],
+        false,
+    );
+    compositor.send(Command::Activate { id: Some(id) });
+    std::thread::sleep(Duration::from_millis(500));
+    while events.try_recv().is_ok() {}
+    compositor.send(Command::Key {
+        id: Some(id),
+        code: KEY_H,
+        pressed: true,
+    });
+    compositor.send(Command::Key {
+        id: Some(id),
+        code: KEY_H,
+        pressed: false,
+    });
+    let share = wait(&events, "the frame of the key", |event| match event {
+        Event::Commit(commit) if commit.id == id => {
+            let damage: i32 = commit.damage.iter().map(|r| r.width * r.height).sum();
+            Some(f64::from(damage) / f64::from(commit.width * commit.height))
+        }
+        _ => None,
+    });
+    assert!(
+        share < KEY_DAMAGE,
+        "one key changed {:.1}% of the window",
+        share * 100.0
+    );
+    let _ = client.kill();
+    let _ = client.wait();
+    drop(compositor);
+
+    // A scroll of text: the tile stage finds the move in most frames.
+    let dir = tempfile::tempdir().unwrap();
+    let script = "i=0; while :; do i=$((i+1)); echo line $i of a scroll test; sleep 0.02; done";
+    let (compositor, events, mut client, id) = start_client(
+        dir.path(),
+        "xterm",
+        &["-geometry", "100x40", "-e", "sh", "-c", script],
+        false,
+    );
+    let (mut before, mut pairs, mut moves): (Option<std::sync::Arc<Vec<u8>>>, u32, u32) =
+        (None, 0, 0);
+    let end = Instant::now() + Duration::from_secs(2);
+    let mut input = Instant::now();
+    while Instant::now() < end {
+        // Input keeps the full frame rate, as a user who reads the output does.
+        if input.elapsed() > Duration::from_millis(100) {
+            input = Instant::now();
+            compositor.send(Command::PointerMotion { id, x: 5.0, y: 5.0 });
+        }
+        let Ok(Event::Commit(commit)) = events.recv_timeout(Duration::from_millis(20)) else {
+            continue;
+        };
+        if commit.id != id {
+            continue;
+        }
+        let (width, height) = (commit.width as usize, commit.height as usize);
+        if let Some(old) = &before
+            && old.len() == commit.pixels.len()
+        {
+            pairs += 1;
+            if scroll::detect(old, &commit.pixels, width, 0, 0, width, height).is_some() {
+                moves += 1;
+            }
+        }
+        before = Some(commit.pixels.clone());
+    }
+    assert!(pairs >= 20, "only {pairs} frames in 2 s with input");
+    assert!(
+        moves * 2 >= pairs,
+        "a scroll in only {moves} of {pairs} frames"
+    );
+
+    // A window that no browser shows gets no frames.
+    compositor.send(Command::Viewers {
+        id,
+        watched: false,
+        video: false,
+    });
+    std::thread::sleep(Duration::from_millis(200));
+    while events.try_recv().is_ok() {}
+    let hidden = Instant::now() + Duration::from_secs(1);
+    while let Some(left) = hidden.checked_duration_since(Instant::now()) {
+        if let Ok(Event::Commit(commit)) = events.recv_timeout(left) {
+            assert_ne!(commit.id, id, "a hidden window drew a frame");
+        }
+    }
     let _ = client.kill();
     let _ = client.wait();
 }

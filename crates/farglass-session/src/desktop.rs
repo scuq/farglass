@@ -8,7 +8,7 @@
 //! start times out, and each app that calls it waits too.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use farglass_proto::message::Bus;
 use zbus::Connection;
@@ -32,14 +32,66 @@ pub fn has_x11() -> bool {
     X11_DISPLAY.get().is_some()
 }
 
-/// Returns `true` if the agent must start Xwayland: the program is in `PATH`,
-/// and `FARGLASS_XWAYLAND` is not `0`.
+/// The configuration file of the host. `FARGLASSD_CONFIG` changes it, as for farglassd.
+const CONFIG: &str = "/etc/farglass/farglassd.conf";
+
+/// The part of the configuration file that the agent reads. The other options are for farglassd.
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(default)]
+struct HostConfig {
+    x11_apps: bool,
+}
+
+/// Returns the value of `x11_apps` in the text of a configuration file.
+///
+/// # Errors
+///
+/// A text with the cause if the text is not valid TOML or `x11_apps` is not a boolean.
+fn x11_apps_in(text: &str) -> Result<bool, String> {
+    toml::from_str::<HostConfig>(text)
+        .map(|config| config.x11_apps)
+        .map_err(|error| error.to_string())
+}
+
+/// Returns `x11_apps` of the configuration file. A missing file gives the default, off.
+/// A file that does not load or is not valid also turns X11 apps off, with a warning.
+fn x11_apps_configured() -> bool {
+    let path = std::env::var_os("FARGLASSD_CONFIG").map_or_else(|| CONFIG.into(), PathBuf::from);
+    match std::fs::read_to_string(&path) {
+        Ok(text) => x11_apps_in(&text).unwrap_or_else(|error| {
+            tracing::warn!(path = %path.display(), %error, "the configuration file is not valid, X11 apps are off");
+            false
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => {
+            tracing::warn!(path = %path.display(), %error, "the configuration file did not load, X11 apps are off");
+            false
+        }
+    }
+}
+
+/// Returns `true` if the agent must start Xwayland (F083).
+///
+/// `x11_apps` in the configuration file of the host decides, and is off by default.
+/// `FARGLASS_XWAYLAND=1` or `0` in the environment of the agent overrides it, for tests.
+/// The program `Xwayland` must also be in `PATH`.
 #[must_use]
 pub fn x11_wanted() -> bool {
-    std::env::var_os("FARGLASS_XWAYLAND").is_none_or(|value| value != "0")
-        && std::env::var_os("PATH").is_some_and(|path| {
-            std::env::split_paths(&path).any(|dir| dir.join("Xwayland").is_file())
-        })
+    let wanted = match std::env::var("FARGLASS_XWAYLAND").as_deref() {
+        Ok("1") => true,
+        Ok("0") => false,
+        _ => x11_apps_configured(),
+    };
+    if !wanted {
+        tracing::info!("X11 apps are off: x11_apps in the configuration file is not true");
+        return false;
+    }
+    let installed = std::env::var_os("PATH")
+        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join("Xwayland").is_file()));
+    if !installed {
+        tracing::warn!("x11_apps is true, but Xwayland is not installed: X11 apps do not show");
+    }
+    installed
 }
 
 /// Returns the variables of the desktop for the Wayland socket `socket`,
@@ -127,4 +179,26 @@ pub async fn announce(buses: &Buses, socket: &Path) -> zbus::Result<bool> {
         )
         .await?;
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn x11_apps_are_off_unless_the_file_turns_them_on() {
+        assert_eq!(x11_apps_in(""), Ok(false));
+        assert_eq!(
+            x11_apps_in("#x11_apps = true\nidle_lock_minutes = 5\n"),
+            Ok(false)
+        );
+        assert_eq!(
+            x11_apps_in("x11_apps = true\n[tls]\ncert = \"/etc/farglass/tls/a.pem\"\n"),
+            Ok(true)
+        );
+        assert!(x11_apps_in("x11_apps = \"yes\"\n").is_err());
+        assert!(x11_apps_in("x11_apps = \n").is_err());
+        let packaged = include_str!("../../../packaging/farglassd.conf");
+        assert_eq!(x11_apps_in(packaged), Ok(false));
+    }
 }

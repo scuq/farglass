@@ -94,6 +94,9 @@ pub struct Config {
     /// development and tests: in a web session, the worker of farglass-login gives the agent its link.
     /// `dev_user` turns it on too.
     pub allow_user_agents: bool,
+    /// Reports whether the agent of each new session starts Xwayland for X11 apps (F083).
+    /// farglassd does not use the value: the agent reads it from the same file.
+    pub x11_apps: bool,
     /// The TLS configuration.
     pub tls: TlsConfig,
 }
@@ -124,6 +127,7 @@ impl Default for Config {
             http3: true,
             dev_user: None,
             allow_user_agents: false,
+            x11_apps: false,
             tls: TlsConfig::default(),
         }
     }
