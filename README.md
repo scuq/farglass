@@ -525,9 +525,11 @@ If the option is on, the compositor starts Xwayland and is its X11 window manage
 Each terminal and each app of the launcher gets `DISPLAY` of the session.
 An app with a Wayland backend continues to use Wayland.
 A menu or a tooltip of an X11 app shows at its place on its window.
-X11 apps do not have these functions yet: the clipboard, the close of a menu after a click outside it, and the pointer shapes of the app.
+A click outside an X11 menu closes it, also a click on the desktop of the shell.
+The clipboard goes between X11 apps, Wayland apps, and your computer, as for Wayland apps.
+The pointer of an X11 app shows with the shape that the app selected.
 
-CAUTION: Each X11 app can read the keys and the windows of each other X11 app of the same session.
+CAUTION: Each X11 app can read the keys and the windows of each other X11 app of the same session, and the clipboard at each time.
 Wayland apps do not have this problem.
 
 A copy in an app goes to the clipboard of your browser.

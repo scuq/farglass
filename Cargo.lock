@@ -1227,6 +1227,7 @@ dependencies = [
 name = "farglass-surface"
 version = "0.1.2"
 dependencies = [
+ "flate2",
  "jpeg-encoder",
  "lz4_flex",
  "nix",
@@ -1237,6 +1238,7 @@ dependencies = [
  "tracing",
  "wayland-client",
  "wayland-protocols",
+ "x11rb",
  "xxhash-rust",
 ]
 

@@ -9,7 +9,7 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 ## Unreleased
 
 ### Added
-- Apps with only an X11 backend, for example Java Swing apps, Wine, and SecureCRT, can show as windows of the desktop. They are off by default: set `x11_apps = true` in `farglassd.conf` to turn them on, and the users log in again. `farglassctl install` and `farglassctl update` install Xwayland for them. The clipboard, the close of a menu after a click outside it, and the pointer shapes of X11 apps do not work yet.
+- Apps with only an X11 backend, for example Java Swing apps, Wine, and SecureCRT, can show as windows of the desktop. They are off by default: set `x11_apps = true` in `farglassd.conf` to turn them on, and the users log in again. `farglassctl install` and `farglassctl update` install Xwayland for them. X11 apps get the clipboard, their own pointer shapes, and menus that close after a click outside them.
 
 ## v0.1.2 — 22 November 2026 — Login on a host with SELinux
 

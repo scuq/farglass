@@ -584,6 +584,19 @@ impl Surfaces {
                     SurfaceEvent::MoveRequest { id }
                 }
                 Event::Cursor(name) => SurfaceEvent::Cursor { name },
+                Event::CursorImage(image) => match farglass_surface::cursor::png(&image) {
+                    Some(png) => SurfaceEvent::CursorImage {
+                        png: base64::Engine::encode(
+                            &base64::engine::general_purpose::STANDARD,
+                            png,
+                        ),
+                        x: image.hotspot_x,
+                        y: image.hotspot_y,
+                    },
+                    None => SurfaceEvent::Cursor {
+                        name: "default".to_owned(),
+                    },
+                },
                 Event::Clipboard(_) => return,
             }
         };

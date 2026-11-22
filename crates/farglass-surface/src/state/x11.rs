@@ -11,7 +11,9 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::os::fd::OwnedFd;
 use std::process::Stdio;
+use std::time::Duration;
 
 use smithay::backend::input::KeyState;
 use smithay::delegate_xwayland_shell;
@@ -24,13 +26,21 @@ use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::{DisplayHandle, Resource as _};
 use smithay::utils::{IsAlive, Logical, Rectangle, SERIAL_COUNTER, Serial};
 use smithay::wayland::seat::WaylandFocus;
+use smithay::wayland::selection::SelectionTarget;
+use smithay::wayland::selection::data_device::{
+    clear_data_device_selection, request_data_device_client_selection, set_data_device_selection,
+};
 use smithay::wayland::xwayland_shell::{XWaylandShellHandler, XWaylandShellState};
 use smithay::xwayland::xwm::{Reorder, ResizeEdge, WmWindowProperty, X11Window, XwmId};
-use smithay::xwayland::{
-    X11Surface, X11Wm, XWayland, XWaylandClientData, XWaylandEvent, XwmHandler,
-};
+use smithay::xwayland::{X11Surface, X11Wm, XWayland, XWaylandEvent, XwmHandler};
 
-use super::{Event, Rect, State};
+use super::{ClipData, ClipFrom, ClipOwner, Event, Rect, State, write_clip};
+
+/// The longest wait for the X11 window manager at the start of the compositor.
+const READY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The wait before the compositor closes an X11 menu: the app can close it first, for example after a click on its own window.
+const DISMISS_DELAY: Duration = Duration::from_millis(50);
 
 /// The X11 windows of the compositor.
 pub(super) struct X11 {
@@ -45,13 +55,12 @@ pub(super) struct X11 {
     ids: HashMap<X11Window, u32>,
     /// The last buffer and its scale of each Xwayland surface that has no window yet.
     pending: HashMap<ObjectId, (WlBuffer, i32)>,
-}
-
-/// Returns `true` if Xwayland owns the surface.
-pub(super) fn is_xwayland(surface: &WlSurface) -> bool {
-    surface
-        .client()
-        .is_some_and(|client| client.get_data::<XWaylandClientData>().is_some())
+    /// The event loop, for the transfers of the X11 clipboard.
+    handle: Option<LoopHandle<'static, State>>,
+    /// The number of the X11 display.
+    display: Option<u32>,
+    /// Xwayland or its window manager did not start.
+    failed: bool,
 }
 
 impl X11 {
@@ -63,7 +72,43 @@ impl X11 {
             popups: HashMap::new(),
             ids: HashMap::new(),
             pending: HashMap::new(),
+            handle: None,
+            display: None,
+            failed: false,
         }
+    }
+
+    /// Returns `true` if `id` is an X11 menu or tooltip.
+    pub(super) fn is_popup(&self, id: u32) -> bool {
+        self.popups.contains_key(&id)
+    }
+
+    /// Waits until Xwayland did each request of the window manager, for example a new X11 focus.
+    pub(super) fn sync(&self) {
+        // Each request with a reply is a round trip: Xwayland answers after the requests before it.
+        if let Some(wm) = &self.wm
+            && let Err(error) = wm.get_randr_primary_output()
+        {
+            tracing::debug!(%error, "Xwayland did not answer the sync");
+        }
+    }
+
+    /// Gives a new clipboard of the shell or of a Wayland app to the X11 apps. `None` clears it.
+    pub(super) fn announce(&mut self, types: Option<Vec<String>>) {
+        if let Some(wm) = self.wm.as_mut()
+            && let Err(error) = wm.new_selection(SelectionTarget::Clipboard, types)
+        {
+            tracing::debug!(%error, "the X11 apps did not get the clipboard");
+        }
+    }
+
+    /// Asks the X11 app that owns the clipboard to write it as `mime` to `fd`.
+    pub(super) fn read_selection(&mut self, mime: String, fd: OwnedFd) -> Result<(), String> {
+        let (Some(wm), Some(handle)) = (self.wm.as_mut(), self.handle.as_ref()) else {
+            return Err("Xwayland stopped".to_owned());
+        };
+        wm.send_selection(SelectionTarget::Clipboard, mime, fd, handle.clone())
+            .map_err(|error| error.to_string())
     }
 
     /// Keeps the last buffer of an Xwayland surface that has no window yet. An older buffer goes back.
@@ -172,9 +217,10 @@ impl KeyboardTarget<State> for Focus {
 /// Starts Xwayland. Returns the number of its X11 display, the `N` of `DISPLAY=:N`.
 ///
 /// The sockets of the display listen at once, thus an app can connect before Xwayland is ready.
-pub(super) fn start(display: &DisplayHandle, handle: &LoopHandle<'static, State>) -> Option<u32> {
+pub(super) fn start(state: &mut State, handle: &LoopHandle<'static, State>) -> Option<u32> {
+    state.x11.handle = Some(handle.clone());
     let spawned = XWayland::spawn(
-        display,
+        &state.display,
         None,
         std::iter::empty::<(String, String)>(),
         false,
@@ -200,15 +246,49 @@ pub(super) fn start(display: &DisplayHandle, handle: &LoopHandle<'static, State>
                 }
                 Err(error) => {
                     tracing::warn!(%error, "the X11 window manager did not start, X11 apps do not show");
+                    state.x11.failed = true;
                 }
             }
         }
-        XWaylandEvent::Error => tracing::warn!("Xwayland stopped during its start"),
+        XWaylandEvent::Error => {
+            tracing::warn!("Xwayland stopped during its start");
+            state.x11.failed = true;
+        }
     });
     if let Err(error) = inserted {
         tracing::warn!(%error, "Xwayland has no event source, X11 apps do not show");
         return None;
     }
+    state.x11.display = Some(number);
+    Some(number)
+}
+
+/// Runs the event loop until the X11 window manager of display `number` runs, and returns the number.
+///
+/// The sockets of the display accept clients before the window manager runs. A window that an app
+/// maps before, or a clipboard that it sets before, does not reach the window manager.
+/// Thus nobody gets the display before the window manager runs. `None` if it does not start in time.
+pub(super) fn wait_ready(
+    event_loop: &mut smithay::reexports::calloop::EventLoop<'static, State>,
+    state: &mut State,
+    number: u32,
+) -> Option<u32> {
+    let start = std::time::Instant::now();
+    while state.x11.wm.is_none() && !state.x11.failed && start.elapsed() < READY_TIMEOUT {
+        if let Err(error) = event_loop.dispatch(Some(Duration::from_millis(20)), state) {
+            tracing::warn!(%error, "the start of Xwayland stopped");
+            return None;
+        }
+        let _ = state.display.flush_clients();
+    }
+    if state.x11.wm.is_none() {
+        tracing::warn!(
+            display = number,
+            "the X11 window manager did not start in time, X11 apps do not show"
+        );
+        return None;
+    }
+    tracing::debug!(display = number, elapsed = ?start.elapsed(), "the X11 window manager runs");
     Some(number)
 }
 
@@ -313,6 +393,35 @@ impl State {
             y: geometry.loc.y - origin.1,
             width: geometry.size.w,
             height: geometry.size.h,
+        }
+    }
+
+    /// Closes the open X11 menu: the app gets a click outside each of its windows (F084).
+    ///
+    /// An X11 app closes its menu after a click outside it, but a click on the desktop of the
+    /// shell does not go to Xwayland. Thus a thread clicks with XTEST at a place outside each
+    /// X11 window, and only if an app holds the pointer, as an app with an open menu does.
+    pub(super) fn x11_dismiss(&self) {
+        let Some(display) = self.x11.display else {
+            return;
+        };
+        // Each X11 window is at the origin: a place right or below each window is outside each one.
+        let (mut right, mut bottom) = (0, 0);
+        for window in self.x11.windows.values().chain(self.x11.popups.values()) {
+            let geometry = window.geometry();
+            right = right.max(geometry.loc.x + geometry.size.w);
+            bottom = bottom.max(geometry.loc.y + geometry.size.h);
+        }
+        let spawned = std::thread::Builder::new()
+            .name("farglass-x11-dismiss".to_owned())
+            .spawn(move || {
+                std::thread::sleep(DISMISS_DELAY);
+                if let Err(error) = click_outside(display, right, bottom) {
+                    tracing::debug!(%error, "the X11 menu did not get the click outside it");
+                }
+            });
+        if let Err(error) = spawned {
+            tracing::warn!(%error, "no thread to close an X11 menu");
         }
     }
 
@@ -490,10 +599,118 @@ impl XwmHandler for State {
         }
     }
 
+    fn allow_selection_access(&mut self, _xwm: XwmId, selection: SelectionTarget) -> bool {
+        // The clipboard only. The primary selection of X11 stays with the X11 apps.
+        selection == SelectionTarget::Clipboard
+    }
+
+    fn send_selection(
+        &mut self,
+        _xwm: XwmId,
+        selection: SelectionTarget,
+        mime_type: String,
+        fd: OwnedFd,
+    ) {
+        if selection != SelectionTarget::Clipboard {
+            return;
+        }
+        match &self.clip_owner {
+            ClipOwner::Shell(clip) => {
+                tracing::debug!(mime_type, "an X11 app pastes the clipboard of the shell");
+                write_clip(clip.clone(), fd);
+            }
+            ClipOwner::Wayland => {
+                tracing::debug!(
+                    mime_type,
+                    "an X11 app pastes the clipboard of a Wayland app"
+                );
+                if let Err(error) = request_data_device_client_selection(&self.seat, mime_type, fd)
+                {
+                    tracing::debug!(%error, "the clipboard of a Wayland app is not available");
+                }
+            }
+            ClipOwner::None | ClipOwner::X11 => {}
+        }
+    }
+
+    fn new_selection(&mut self, _xwm: XwmId, selection: SelectionTarget, mime_types: Vec<String>) {
+        if selection != SelectionTarget::Clipboard {
+            return;
+        }
+        tracing::debug!(?mime_types, "an X11 app set the clipboard");
+        self.clip_generation += 1;
+        self.clip_owner = ClipOwner::X11;
+        // The Wayland apps can paste it, and the shell gets it.
+        set_data_device_selection(&self.display, &self.seat, mime_types.clone(), ClipData::X11);
+        self.selection = Some((mime_types, ClipFrom::X11));
+    }
+
+    fn cleared_selection(&mut self, _xwm: XwmId, selection: SelectionTarget) {
+        if selection == SelectionTarget::Clipboard && matches!(self.clip_owner, ClipOwner::X11) {
+            self.clip_owner = ClipOwner::None;
+            clear_data_device_selection(&self.display, &self.seat);
+        }
+    }
+
     fn disconnected(&mut self, _xwm: XwmId) {
         tracing::warn!("Xwayland stopped, X11 apps do not show");
         self.x11.wm = None;
     }
+}
+
+/// Clicks with XTEST at a place right of `right` or below `bottom`, if an X11 app holds the pointer.
+fn click_outside(display: u32, right: i32, bottom: i32) -> Result<(), String> {
+    use x11rb::connection::Connection as _;
+    use x11rb::protocol::xproto::{
+        BUTTON_PRESS_EVENT, BUTTON_RELEASE_EVENT, ConnectionExt as _, EventMask, GrabMode,
+        GrabStatus, MOTION_NOTIFY_EVENT,
+    };
+    use x11rb::protocol::xtest::ConnectionExt as _;
+    use x11rb::wrapper::ConnectionExt as _;
+
+    let error = |error: &dyn std::fmt::Display| error.to_string();
+    let (conn, screen) = x11rb::connect(Some(&format!(":{display}"))).map_err(|e| error(&e))?;
+    let root = conn.setup().roots[screen].clone();
+    // A grab of the pointer fails if an app holds it. With no such app, there is no menu to close.
+    let grab = conn
+        .grab_pointer(
+            false,
+            root.root,
+            EventMask::NO_EVENT,
+            GrabMode::ASYNC,
+            GrabMode::ASYNC,
+            x11rb::NONE,
+            x11rb::NONE,
+            x11rb::CURRENT_TIME,
+        )
+        .map_err(|e| error(&e))?
+        .reply()
+        .map_err(|e| error(&e))?;
+    if grab.status == GrabStatus::SUCCESS {
+        conn.ungrab_pointer(x11rb::CURRENT_TIME)
+            .map_err(|e| error(&e))?;
+        conn.flush().map_err(|e| error(&e))?;
+        return Ok(());
+    }
+    if grab.status != GrabStatus::ALREADY_GRABBED {
+        return Ok(());
+    }
+    let width = i32::from(root.width_in_pixels);
+    let height = i32::from(root.height_in_pixels);
+    // The corner right and below each window, or the last pixel of the screen if a window covers it.
+    let x = i16::try_from((right).min(width - 1).max(0)).unwrap_or(i16::MAX);
+    let y = i16::try_from((bottom).min(height - 1).max(0)).unwrap_or(i16::MAX);
+    for (kind, detail) in [
+        (MOTION_NOTIFY_EVENT, 0),
+        (BUTTON_PRESS_EVENT, 1),
+        (BUTTON_RELEASE_EVENT, 1),
+    ] {
+        conn.xtest_fake_input(kind, detail, x11rb::CURRENT_TIME, root.root, x, y, 0)
+            .map_err(|e| error(&e))?;
+    }
+    conn.sync().map_err(|e| error(&e))?;
+    tracing::debug!(x, y, "an X11 menu got a click outside it");
+    Ok(())
 }
 
 delegate_xwayland_shell!(State);

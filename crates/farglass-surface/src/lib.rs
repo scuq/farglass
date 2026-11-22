@@ -19,6 +19,7 @@
 pub mod cache;
 pub mod classify;
 pub mod clipboard;
+pub mod cursor;
 pub mod pace;
 pub mod scroll;
 mod state;
@@ -35,7 +36,7 @@ use smithay::reexports::calloop::channel::Sender;
 use smithay::reexports::calloop::{LoopSignal, channel};
 
 pub use clipboard::Clip;
-pub use state::{Command, Commit, Event, Format, Rect};
+pub use state::{Command, Commit, CursorImage, Event, Format, Rect};
 
 /// An error of the start of the compositor.
 #[derive(Debug, thiserror::Error)]

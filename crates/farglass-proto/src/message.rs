@@ -439,6 +439,15 @@ pub enum SurfaceEvent {
         /// The name.
         name: String,
     },
+    /// The app selected a pointer that it draws itself, for example each pointer of an X11 app.
+    CursorImage {
+        /// The image: a PNG file in base64, at most 128 pixels on each side.
+        png: String,
+        /// The point of the image that the pointer is at, from the left edge.
+        x: i32,
+        /// The point of the image that the pointer is at, from the top edge.
+        y: i32,
+    },
 }
 
 /// A message of the shell on a surface channel.

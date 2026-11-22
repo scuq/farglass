@@ -391,7 +391,19 @@ id: number, } | { "type": "synced" } | { "type": "cursor",
 /**
  * The name.
  */
-name: string, };
+name: string, } | { "type": "cursor-image", 
+/**
+ * The image: a PNG file in base64, at most 128 pixels on each side.
+ */
+png: string, 
+/**
+ * The point of the image that the pointer is at, from the left edge.
+ */
+x: number, 
+/**
+ * The point of the image that the pointer is at, from the top edge.
+ */
+y: number, };
 
 /**
  * A message of the shell on a surfaces channel.

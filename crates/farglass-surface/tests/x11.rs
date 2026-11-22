@@ -5,7 +5,7 @@ use std::process::{Command as Process, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use farglass_surface::{Command, Compositor, Event, scroll};
+use farglass_surface::{Clip, Command, Compositor, Event, scroll};
 
 const WAIT: Duration = Duration::from_secs(20);
 
@@ -241,10 +241,8 @@ fn keys_and_the_pointer_of_the_shell_reach_an_x11_window() {
         }
     };
 
+    // The keys come right after the focus, as from a user who types during the click (F084).
     compositor.send(Command::Activate { id: Some(id) });
-    // The X11 focus goes on the X11 connection, the keys go on the Wayland connection.
-    // A key that comes first goes to no window, thus the test waits for the focus as a person does.
-    expect("FocusIn event");
     for (code, pressed) in [
         (KEY_LEFTSHIFT, true),
         (KEY_H, true),
@@ -390,4 +388,269 @@ fn an_x11_window_gets_the_same_frame_economy_as_a_wayland_window() {
     }
     let _ = client.kill();
     let _ = client.wait();
+}
+
+/// Starts a compositor with Xwayland and no client. Returns the compositor, its events, and the X11 display.
+fn start_compositor(dir: &std::path::Path) -> (Compositor, mpsc::Receiver<Event>, u32) {
+    let (sender, events) = mpsc::channel();
+    let compositor = Compositor::spawn_with(&dir.join("wayland"), true, move |event| {
+        let _ = sender.send(event);
+    })
+    .unwrap();
+    let display = compositor.x11_display().expect("Xwayland starts");
+    (compositor, events, display)
+}
+
+#[test]
+fn the_clipboard_goes_between_x11_apps_and_the_shell() {
+    let _serial = one_at_a_time();
+    if !installed("Xwayland") || !installed("xclip") {
+        eprintln!("skipped: the host has no Xwayland or no xclip");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let (compositor, events, display) = start_compositor(dir.path());
+    let xclip = |args: &[&str]| {
+        let mut command = Process::new("xclip");
+        command
+            .args(args)
+            .env("DISPLAY", format!(":{display}"))
+            .env_remove("WAYLAND_DISPLAY");
+        command
+    };
+
+    // A copy in an X11 app goes to the shell.
+    let mut copy = xclip(&["-quiet", "-selection", "clipboard", "-i"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    {
+        use std::io::Write as _;
+        let mut stdin = copy.stdin.take().unwrap();
+        stdin.write_all(b"from an X11 app").unwrap();
+    }
+    let clip = wait(
+        &events,
+        "the clipboard of the X11 app",
+        |event| match event {
+            Event::Clipboard(clip) => Some(clip),
+            _ => None,
+        },
+    );
+    assert_eq!(clip, Clip::Text("from an X11 app".to_owned()));
+    let _ = copy.kill();
+    let _ = copy.wait();
+
+    // The clipboard of the shell goes to the X11 apps.
+    compositor.send(Command::SetClipboard(Clip::Text(
+        "from the shell".to_owned(),
+    )));
+    let end = Instant::now() + WAIT;
+    loop {
+        let output = xclip(&["-selection", "clipboard", "-o"])
+            .stderr(Stdio::null())
+            .output()
+            .unwrap();
+        if output.stdout == b"from the shell" {
+            break;
+        }
+        assert!(
+            Instant::now() < end,
+            "an X11 app did not paste the clipboard of the shell"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[test]
+fn an_x11_app_shows_its_own_pointer() {
+    let _serial = one_at_a_time();
+    if !installed("Xwayland") || !installed("xterm") {
+        eprintln!("skipped: the host has no Xwayland or no xterm");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let (compositor, events, mut client, id) =
+        start_client(dir.path(), "xterm", &["-e", "cat"], false);
+    // xterm shows an I-beam on its text: an image that Xwayland draws.
+    compositor.send(Command::PointerMotion {
+        id,
+        x: 40.0,
+        y: 40.0,
+    });
+    let image = wait(&events, "the pointer image of xterm", |event| match event {
+        Event::CursorImage(image) => Some(image),
+        _ => None,
+    });
+    assert!(image.width > 0 && image.height > 0 && image.width <= 128 && image.height <= 128);
+    assert!(image.hotspot_x >= 0 && i64::from(image.hotspot_x) < i64::from(image.width));
+    assert!(image.hotspot_y >= 0 && i64::from(image.hotspot_y) < i64::from(image.height));
+    assert!(
+        image
+            .pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[3] != 0),
+        "the pointer image is empty"
+    );
+    let png = farglass_surface::cursor::png(&image).unwrap();
+    assert_eq!(&png[1..4], b"PNG");
+    let _ = client.kill();
+    let _ = client.wait();
+}
+
+/// The place of the menu of [`menu_client`] on the X11 screen.
+const MENU: (i16, i16, u16, u16) = (20, 20, 80, 60);
+
+/// An X11 app with a menu as real toolkits make it: an override-redirect window that holds the pointer,
+/// and that closes after a click outside it. It sends `grabbed`, then the place of the click that closed it.
+fn menu_client(display: u32, report: mpsc::Sender<String>) {
+    use x11rb::connection::Connection as _;
+    use x11rb::protocol::Event as XEvent;
+    use x11rb::protocol::xproto::{
+        AtomEnum, ConnectionExt as _, CreateWindowAux, EventMask, GrabMode, GrabStatus, PropMode,
+        WindowClass,
+    };
+    use x11rb::wrapper::ConnectionExt as _;
+
+    let (conn, screen) = x11rb::connect(Some(&format!(":{display}"))).unwrap();
+    let screen = conn.setup().roots[screen].clone();
+    let window = conn.generate_id().unwrap();
+    conn.create_window(
+        x11rb::COPY_DEPTH_FROM_PARENT,
+        window,
+        screen.root,
+        0,
+        0,
+        200,
+        150,
+        0,
+        WindowClass::INPUT_OUTPUT,
+        0,
+        &CreateWindowAux::new()
+            .background_pixel(screen.white_pixel)
+            .event_mask(EventMask::STRUCTURE_NOTIFY),
+    )
+    .unwrap();
+    conn.map_window(window).unwrap();
+    conn.flush().unwrap();
+    while !matches!(conn.wait_for_event().unwrap(), XEvent::MapNotify(_)) {}
+
+    let menu = conn.generate_id().unwrap();
+    conn.create_window(
+        x11rb::COPY_DEPTH_FROM_PARENT,
+        menu,
+        screen.root,
+        MENU.0,
+        MENU.1,
+        MENU.2,
+        MENU.3,
+        0,
+        WindowClass::INPUT_OUTPUT,
+        0,
+        &CreateWindowAux::new()
+            .background_pixel(screen.black_pixel)
+            .override_redirect(1)
+            .event_mask(EventMask::STRUCTURE_NOTIFY),
+    )
+    .unwrap();
+    conn.change_property32(
+        PropMode::REPLACE,
+        menu,
+        AtomEnum::WM_TRANSIENT_FOR,
+        AtomEnum::WINDOW,
+        &[window],
+    )
+    .unwrap();
+    conn.map_window(menu).unwrap();
+    conn.flush().unwrap();
+    while !matches!(conn.wait_for_event().unwrap(), XEvent::MapNotify(_)) {}
+    // The menu holds the pointer: each click goes to it, also a click outside it.
+    let end = Instant::now() + WAIT;
+    loop {
+        let grab = conn
+            .grab_pointer(
+                false,
+                menu,
+                EventMask::BUTTON_PRESS,
+                GrabMode::ASYNC,
+                GrabMode::ASYNC,
+                x11rb::NONE,
+                x11rb::NONE,
+                x11rb::CURRENT_TIME,
+            )
+            .unwrap()
+            .reply()
+            .unwrap();
+        if grab.status == GrabStatus::SUCCESS {
+            break;
+        }
+        assert!(Instant::now() < end, "the menu did not get the pointer");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    report.send("grabbed".to_owned()).unwrap();
+    loop {
+        if let XEvent::ButtonPress(press) = conn.wait_for_event().unwrap() {
+            let (x, y) = (press.root_x, press.root_y);
+            let inside = x >= MENU.0
+                && y >= MENU.1
+                && x < MENU.0 + i16::try_from(MENU.2).unwrap()
+                && y < MENU.1 + i16::try_from(MENU.3).unwrap();
+            if !inside {
+                conn.unmap_window(menu).unwrap();
+                conn.ungrab_pointer(x11rb::CURRENT_TIME).unwrap();
+                conn.sync().unwrap();
+                let _ = report.send(format!("closed at {x},{y}"));
+                return;
+            }
+        }
+    }
+}
+
+#[test]
+fn an_x11_menu_closes_when_the_shell_dismisses_it() {
+    let _serial = one_at_a_time();
+    if !installed("Xwayland") {
+        eprintln!("skipped: the host has no Xwayland");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let (compositor, events, display) = start_compositor(dir.path());
+    let (report, reports) = mpsc::channel();
+    let client = std::thread::spawn(move || menu_client(display, report));
+
+    let window = wait(&events, "the window", |event| match event {
+        Event::ToplevelNew { id, .. } => Some(id),
+        _ => None,
+    });
+    let (menu, geometry) = wait(&events, "the menu", |event| match event {
+        Event::PopupNew {
+            id,
+            parent,
+            geometry,
+            ..
+        } if parent == window => Some((id, geometry)),
+        _ => None,
+    });
+    assert_eq!(
+        (geometry.x, geometry.y, geometry.width, geometry.height),
+        (20, 20, 80, 60),
+        "the menu is at its place relative to its window"
+    );
+    assert_eq!(reports.recv_timeout(WAIT).unwrap(), "grabbed");
+
+    // A click on the desktop of the shell: the shell dismisses the popup.
+    compositor.send(Command::PopupDismiss { id: menu });
+    let closed = reports
+        .recv_timeout(WAIT)
+        .expect("the menu got no click outside it");
+    assert!(closed.starts_with("closed at "), "{closed}");
+    wait(&events, "the close of the menu", |event| match event {
+        Event::PopupClosed { id } if id == menu => Some(()),
+        _ => None,
+    });
+    client.join().unwrap();
 }

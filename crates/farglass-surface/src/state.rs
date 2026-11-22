@@ -17,7 +17,9 @@ use smithay::delegate_shm;
 use smithay::delegate_xdg_decoration;
 use smithay::delegate_xdg_shell;
 use smithay::input::keyboard::{FilterResult, Keycode};
-use smithay::input::pointer::{AxisFrame, ButtonEvent, CursorImageStatus, MotionEvent};
+use smithay::input::pointer::{
+    AxisFrame, ButtonEvent, CursorImageStatus, CursorImageSurfaceData, MotionEvent,
+};
 use smithay::input::{Seat, SeatHandler, SeatState};
 use smithay::output::{Mode as OutputMode, Output, PhysicalProperties, Scale, Subpixel};
 use smithay::reexports::calloop::channel::{self, Channel};
@@ -113,6 +115,23 @@ pub struct Commit {
     pub pixels: Arc<Vec<u8>>,
 }
 
+/// A pointer image of a client.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CursorImage {
+    /// The width in pixels.
+    pub width: u32,
+    /// The height in pixels.
+    pub height: u32,
+    /// The point of the image that the pointer is at, from the left edge.
+    pub hotspot_x: i32,
+    /// The point of the image that the pointer is at, from the top edge.
+    pub hotspot_y: i32,
+    /// The pixel format.
+    pub format: Format,
+    /// The pixels, row after row, with `width * 4` bytes in each row. The alpha is premultiplied.
+    pub pixels: Arc<Vec<u8>>,
+}
+
 /// An event of the compositor for the shell.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
@@ -171,6 +190,8 @@ pub enum Event {
     },
     /// The client selected the shape of the pointer: a CSS cursor name, for example `text` or `pointer`.
     Cursor(String),
+    /// The client selected a pointer that it draws itself, for example each cursor of an X11 app (F084).
+    CursorImage(CursorImage),
     /// An app set the clipboard: its text, or its PNG image if it has no text (F030).
     Clipboard(Clip),
 }
@@ -255,6 +276,57 @@ pub enum Command {
 /// The bytes of a selection that a reader thread got: the generation of the selection, the kind, and the content.
 type ClipRead = (u64, ClipKind, Vec<u8>);
 
+/// The data of a selection that the compositor offers to the Wayland apps.
+#[derive(Clone, Debug)]
+pub(crate) enum ClipData {
+    /// The clipboard of the shell.
+    Shell(Arc<Clip>),
+    /// The selection of an X11 app (F084). The compositor reads it from Xwayland for each paste.
+    X11,
+}
+
+/// The owner of the clipboard.
+#[derive(Clone, Debug, Default)]
+pub(crate) enum ClipOwner {
+    /// No clipboard.
+    #[default]
+    None,
+    /// The shell, with its content.
+    Shell(Arc<Clip>),
+    /// A Wayland app.
+    Wayland,
+    /// An X11 app.
+    X11,
+}
+
+/// The side of a new selection of an app that the compositor reads for the shell.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum ClipFrom {
+    Wayland,
+    X11,
+}
+
+/// The last pointer image of a cursor surface, for a pointer that comes back to the surface.
+#[derive(Default)]
+struct LastCursor(std::sync::Mutex<Option<CursorImage>>);
+
+/// The largest side of a pointer image. Browsers do not show a larger cursor.
+const MAX_CURSOR: i32 = 128;
+
+/// Writes the clipboard of the shell to a pipe of an app, on a thread: a large content fills the pipe.
+pub(crate) fn write_clip(clip: Arc<Clip>, fd: OwnedFd) {
+    let spawned = std::thread::Builder::new()
+        .name("farglass-clipboard".to_owned())
+        .spawn(move || {
+            if let Err(error) = std::fs::File::from(fd).write_all(clip.bytes()) {
+                tracing::debug!(%error, "an app stopped the paste");
+            }
+        });
+    if let Err(error) = spawned {
+        tracing::warn!(%error, "no thread for a paste");
+    }
+}
+
 /// The data of each Wayland client.
 #[derive(Debug, Default)]
 struct ClientState {
@@ -302,9 +374,15 @@ pub(crate) struct State {
     pointer_on: Option<u32>,
     /// The window with the keyboard focus.
     focused: Option<u32>,
-    /// The mime types of a new selection of an app. The compositor reads it after the dispatch,
-    /// because Smithay stores the selection after it calls the handler.
-    selection: Option<Vec<String>>,
+    /// The mime types of a new selection of an app, and the side of the app. The compositor reads it
+    /// after the dispatch, because Smithay stores the selection after it calls the handler.
+    selection: Option<(Vec<String>, ClipFrom)>,
+    /// The owner of the clipboard, for a paste in an X11 app.
+    clip_owner: ClipOwner,
+    /// The surface of the pointer image that the client under the pointer selected.
+    cursor_surface: Option<WlSurface>,
+    /// The last pointer image that went to the shell.
+    last_cursor: Option<CursorImage>,
     /// The count of selections. A read of an older selection does not go to the shell.
     clip_generation: u64,
     clip_reads: channel::Sender<ClipRead>,
@@ -337,7 +415,8 @@ pub(crate) fn run(
     match setup(listener, commands, events) {
         Ok((mut event_loop, mut state)) => {
             let display = if x11 {
-                x11::start(&state.display, &event_loop.handle())
+                x11::start(&mut state, &event_loop.handle())
+                    .and_then(|number| x11::wait_ready(&mut event_loop, &mut state, number))
             } else {
                 None
             };
@@ -419,6 +498,9 @@ fn setup(
         pointer_on: None,
         focused: None,
         selection: None,
+        clip_owner: ClipOwner::None,
+        cursor_surface: None,
+        last_cursor: None,
         clip_generation: 0,
         clip_reads,
         started: Instant::now(),
@@ -558,14 +640,20 @@ impl State {
         {
             tracing::debug!(%error, "an X11 window did not go to the top");
         }
+        let to_x11 = matches!(focus, Some(Focus::X11(_)));
         if let Some(keyboard) = self.seat.get_keyboard() {
             keyboard.set_focus(self, focus, SERIAL_COUNTER.next_serial());
+        }
+        // The X11 focus goes on the X11 connection, the keys go on the Wayland connection.
+        // The compositor waits until Xwayland has the focus: then a key right after a click is not lost.
+        if to_x11 {
+            self.x11.sync();
         }
     }
 
     /// Reads the new selection of an app on a thread of its own: a slow app does not stop the compositor.
     fn read_selection(&mut self) {
-        let Some(offered) = self.selection.take() else {
+        let Some((offered, from)) = self.selection.take() else {
             return;
         };
         let Some((mime, kind)) = clipboard::pick(&offered) else {
@@ -582,9 +670,14 @@ impl State {
                 return;
             }
         };
-        if let Err(error) =
-            request_data_device_client_selection(&self.seat, mime, OwnedFd::from(writer))
-        {
+        let requested = match from {
+            ClipFrom::Wayland => {
+                request_data_device_client_selection(&self.seat, mime, OwnedFd::from(writer))
+                    .map_err(|error| error.to_string())
+            }
+            ClipFrom::X11 => self.x11.read_selection(mime, OwnedFd::from(writer)),
+        };
+        if let Err(error) = requested {
             tracing::debug!(%error, "the clipboard of an app is not available");
             return;
         }
@@ -698,7 +791,11 @@ impl State {
                 self.clip_generation += 1;
                 self.selection = None;
                 let types = clip.mime_types();
-                set_data_device_selection(&self.display, &self.seat, types, Arc::new(clip));
+                let clip = Arc::new(clip);
+                self.clip_owner = ClipOwner::Shell(clip.clone());
+                // The X11 apps get the clipboard of the shell too (F084).
+                self.x11.announce(Some(types.clone()));
+                set_data_device_selection(&self.display, &self.seat, types, ClipData::Shell(clip));
             }
             Command::Close { id } => {
                 if let Some(toplevel) = self.toplevels.get(&id) {
@@ -713,6 +810,8 @@ impl State {
                 self.touch(Some(id));
                 if let Some(popup) = self.popups.get(&id) {
                     popup.send_popup_done();
+                } else if self.x11.is_popup(id) {
+                    self.x11_dismiss();
                 }
             }
             Command::PointerMotion { id, x, y } => {
@@ -1104,7 +1203,13 @@ impl State {
             // The frame waits for the window: an app that draws only one time must not stay blank.
             // A surface with no role yet, or a subsurface. Its buffer goes back at once.
             if let Some(BufferAssignment::NewBuffer(buffer)) = buffer {
-                if x11::is_xwayland(surface) {
+                let role = smithay::wayland::compositor::get_role(surface);
+                if role == Some(smithay::wayland::seat::CURSOR_IMAGE_ROLE) {
+                    self.cursor_commit(surface, &buffer);
+                    buffer.release();
+                    return;
+                }
+                if role == Some(smithay::wayland::xwayland_shell::XWAYLAND_SHELL_ROLE) {
                     self.x11.keep(surface, buffer, scale);
                     return;
                 }
@@ -1144,6 +1249,90 @@ impl State {
                 }
             }
         }
+    }
+}
+
+impl State {
+    /// Reads the pointer image of a commit of a cursor surface, and gives it to the shell if the surface is the pointer now.
+    fn cursor_commit(&mut self, surface: &WlSurface, buffer: &WlBuffer) {
+        let copied = with_buffer_contents(buffer, |ptr, len, data| {
+            let (width, height, stride, offset) =
+                (data.width, data.height, data.stride, data.offset);
+            if width <= 0 || height <= 0 || width > MAX_CURSOR || height > MAX_CURSOR {
+                return None;
+            }
+            let format = match data.format {
+                wl_shm::Format::Argb8888 => Format::Argb8888,
+                _ => Format::Xrgb8888,
+            };
+            let row = usize::try_from(width).ok()? * 4;
+            let rows = usize::try_from(height).ok()?;
+            let stride = usize::try_from(stride).ok()?;
+            let offset = usize::try_from(offset).ok()?;
+            if stride < row || offset + stride * rows.saturating_sub(1) + row > len {
+                return None;
+            }
+            // SAFETY: Smithay maps the pool with `len` bytes at `ptr` for the duration of this callback,
+            // and the check above keeps each read in that range.
+            #[allow(unsafe_code)]
+            let pool = unsafe { std::slice::from_raw_parts(ptr, len) };
+            let mut pixels = Vec::with_capacity(row * rows);
+            for y in 0..rows {
+                let start = offset + y * stride;
+                pixels.extend_from_slice(&pool[start..start + row]);
+            }
+            Some((width, height, format, pixels))
+        });
+        let Ok(Some((width, height, format, pixels))) = copied else {
+            tracing::debug!("a pointer image that is not shm, or larger than 128 pixels");
+            return;
+        };
+        let (hotspot_x, hotspot_y) = with_states(surface, |states| {
+            states
+                .data_map
+                .get::<CursorImageSurfaceData>()
+                .and_then(|data| {
+                    data.lock()
+                        .ok()
+                        .map(|data| (data.hotspot.x, data.hotspot.y))
+                })
+                .unwrap_or((0, 0))
+        });
+        let image = CursorImage {
+            width: width.unsigned_abs(),
+            height: height.unsigned_abs(),
+            hotspot_x,
+            hotspot_y,
+            format,
+            pixels: Arc::new(pixels),
+        };
+        with_states(surface, |states| {
+            states
+                .data_map
+                .insert_if_missing_threadsafe(LastCursor::default);
+            if let Some(last) = states.data_map.get::<LastCursor>()
+                && let Ok(mut last) = last.0.lock()
+            {
+                *last = Some(image.clone());
+            }
+        });
+        if self.cursor_surface.as_ref() == Some(surface) {
+            self.emit_cursor(image);
+        }
+    }
+
+    /// Gives a pointer image to the shell, if it is not the image that the shell has.
+    fn emit_cursor(&mut self, image: CursorImage) {
+        if self.last_cursor.as_ref() == Some(&image) {
+            return;
+        }
+        tracing::debug!(
+            width = image.width,
+            height = image.height,
+            "the client selected a pointer image"
+        );
+        self.last_cursor = Some(image.clone());
+        self.emit(Event::CursorImage(image));
     }
 }
 
@@ -1310,9 +1499,24 @@ impl SeatHandler for State {
         let name = match image {
             CursorImageStatus::Hidden => "none".to_owned(),
             CursorImageStatus::Named(icon) => icon.name().to_owned(),
-            // A cursor that the client draws on a surface: the shell shows its usual arrow.
-            CursorImageStatus::Surface(_) => "default".to_owned(),
+            // A cursor that the client draws on a surface, for example each cursor of an X11 app (F084).
+            CursorImageStatus::Surface(surface) => {
+                self.cursor_surface = Some(surface.clone());
+                let last = with_states(&surface, |states| {
+                    states
+                        .data_map
+                        .get::<LastCursor>()
+                        .and_then(|last| last.0.lock().ok().and_then(|image| image.clone()))
+                });
+                // A surface with no image yet sends it with its next commit.
+                if let Some(image) = last {
+                    self.emit_cursor(image);
+                }
+                return;
+            }
         };
+        self.cursor_surface = None;
+        self.last_cursor = None;
         tracing::debug!(cursor = name, "the client selected a cursor");
         self.emit(Event::Cursor(name));
     }
@@ -1331,7 +1535,7 @@ impl OutputHandler for State {}
 impl TabletSeatHandler for State {}
 
 impl SelectionHandler for State {
-    type SelectionUserData = Arc<Clip>;
+    type SelectionUserData = ClipData;
 
     fn new_selection(
         &mut self,
@@ -1341,7 +1545,15 @@ impl SelectionHandler for State {
     ) {
         if ty == SelectionTarget::Clipboard {
             self.clip_generation += 1;
-            self.selection = source.map(|source| source.mime_types());
+            let types = source.map(|source| source.mime_types());
+            self.clip_owner = if types.is_some() {
+                ClipOwner::Wayland
+            } else {
+                ClipOwner::None
+            };
+            // The X11 apps get the clipboard of a Wayland app too (F084).
+            self.x11.announce(types.clone());
+            self.selection = types.map(|types| (types, ClipFrom::Wayland));
         }
     }
 
@@ -1353,18 +1565,20 @@ impl SelectionHandler for State {
         _seat: Seat<Self>,
         user_data: &Self::SelectionUserData,
     ) {
-        // A large content fills the pipe, thus a thread writes it while the app reads.
-        tracing::debug!(mime_type, "an app pastes the clipboard of the shell");
-        let clip = user_data.clone();
-        let spawned = std::thread::Builder::new()
-            .name("farglass-clipboard".to_owned())
-            .spawn(move || {
-                if let Err(error) = std::fs::File::from(fd).write_all(clip.bytes()) {
-                    tracing::debug!(%error, "an app stopped the paste");
+        match user_data {
+            ClipData::Shell(clip) => {
+                tracing::debug!(mime_type, "an app pastes the clipboard of the shell");
+                write_clip(clip.clone(), fd);
+            }
+            ClipData::X11 => {
+                tracing::debug!(
+                    mime_type,
+                    "a Wayland app pastes the clipboard of an X11 app"
+                );
+                if let Err(error) = self.x11.read_selection(mime_type, fd) {
+                    tracing::debug!(%error, "the clipboard of an X11 app is not available");
                 }
-            });
-        if let Err(error) = spawned {
-            tracing::warn!(%error, "no thread for a paste");
+            }
         }
     }
 }

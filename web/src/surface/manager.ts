@@ -207,6 +207,10 @@ export class SurfaceManager {
       case "cursor":
         this.#cursor[1](event.name);
         break;
+      case "cursor-image":
+        // The app draws the pointer itself, for example an X11 app: the browser shows the image.
+        this.#cursor[1](`url("data:image/png;base64,${event.png}") ${event.x} ${event.y}, default`);
+        break;
       case "move-request":
         this.#moveHandlers.get(event.id)?.();
         break;
