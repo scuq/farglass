@@ -9,6 +9,15 @@ use farglass_surface::{Command, Compositor, Event};
 
 const WAIT: Duration = Duration::from_secs(20);
 
+/// The tests run one at a time: two Xwayland servers that start at the same time in one process can get the same display.
+static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+    ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 fn installed(program: &str) -> bool {
     std::env::var_os("PATH")
         .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(program).is_file()))
@@ -34,6 +43,7 @@ fn wait<T>(
 
 #[test]
 fn an_x11_window_shows_takes_a_size_and_closes() {
+    let _serial = one_at_a_time();
     if !installed("Xwayland") || !installed("xclock") {
         eprintln!("skipped: the host has no Xwayland or no xclock");
         return;
@@ -148,6 +158,7 @@ const BTN_LEFT: u32 = 0x110;
 
 #[test]
 fn keys_of_the_shell_reach_an_x11_window() {
+    let _serial = one_at_a_time();
     if !installed("Xwayland") || !installed("xterm") {
         eprintln!("skipped: the host has no Xwayland or no xterm");
         return;
@@ -195,6 +206,7 @@ fn keys_of_the_shell_reach_an_x11_window() {
 
 #[test]
 fn keys_and_the_pointer_of_the_shell_reach_an_x11_window() {
+    let _serial = one_at_a_time();
     if !installed("Xwayland") || !installed("xev") {
         eprintln!("skipped: the host has no Xwayland or no xev");
         return;
@@ -203,7 +215,7 @@ fn keys_and_the_pointer_of_the_shell_reach_an_x11_window() {
     let (compositor, _events, mut client, id) = start_client(
         dir.path(),
         "xev",
-        &["-event", "keyboard", "-event", "mouse"],
+        &["-event", "keyboard", "-event", "mouse", "-event", "focus"],
         true,
     );
     // xev prints each event that it gets.
@@ -230,6 +242,9 @@ fn keys_and_the_pointer_of_the_shell_reach_an_x11_window() {
     };
 
     compositor.send(Command::Activate { id: Some(id) });
+    // The X11 focus goes on the X11 connection, the keys go on the Wayland connection.
+    // A key that comes first goes to no window, thus the test waits for the focus as a person does.
+    expect("FocusIn event");
     for (code, pressed) in [
         (KEY_LEFTSHIFT, true),
         (KEY_H, true),

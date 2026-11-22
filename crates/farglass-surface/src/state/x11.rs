@@ -18,13 +18,17 @@ use smithay::delegate_xwayland_shell;
 use smithay::input::Seat;
 use smithay::input::keyboard::{KeyboardTarget, KeysymHandle, ModifiersState};
 use smithay::reexports::calloop::LoopHandle;
-use smithay::reexports::wayland_server::DisplayHandle;
+use smithay::reexports::wayland_server::backend::ObjectId;
+use smithay::reexports::wayland_server::protocol::wl_buffer::WlBuffer;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+use smithay::reexports::wayland_server::{DisplayHandle, Resource as _};
 use smithay::utils::{IsAlive, Logical, Rectangle, SERIAL_COUNTER, Serial};
 use smithay::wayland::seat::WaylandFocus;
 use smithay::wayland::xwayland_shell::{XWaylandShellHandler, XWaylandShellState};
 use smithay::xwayland::xwm::{Reorder, ResizeEdge, WmWindowProperty, X11Window, XwmId};
-use smithay::xwayland::{X11Surface, X11Wm, XWayland, XWaylandEvent, XwmHandler};
+use smithay::xwayland::{
+    X11Surface, X11Wm, XWayland, XWaylandClientData, XWaylandEvent, XwmHandler,
+};
 
 use super::{Event, Rect, State};
 
@@ -39,6 +43,15 @@ pub(super) struct X11 {
     popups: HashMap<u32, X11Surface>,
     /// The id of the surface of each X11 window.
     ids: HashMap<X11Window, u32>,
+    /// The last buffer and its scale of each Xwayland surface that has no window yet.
+    pending: HashMap<ObjectId, (WlBuffer, i32)>,
+}
+
+/// Returns `true` if Xwayland owns the surface.
+pub(super) fn is_xwayland(surface: &WlSurface) -> bool {
+    surface
+        .client()
+        .is_some_and(|client| client.get_data::<XWaylandClientData>().is_some())
 }
 
 impl X11 {
@@ -49,6 +62,21 @@ impl X11 {
             windows: HashMap::new(),
             popups: HashMap::new(),
             ids: HashMap::new(),
+            pending: HashMap::new(),
+        }
+    }
+
+    /// Keeps the last buffer of an Xwayland surface that has no window yet. An older buffer goes back.
+    pub(super) fn keep(&mut self, surface: &WlSurface, buffer: WlBuffer, scale: i32) {
+        if let Some((old, _)) = self.pending.insert(surface.id(), (buffer, scale)) {
+            old.release();
+        }
+    }
+
+    /// Gives back the kept buffer of a surface that is gone.
+    pub(super) fn forget(&mut self, surface: &WlSurface) {
+        if let Some((buffer, _)) = self.pending.remove(&surface.id()) {
+            buffer.release();
         }
     }
 
@@ -206,11 +234,23 @@ impl State {
     fn x11_add_window(&mut self, id: u32, window: X11Surface) {
         self.x11.windows.insert(id, window.clone());
         self.touch(Some(id));
-        self.emit(Event::ToplevelNew {
-            id,
-            pid: window.pid(),
-        });
+        // The X server knows the process of each client (X-Resource). `_NET_WM_PID` comes from
+        // the app itself, and some apps set it late or not at all.
+        let pid = window.get_client_pid().ok().or_else(|| window.pid());
+        self.emit(Event::ToplevelNew { id, pid });
         self.x11_changed(id, &window);
+        self.x11_flush(id, &window);
+    }
+
+    /// Gives the shell the frame that the surface of the window committed before the shell knew the window.
+    fn x11_flush(&mut self, id: u32, window: &X11Surface) {
+        let Some(surface) = window.wl_surface() else {
+            return;
+        };
+        if let Some((buffer, scale)) = self.x11.pending.remove(&surface.id()) {
+            // The surface has no size yet, thus the commit has the whole buffer as damage.
+            self.take_buffer(id, &surface, &buffer, Vec::new(), scale);
+        }
     }
 
     /// Removes an X11 window that does not show now, and tells the shell.
@@ -299,6 +339,15 @@ impl XWaylandShellHandler for State {
             return;
         };
         Self::tag(&surface, id);
+        let shown = self
+            .x11
+            .windows
+            .get(&id)
+            .or_else(|| self.x11.popups.get(&id))
+            .cloned();
+        if let Some(shown) = shown {
+            self.x11_flush(id, &shown);
+        }
         // The window got the focus of the X11 server before it had a surface for the keys.
         if self.focused == Some(id) {
             self.x11_refocus(&window);
@@ -349,6 +398,9 @@ impl XwmHandler for State {
                     geometry,
                     subsurface: false,
                 });
+                if let Some(popup) = self.x11.popups.get(&id).cloned() {
+                    self.x11_flush(id, &popup);
+                }
             }
             // A window with no parent, for example a splash screen, is a window of its own.
             None => self.x11_add_window(id, window),

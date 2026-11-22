@@ -984,6 +984,7 @@ impl CompositorHandler for State {
     }
 
     fn destroyed(&mut self, surface: &WlSurface) {
+        self.x11.forget(surface);
         if let Some(id) = Self::id_of(surface)
             && self.subsurfaces.remove(&id).is_some()
         {
@@ -1099,8 +1100,14 @@ impl State {
         self.frame_callbacks
             .extend(callbacks.into_iter().map(|callback| (id, callback)));
         let Some(id) = id else {
+            // Xwayland can commit the first frame of a window before the window manager knows the window.
+            // The frame waits for the window: an app that draws only one time must not stay blank.
             // A surface with no role yet, or a subsurface. Its buffer goes back at once.
             if let Some(BufferAssignment::NewBuffer(buffer)) = buffer {
+                if x11::is_xwayland(surface) {
+                    self.x11.keep(surface, buffer, scale);
+                    return;
+                }
                 tracing::debug!(
                     subsurface = smithay::wayland::compositor::is_sync_subsurface(surface)
                         || smithay::wayland::compositor::get_parent(surface).is_some(),
