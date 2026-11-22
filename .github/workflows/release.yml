@@ -197,12 +197,21 @@ jobs:
           mv artifacts/farglass-*.tar.gz artifacts/farglassctl-linux-* dist/
           cd dist && sha256sum farglass-*.tar.gz farglassctl-linux-* > SHA256SUMS
           cat SHA256SUMS
-      - uses: sigstore/cosign-installer@v3
-        with:
-          # The same version that farglassctl embeds (crates/farglassctl/src/release.rs).
-          cosign-release: v3.1.4
+      # The same version and SHA-256 that farglassctl embeds
+      # (COSIGN_VERSION and COSIGN_SHA256 in crates/farglassctl/src/release.rs).
+      # sigstore/cosign-installer@v3 cannot install cosign v3: the release has no .sig file.
+      - name: Install cosign
+        env:
+          COSIGN_VERSION: v3.1.4
+          COSIGN_SHA256: 424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa
+        run: |
+          set -eu
+          curl -fsSL -o cosign "https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION/cosign-linux-amd64"
+          echo "$COSIGN_SHA256  cosign" | sha256sum -c -
+          chmod +x cosign
+          ./cosign version
       - name: Sign SHA256SUMS (keyless)
-        run: cosign sign-blob --yes --bundle dist/SHA256SUMS.sigstore.json dist/SHA256SUMS
+        run: ./cosign sign-blob --yes --bundle dist/SHA256SUMS.sigstore.json dist/SHA256SUMS
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
