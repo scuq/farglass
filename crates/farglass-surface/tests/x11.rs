@@ -654,3 +654,73 @@ fn an_x11_menu_closes_when_the_shell_dismisses_it() {
     });
     client.join().unwrap();
 }
+
+/// An X11 app with a smallest and a largest size (WM_NORMAL_HINTS) that keeps its window until `stop` closes.
+fn sized_client(display: u32, stop: mpsc::Receiver<()>) {
+    use x11rb::connection::Connection as _;
+    use x11rb::properties::WmSizeHints;
+    use x11rb::protocol::xproto::{ConnectionExt as _, CreateWindowAux, WindowClass};
+
+    let (conn, screen) = x11rb::connect(Some(&format!(":{display}"))).unwrap();
+    let screen = conn.setup().roots[screen].clone();
+    let window = conn.generate_id().unwrap();
+    conn.create_window(
+        x11rb::COPY_DEPTH_FROM_PARENT,
+        window,
+        screen.root,
+        0,
+        0,
+        400,
+        300,
+        0,
+        WindowClass::INPUT_OUTPUT,
+        0,
+        &CreateWindowAux::new().background_pixel(screen.white_pixel),
+    )
+    .unwrap();
+    let mut hints = WmSizeHints::new();
+    hints.min_size = Some((300, 200));
+    hints.max_size = Some((800, 600));
+    hints.set_normal_hints(&conn, window).unwrap();
+    conn.map_window(window).unwrap();
+    conn.flush().unwrap();
+    let _ = stop.recv_timeout(WAIT);
+}
+
+#[test]
+fn an_x11_window_keeps_the_smallest_and_the_largest_size_of_the_app() {
+    let _serial = one_at_a_time();
+    if !installed("Xwayland") {
+        eprintln!("skipped: the host has no Xwayland");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let (compositor, events, display) = start_compositor(dir.path());
+    let (stop, stopped) = mpsc::channel();
+    let client = std::thread::spawn(move || sized_client(display, stopped));
+    let id = wait(&events, "the window", |event| match event {
+        Event::ToplevelNew { id, .. } => Some(id),
+        _ => None,
+    });
+    for ((width, height), expected) in [
+        ((100, 80), (300, 200)),
+        ((1000, 900), (800, 600)),
+        ((500, 400), (500, 400)),
+    ] {
+        compositor.send(Command::Configure { id, width, height });
+        wait(
+            &events,
+            "a frame with the size in the limits",
+            |event| match event {
+                Event::Commit(commit)
+                    if commit.id == id && (commit.width, commit.height) == expected =>
+                {
+                    Some(())
+                }
+                _ => None,
+            },
+        );
+    }
+    let _ = stop.send(());
+    client.join().unwrap();
+}

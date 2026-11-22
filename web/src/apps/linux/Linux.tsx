@@ -4,6 +4,7 @@ import { isPasteKey } from "../../surface/clipboard";
 import { IS_MAC, linuxKey, MODIFIER_KEYS } from "../../surface/keys";
 import { type SurfaceInfo, type SurfaceManager, surfaceManagerFor, surfaceOf } from "../../surface/manager";
 import type { AppContext } from "../types";
+import { fit } from "./fit";
 import "./linux.css";
 
 /**
@@ -138,6 +139,11 @@ function SurfaceCanvas(props: {
   });
   return canvas;
 }
+
+/** The quiet time after a new size of the app before the frame takes it. */
+const FOLLOW_MS = 300;
+/** The longest wait for the answer of the app to a new size. */
+const ANSWER_MS = 2000;
 
 const origin = (geometry: SurfaceRect | null) => geometry ?? { x: 0, y: 0, width: 0, height: 0 };
 
@@ -317,6 +323,8 @@ export default function Linux(props: { context: AppContext }) {
   let sent = "";
   let resizing = false;
   let requested: { w: number; h: number } | null = null;
+  let requestedAt = 0;
+  let follow: ReturnType<typeof setTimeout> | undefined;
   const [strips, setStrips] = createSignal(false);
   const [edgeRequest, setEdgeRequest] = createSignal<{ x: number; y: number; width: number; height: number } | null>(null);
   let rightEdge: HTMLCanvasElement | undefined;
@@ -333,8 +341,17 @@ export default function Linux(props: { context: AppContext }) {
     if (key !== sent && (!current || current.width !== w || current.height !== h)) {
       sent = key;
       requested = { w, h };
+      requestedAt = performance.now();
       manager.request({ type: "configure", id, width: w, height: h });
     }
+  };
+  /** Gives the window frame the size of the app. A snapped or maximized window keeps its size. */
+  const resizeToApp = (shown: { width: number; height: number }) => {
+    const outer = element?.closest<HTMLElement>(".wm-window");
+    if (!outer || !element) return;
+    const content = element.getBoundingClientRect();
+    const box = outer.getBoundingClientRect();
+    props.context.resizeWindow?.(shown.width + (box.width - content.width), shown.height + (box.height - content.height));
   };
   /** An app that keeps its own size, for example with a smallest size: the frame takes the size of the app. */
   const takeAppSize = () => {
@@ -343,11 +360,28 @@ export default function Linux(props: { context: AppContext }) {
     requested = null;
     if (!wanted || !shown || !element) return;
     if (Math.abs(shown.width - wanted.w) <= 1 && Math.abs(shown.height - wanted.h) <= 1) return;
-    const outer = element.closest<HTMLElement>(".wm-window");
-    if (!outer) return;
-    const content = element.getBoundingClientRect();
-    const box = outer.getBoundingClientRect();
-    props.context.resizeWindow?.(shown.width + (box.width - content.width), shown.height + (box.height - content.height));
+    resizeToApp(shown);
+  };
+  /**
+   * The app changed its own size, or answered a size with a different one after the first frame,
+   * for example an X11 app that snaps to its text cells: the frame takes the last size of the app
+   * after a quiet time. A size that the app did not answer yet stops this, for ANSWER_MS at most.
+   */
+  const fitToApp = () => {
+    follow = undefined;
+    if (resizing || settle !== undefined || !element) return;
+    const shown = frame();
+    const now = size();
+    if (!shown || !now) return;
+    const asked = requested && { width: requested.w, height: requested.h };
+    const waited = performance.now() - requestedAt;
+    const decision = fit(shown, { width: now.w, height: now.h }, asked, waited, ANSWER_MS);
+    if (decision === "wait") {
+      follow = setTimeout(fitToApp, ANSWER_MS - waited);
+      return;
+    }
+    requested = null;
+    if (decision === "fit") resizeToApp(shown);
   };
   const endSettle = () => {
     clearTimeout(settle);
@@ -391,7 +425,13 @@ export default function Linux(props: { context: AppContext }) {
     if (resizing) setStrips(true);
   };
   const onResized = () => {
-    if (!resizing && settle !== undefined) queueMicrotask(endSettle);
+    if (resizing) return;
+    if (settle !== undefined) {
+      queueMicrotask(endSettle);
+      return;
+    }
+    clearTimeout(follow);
+    follow = setTimeout(fitToApp, FOLLOW_MS);
   };
   const observer = new ResizeObserver(([entry]) => {
     if (!entry) return;
@@ -406,6 +446,7 @@ export default function Linux(props: { context: AppContext }) {
     observer.disconnect();
     clearTimeout(timer);
     clearTimeout(settle);
+    clearTimeout(follow);
     window.removeEventListener("farglass-gesture", onGesture);
   });
   /** The place of the stretched edges: right of the window geometry and under it, in the new area. */

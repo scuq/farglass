@@ -502,6 +502,8 @@ A move or a resize of a Linux app window happens in the client browser.
 During a resize, the window shows the last frame of the app, and the right and bottom edges of that frame stretch into the new area.
 The app gets one new size at the end of the drag.
 If the app refuses that size, for example because it is smaller than the smallest size of the app, the frame takes the size of the app.
+The frame also takes a later size of the app, 300 ms after its last new size, for example when a terminal snaps to its text cells.
+An X11 window stays in the smallest and the largest size that the app gives.
 `npm --prefix spikes/e2e run resize` tests this with gnome-calculator.
 
 The launcher lists the apps of the host with the apps of the shell.

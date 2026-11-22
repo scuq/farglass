@@ -263,6 +263,25 @@ pub(super) fn start(state: &mut State, handle: &LoopHandle<'static, State>) -> O
     Some(number)
 }
 
+/// Returns the size `width` x `height` in the smallest and the largest size of the X11 window.
+/// A size of 0 in a hint has no limit.
+pub(super) fn clamp(window: &X11Surface, width: i32, height: i32) -> (i32, i32) {
+    let (mut width, mut height) = (width, height);
+    if let Some(max) = window.max_size() {
+        if max.w > 0 {
+            width = width.min(max.w);
+        }
+        if max.h > 0 {
+            height = height.min(max.h);
+        }
+    }
+    if let Some(min) = window.min_size() {
+        width = width.max(min.w);
+        height = height.max(min.h);
+    }
+    (width.max(1), height.max(1))
+}
+
 /// Runs the event loop until the X11 window manager of display `number` runs, and returns the number.
 ///
 /// The sockets of the display accept clients before the window manager runs. A window that an app
@@ -540,6 +559,7 @@ impl XwmHandler for State {
         _reorder: Option<Reorder>,
     ) {
         // The app selects its size. The place stays the origin.
+        tracing::debug!(?w, ?h, "an X11 app asks for a size");
         let mut geometry = window.geometry();
         geometry.loc = (0, 0).into();
         if let Some(w) = w.and_then(|w| i32::try_from(w).ok()) {

@@ -6,6 +6,12 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ---
 
+## Unreleased
+
+### Fixed
+- A Linux app window now takes the size of the app after a resize, also when the app selects its own size, for example a terminal that snaps to its text cells. Before, the frame kept the size of the drag, and the app drew a smaller window in it.
+- An X11 window now stays in the smallest and the largest size of the app.
+
 ## v0.1.3 — 22 November 2026 — X11 apps through Xwayland
 
 ### Added

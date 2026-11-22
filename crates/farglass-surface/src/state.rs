@@ -776,10 +776,16 @@ impl State {
                 } else if let Some(window) = self.x11.windows.get(&id)
                     && width > 0
                     && height > 0
-                    && let Err(error) =
-                        window.configure(Rectangle::new((0, 0).into(), (width, height).into()))
                 {
-                    tracing::debug!(%error, "an X11 window did not get its size");
+                    // An X11 window manager keeps each window in the smallest and the largest size
+                    // of the app (WM_NORMAL_HINTS). Else the app answers with a size of its own.
+                    let (width, height) = x11::clamp(window, width, height);
+                    tracing::debug!(id, width, height, "the shell gives an X11 window a size");
+                    if let Err(error) =
+                        window.configure(Rectangle::new((0, 0).into(), (width, height).into()))
+                    {
+                        tracing::debug!(%error, "an X11 window did not get its size");
+                    }
                 }
             }
             Command::Activate { id } => {
