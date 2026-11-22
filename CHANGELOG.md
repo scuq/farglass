@@ -6,7 +6,7 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ---
 
-## Unreleased
+## v0.1.5 — 23 November 2026 — Window border fixes and version code
 
 ### Changed
 - The login, lock, and PIN screens show the version of farglass as a code, for example `FG-000104` for 0.1.4.
