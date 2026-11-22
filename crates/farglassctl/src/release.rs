@@ -127,6 +127,7 @@ pub fn fetch(tag: &str, dir: &Path) -> Result<(), String> {
         "SHA256SUMS".to_owned(),
         "SHA256SUMS.sigstore.json".to_owned(),
         tarball_name(tag, arch),
+        ctl_name(arch),
     ] {
         println!("Downloading {name}");
         let url = format!("https://github.com/{REPO}/releases/download/{tag}/{name}");
@@ -140,6 +141,47 @@ pub fn fetch(tag: &str, dir: &Path) -> Result<(), String> {
 #[must_use]
 pub fn tarball_name(tag: &str, arch: &str) -> String {
     format!("farglass-{tag}-linux-{arch}.tar.gz")
+}
+
+/// Returns the name of the static farglassctl of a release for `arch`.
+#[must_use]
+pub fn ctl_name(arch: &str) -> String {
+    format!("farglassctl-linux-{arch}")
+}
+
+/// Returns the farglassctl of the release in `dir`, or `None` if `dir` has none.
+/// Call it after [`verify`]: it checks only the SHA-256 against SHA256SUMS.
+///
+/// # Errors
+///
+/// A message if SHA256SUMS does not list the file, or the file has a different SHA-256.
+pub fn find_ctl(dir: &Path) -> Result<Option<PathBuf>, String> {
+    let path = dir.join(ctl_name(arch()?));
+    if !path.exists() {
+        return Ok(None);
+    }
+    let sums_path = dir.join("SHA256SUMS");
+    let sums = fs::read_to_string(&sums_path)
+        .map_err(|error| format!("{}: {error}", sums_path.display()))?;
+    check_sum(&sums, &path)?;
+    Ok(Some(path))
+}
+
+/// Checks the SHA-256 of the file at `path` against the text of SHA256SUMS.
+fn check_sum(sums: &str, path: &Path) -> Result<(), String> {
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or("the file has no name")?;
+    let expected = sum_of(sums, name)
+        .ok_or_else(|| format!("SHA256SUMS does not list {name}. Nothing is installed."))?;
+    let actual = sha256(&fs::read(path).map_err(|error| error.to_string())?);
+    if actual != expected {
+        return Err(format!(
+            "{name} has the SHA-256 {actual}, not {expected}. Nothing is installed."
+        ));
+    }
+    Ok(())
 }
 
 /// Returns the tarball in `dir`: the one file `farglass-*-linux-ARCH.tar.gz`.
@@ -250,19 +292,7 @@ pub fn verify(dir: &Path, tarball: &Path, unsigned: bool) -> Result<(), String> 
     }
     let sums = fs::read_to_string(&sums_path)
         .map_err(|error| format!("{}: {error}", sums_path.display()))?;
-    let name = tarball
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or("the tarball has no name")?;
-    let expected = sum_of(&sums, name)
-        .ok_or_else(|| format!("SHA256SUMS does not list {name}. Nothing is installed."))?;
-    let actual = sha256(&fs::read(tarball).map_err(|error| error.to_string())?);
-    if actual != expected {
-        return Err(format!(
-            "{name} has the SHA-256 {actual}, not {expected}. Nothing is installed."
-        ));
-    }
-    Ok(())
+    check_sum(&sums, tarball)
 }
 
 /// Extracts the tarball into `dir` and returns its top directory.
@@ -412,6 +442,26 @@ mod tests {
                 .unwrap_err()
                 .contains("does not list")
         );
+    }
+
+    #[test]
+    fn the_farglassctl_of_a_release_needs_its_hash_in_sha256sums() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(find_ctl(dir.path()).unwrap(), None);
+        let name = ctl_name(arch().unwrap());
+        let path = dir.path().join(&name);
+        fs::write(&path, b"new farglassctl").unwrap();
+        let hash = sha256(b"new farglassctl");
+        fs::write(dir.path().join("SHA256SUMS"), format!("{hash}  {name}\n")).unwrap();
+        assert_eq!(find_ctl(dir.path()).unwrap(), Some(path.clone()));
+        fs::write(&path, b"changed").unwrap();
+        assert!(
+            find_ctl(dir.path())
+                .unwrap_err()
+                .contains("Nothing is installed")
+        );
+        fs::write(dir.path().join("SHA256SUMS"), "").unwrap();
+        assert!(find_ctl(dir.path()).unwrap_err().contains("does not list"));
     }
 
     #[test]

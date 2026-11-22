@@ -203,11 +203,11 @@ The section [Quick start](#quick-start) shows the download and the install comma
 `install` does these steps (F067):
 
 1. It reads the distribution from `/etc/os-release` and refuses an unsupported one.
-2. It downloads the newest release (or `--release TAG`) from GitHub, or takes the files of `--from DIR`.
+2. It downloads the tarball and `farglassctl` of the newest release (or `--release TAG`) from GitHub, or takes the files of `--from DIR`.
 3. It downloads the static cosign v3.1.4, and runs it only with the SHA-256 that farglassctl embeds.
-4. cosign checks that the release workflow of this repository signed `SHA256SUMS` at a tag. farglassctl checks the SHA-256 of the tarball. A failed check installs nothing.
+4. cosign checks that the release workflow of this repository signed `SHA256SUMS` at a tag. farglassctl checks the SHA-256 of the tarball and of `farglassctl`. A failed check installs nothing.
 5. It installs the runtime packages with apt or dnf, and the user `farglass` and the groups `farglass` and `farglass-users`.
-6. It installs the programs in `/usr/libexec/farglass`, the web files in `/usr/share/farglass`, the units, the PAM files of the distribution family, the bash completion, and itself as `/usr/local/sbin/farglassctl`.
+6. It installs the programs in `/usr/libexec/farglass`, the web files in `/usr/share/farglass`, the units, the PAM files of the distribution family, the bash completion, and the `farglassctl` of the release as `/usr/local/sbin/farglassctl`. If `--from DIR` has no `farglassctl-linux-ARCH`, the running farglassctl installs itself.
 7. It writes `/etc/farglass/farglassd.conf` only if it does not exist.
 8. On SELinux it runs `restorecon` and loads the policy module `farglass`. The module lets the session worker start the desktop in the SELinux context of the user. If firewalld runs, `--open-firewall` opens port 8443 for TCP and UDP.
 9. It starts `farglass-login.socket` and `farglassd.service`.
@@ -215,6 +215,7 @@ The section [Quick start](#quick-start) shows the download and the install comma
 `--dry-run` shows the steps and changes nothing.
 `--allow-unsigned` installs a test build with no signature; the SHA-256 is still checked.
 `farglassctl update` does the same with a newer release, and keeps the configuration and the users.
+It also replaces `/usr/local/sbin/farglassctl` with the `farglassctl` of the release (since v0.1.4). The next command runs the new farglassctl.
 `farglassctl uninstall` keeps `/etc/farglass` and `/var/lib/farglass`; `--purge` removes them, the user `farglass`, and the groups.
 
 ```text

@@ -8,6 +8,9 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ## Unreleased
 
+### Added
+- `farglassctl update` also installs the `farglassctl` of the new release. Before, farglassctl stayed at the version of the install. An older farglassctl does not do this, so the update to this release keeps the old farglassctl one more time.
+
 ### Fixed
 - A Linux app window now takes the size of the app after a resize, also when the app selects its own size, for example a terminal that snaps to its text cells. Before, the frame kept the size of the drag, and the app drew a smaller window in it.
 - An X11 window now stays in the smallest and the largest size of the app.

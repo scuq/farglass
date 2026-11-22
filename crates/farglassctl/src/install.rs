@@ -130,6 +130,8 @@ pub struct Options {
     pub open_firewall: bool,
     /// An update: the configuration and the users stay as they are.
     pub update: bool,
+    /// The farglassctl of the release, with a checked SHA-256. It replaces the installed one.
+    pub ctl: Option<PathBuf>,
 }
 
 /// Returns the steps that install or update farglass from the extracted release at `root`.
@@ -209,11 +211,14 @@ pub fn install_plan(
         content: completion.to_owned(),
         mode: 0o644,
     });
-    if let Some(exe) = &facts.self_exe
-        && exe != Path::new(SELF)
-    {
+    // With no farglassctl in the release, a farglassctl that runs from a different path installs itself.
+    let ctl = options
+        .ctl
+        .clone()
+        .or_else(|| facts.self_exe.clone().filter(|exe| exe != Path::new(SELF)));
+    if let Some(from) = ctl {
         plan.push(Step::Copy {
-            from: exe.clone(),
+            from,
             to: PathBuf::from(SELF),
             mode: 0o755,
         });
@@ -436,6 +441,26 @@ mod tests {
         ] {
             assert!(!has(&plan, text), "an update has {text}");
         }
+    }
+
+    #[test]
+    fn an_update_replaces_farglassctl_with_the_one_of_the_release() {
+        let dir = root();
+        let facts = Facts {
+            config: true,
+            self_exe: Some(PathBuf::from(SELF)),
+            ..Facts::default()
+        };
+        let options = Options {
+            update: true,
+            ctl: Some(PathBuf::from("/tmp/release/farglassctl-linux-arm64")),
+            ..Options::default()
+        };
+        let plan = install_plan(&debian(), dir.path(), &facts, &options, "").unwrap();
+        assert!(has(
+            &plan,
+            "copy /tmp/release/farglassctl-linux-arm64 to /usr/local/sbin/farglassctl (mode 755)"
+        ));
     }
 
     #[test]

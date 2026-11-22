@@ -81,6 +81,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 users: user,
                 open_firewall,
                 update: false,
+                ctl: None,
             };
             setup(
                 release.as_deref(),
@@ -180,6 +181,10 @@ fn setup(
     };
     let tarball = release::find_tarball(&source)?;
     release::verify(&source, &tarball, allow_unsigned)?;
+    let options = &install::Options {
+        ctl: release::find_ctl(&source)?,
+        ..options.clone()
+    };
     let root = release::extract(&tarball, &work.0.join("release"))?;
     let version = release::version_of(&root)?;
     let facts = install::Facts::probe();
