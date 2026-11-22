@@ -189,12 +189,28 @@
   background: var(--lcars-lavender);
   border-radius: 0 999px 999px 0;
 }
+:root[data-theme="lcars"] .panel-workspaces {
+  align-items: center;
+}
+/* The workspaces are LCARS segments with rounded ends. The accent color fills the current one. */
 :root[data-theme="lcars"] .panel .panel-workspaces button {
   min-width: 1.9rem;
+  height: 1.5rem;
   padding: 0 0.5rem;
   font-size: 0.8rem;
   font-variant-numeric: tabular-nums;
-  background: var(--lcars-panel);
+  background: var(--lcars-raised);
+}
+:root[data-theme="lcars"] .panel .panel-workspaces button:first-child {
+  padding-left: 0.7rem;
+  border-radius: 999px 0 0 999px;
+}
+:root[data-theme="lcars"] .panel .panel-workspaces button:last-child {
+  padding-right: 0.7rem;
+  border-radius: 0 999px 999px 0;
+}
+:root[data-theme="lcars"] .panel .panel-workspaces button:hover {
+  background: color-mix(in srgb, var(--lcars-lavender) 22%, var(--lcars-raised));
 }
 :root[data-theme="lcars"] .panel button.wm-task {
   font-size: 0.85rem;
@@ -227,6 +243,12 @@
   outline: none;
   color: var(--fg);
   box-shadow: inset 0 -2px var(--focus);
+}
+:root[data-theme="lcars"] .panel .panel-workspaces button[aria-pressed="true"] {
+  color: var(--on-focus);
+  font-weight: 700;
+  background: var(--focus);
+  box-shadow: none;
 }
 :root[data-theme="lcars"] .panel button:not(.popover *):focus-visible {
   outline: 2px solid var(--fg);
@@ -326,8 +348,9 @@
 }
 
 /*
- * Windows: a dark title bar. The border in the accent color and the cap at
- * the left of the title bar mark the window that has the focus.
+ * Windows: a dark title bar with an LCARS endcap at the left, under the icon.
+ * The endcap and a 1px border in the accent color mark the window that has
+ * the focus. Another window has a muted lavender endcap and a muted border.
  */
 :root[data-theme="lcars"] .wm-window {
   background: var(--lcars-panel);
@@ -343,11 +366,14 @@
   border-radius: 0;
 }
 :root[data-theme="lcars"] .wm-titlebar {
-  height: 30px;
-  padding: 0 0.25rem 0 0.6rem;
+  position: relative;
+  height: 28px;
+  /* The endcap is 52px wide, and the title starts 12px after it. */
+  padding: 0 0.25rem 0 64px;
   color: var(--muted);
   background: var(--lcars-raised);
   border-bottom: 0;
+  /* The inner radius of the window: its radius less the border. */
   border-radius: 5px 5px 0 0;
 }
 :root[data-theme="lcars"] .wm-window[data-mode="maximized"] .wm-titlebar {
@@ -355,32 +381,48 @@
 }
 :root[data-theme="lcars"] .wm-titlebar::before {
   content: "";
-  flex: none;
-  width: 4px;
-  height: 14px;
-  margin-right: 0.3rem;
-  background: var(--lcars-border);
-  border-radius: 2px;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 52px;
+  background: color-mix(in srgb, var(--lcars-lavender) 70%, var(--lcars-raised));
+  border-radius: 5px 14px 14px 0;
+  pointer-events: none;
+}
+:root[data-theme="lcars"] .wm-window[data-mode="maximized"] .wm-titlebar::before {
+  border-top-left-radius: 0;
 }
 :root[data-theme="lcars"] .wm-focused .wm-titlebar {
   color: var(--fg);
-  background: var(--lcars-raised);
 }
 :root[data-theme="lcars"] .wm-focused .wm-titlebar::before {
   background: var(--focus);
 }
+:root[data-theme="lcars"] .wm-icon {
+  position: absolute;
+  top: 6px;
+  left: 16px;
+  z-index: 1;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
 :root[data-theme="lcars"] .wm-title {
   font-size: 0.85rem;
-  font-weight: 600;
+  font-weight: 500;
 }
 :root[data-theme="lcars"] .wm-titlebar button {
   width: 28px;
   height: 22px;
   padding: 0;
-  color: inherit;
+  color: var(--muted);
   background: none;
   border: 0;
   border-radius: 4px;
+}
+:root[data-theme="lcars"] .wm-titlebar button:hover {
+  color: var(--fg);
 }
 :root[data-theme="lcars"] .wm-titlebar button:hover,
 :root[data-theme="lcars"] .wm-titlebar button:focus-visible {
@@ -463,8 +505,8 @@
 
 /*
  * The shell icons are line drawings in one color (F072). The filters of
- * index.html paint them lavender, or in the accent color for the active
- * item. An icon of a host app keeps its colors.
+ * index.html paint them lavender, in the accent color for the active item,
+ * or dark on the endcap of a title bar. An icon of a host app keeps its colors.
  */
 .icon-tints {
   position: absolute;
@@ -478,13 +520,19 @@
 .icon-tint-active-color {
   flood-color: var(--focus);
 }
+.icon-tint-dark-color {
+  flood-color: var(--lcars-bg, #100b1a);
+}
 :root[data-theme="lcars"] img[data-shell-icon] {
   filter: url(#icon-tint);
 }
-:root[data-theme="lcars"] .wm-focused .wm-titlebar img[data-shell-icon],
 :root[data-theme="lcars"] .panel button:not(.popover *)[aria-pressed="true"] img[data-shell-icon],
 :root[data-theme="lcars"] .launcher-results li[aria-selected="true"] img[data-shell-icon] {
   filter: url(#icon-tint-active);
+}
+:root[data-theme="lcars"] .wm-titlebar img[data-shell-icon],
+:root[data-theme="lcars"] .panel .panel-workspaces button[aria-pressed="true"] img[data-shell-icon] {
+  filter: url(#icon-tint-dark);
 }
 
 /* The terminal. The selector is longer than the rules of terminal.css, which loads later. */

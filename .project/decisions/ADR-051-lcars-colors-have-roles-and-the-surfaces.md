@@ -1,10 +1,10 @@
 ---
 id: ADR-051
 title: LCARS colors have roles, and the surfaces are neutral
-status: accepted
+status: superseded
 date: 2026-11-22
 tags: [web, ui]
-superseded_by:
+superseded_by: ADR-052
 files: [web/src/theme/lcars.css]
 ---
 
