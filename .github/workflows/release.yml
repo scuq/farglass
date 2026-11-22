@@ -126,14 +126,14 @@ jobs:
           path: dist/*
           retention-days: 1
 
-  # The programs must find their libraries and start on the oldest releases of each family.
+  # The programs must find their libraries and start on the oldest supported release of each distribution.
   smoke:
     needs: [host]
     strategy:
       fail-fast: false
       matrix:
         runner: [ubuntu-24.04, ubuntu-24.04-arm]
-        image: ["debian:12", "ubuntu:22.04", "rockylinux:9"]
+        image: ["debian:12", "ubuntu:24.04", "rockylinux:9", "fedora:44"]
     runs-on: ${{ matrix.runner }}
     container: ${{ matrix.image }}
     timeout-minutes: 15

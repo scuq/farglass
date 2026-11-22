@@ -6,6 +6,12 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ---
 
+## Unreleased
+
+### Changed
+- farglass now supports the newest release and the release before it of each distribution: Debian 13 and 12, Ubuntu 26.04 LTS and 24.04 LTS, RHEL, Rocky Linux, and AlmaLinux 10 and 9, and Fedora 45 and 44.
+- `farglassctl install` and `farglassctl update` refuse Ubuntu 22.04 and Fedora 41 to 43.
+
 ## v0.1.0 — 22 November 2026 — First release
 
 ### Added

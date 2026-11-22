@@ -21,19 +21,22 @@ pub struct Distro {
 }
 
 /// The supported distributions and their oldest major version.
+///
+/// The rule: the newest release and the release before it. For Ubuntu, only LTS releases count.
+/// A newer release than the newest one is not refused.
 const SUPPORTED: [(&str, Family, u32); 6] = [
     ("debian", Family::Debian, 12),
-    ("ubuntu", Family::Debian, 22),
+    ("ubuntu", Family::Debian, 24),
     ("rhel", Family::Rhel, 9),
     ("rocky", Family::Rhel, 9),
     ("almalinux", Family::Rhel, 9),
-    ("fedora", Family::Rhel, 41),
+    ("fedora", Family::Rhel, 44),
 ];
 
 /// Returns the text that names the supported distributions, for an error message.
 #[must_use]
 pub fn supported_text() -> &'static str {
-    "Debian 12 and later, Ubuntu 22.04 and later, RHEL, Rocky Linux, and AlmaLinux 9 and later, Fedora 41 and later"
+    "Debian 12 and later, Ubuntu 24.04 and later, RHEL, Rocky Linux, and AlmaLinux 9 and later, Fedora 44 and later"
 }
 
 impl Distro {
@@ -159,15 +162,15 @@ mod tests {
         for (id, version, family) in [
             ("debian", "12", Family::Debian),
             ("debian", "13", Family::Debian),
-            ("ubuntu", "22.04", Family::Debian),
             ("ubuntu", "24.04", Family::Debian),
+            ("ubuntu", "26.04", Family::Debian),
             ("rhel", "9.5", Family::Rhel),
             ("rhel", "10.3", Family::Rhel),
             ("rocky", "9.6", Family::Rhel),
             ("rocky", "10.0", Family::Rhel),
             ("almalinux", "9.4", Family::Rhel),
             ("almalinux", "10.1", Family::Rhel),
-            ("fedora", "42", Family::Rhel),
+            ("fedora", "44", Family::Rhel),
             ("fedora", "45", Family::Rhel),
         ] {
             let distro = Distro::parse(&release(id, version)).unwrap();
@@ -179,7 +182,8 @@ mod tests {
     fn an_old_or_unknown_distribution_is_refused_with_the_list() {
         for (id, version) in [
             ("debian", "11"),
-            ("ubuntu", "20.04"),
+            ("ubuntu", "22.04"),
+            ("fedora", "43"),
             ("rocky", "8.10"),
             ("arch", ""),
             ("", ""),

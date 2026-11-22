@@ -22,9 +22,9 @@ Each user logs in with the PAM stack of the host and gets a real logind session.
 
 To install farglass, you need a host with one of these distributions, on amd64 or arm64, and root access:
 
-- Debian 12 and later, Ubuntu 22.04 and later
+- Debian 12 and later, Ubuntu 24.04 LTS and later
 - RHEL, Rocky Linux, and AlmaLinux 9 and later
-- Fedora 41 and later
+- Fedora 44 and later
 
 Download `farglassctl` of the newest release. On arm64, replace `amd64` with `arm64`:
 
@@ -184,10 +184,12 @@ When the agent of a user stops and does not come back in 10 seconds, farglassd l
 
 farglassctl installs farglass on these distributions, on amd64 and arm64:
 
-- Debian 12 and later, Ubuntu 22.04 and later
+- Debian 12 and later, Ubuntu 24.04 LTS and later
 - RHEL, Rocky Linux, and AlmaLinux 9 and later
-- Fedora 41 and later
+- Fedora 44 and later
 
+The rule is the newest release and the release before it: Debian 13 and 12, Ubuntu 26.04 LTS and 24.04 LTS, RHEL 10 and 9, and Fedora 45 and 44.
+When a distribution gets a new release, the oldest one of the list goes with the next release of farglass.
 The install was tested on Fedora 45 and RHEL 10 (F078).
 On RHEL, register the system with `subscription-manager register` before the install.
 farglassctl needs pipewire, wireplumber, and xdg-desktop-portal-gtk from the AppStream repository, and the UBI repositories do not have them.
@@ -247,7 +249,7 @@ A tag `vX.Y.Z` starts `.github/workflows/release.yml` (F066):
 2. The host programs are built for amd64 and arm64 in a Rocky Linux 9 container, the oldest glibc of the supported distributions.
 3. `packaging/release.sh host` fails if a program links a library that ADR-048 does not permit.
 4. farglassctl is built static with musl.
-5. Each program starts on Debian 12, Ubuntu 22.04, and Rocky Linux 9.
+5. Each program starts on Debian 12, Ubuntu 24.04, Rocky Linux 9, and Fedora 44.
 6. `SHA256SUMS` lists each file and gets a cosign keyless signature (`SHA256SUMS.sigstore.json`).
 7. The GitHub release gets the `## vX.Y.Z` section of `CHANGELOG.md` as its notes. With no such section, the workflow publishes nothing.
 

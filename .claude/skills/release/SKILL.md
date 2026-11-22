@@ -57,6 +57,10 @@ The tag publishes a signed release that each host can install, and you cannot ta
    - `packaging/farglassd.conf` (keys and defaults)
 
    Correct each difference in the README in this change set.
+
+   farglass supports the newest release and the release before it of Debian, Ubuntu LTS, RHEL, and Fedora.
+   If a distribution has a newer release than the README names, tell the user before you continue.
+   A change of the list touches `SUPPORTED` and `supported_text` in `os.rs`, the smoke test images in `release.yml`, the README, and the changelog.
    If the tag example in `## Release` of the README names an older version than X.Y.Z, leave it. It is an example.
 
 6. Run these checks. Do not continue if a command fails.
@@ -94,7 +98,7 @@ The tag publishes a signed release that each host can install, and you cannot ta
 
 9. Tell the user what comes next.
    The tag push starts the release workflow.
-   The workflow builds, does the smoke tests on Debian 12, Ubuntu 22.04, and Rocky Linux 9, signs, and publishes.
+   The workflow builds, does the smoke tests on Debian 12, Ubuntu 24.04, Rocky Linux 9, and Fedora 44, signs, and publishes.
    A host gets the release with `sudo farglassctl update`.
 
 10. If the user reports that no run started in one minute, GitHub dropped the tag event.
