@@ -82,10 +82,10 @@ describe("Desktop", () => {
     expect(win(host, "a").style.transform).toMatch(/^translate3d\(/);
   });
 
-  test("a new session opens one echo window", async () => {
+  test("the first login opens one settings window", async () => {
     const { host } = await mountDesktop(null);
     expect(host.querySelectorAll(".wm-window")).toHaveLength(1);
-    expect(host.querySelector(".wm-window")?.getAttribute("aria-label")).toBe("Echo");
+    expect(host.querySelector(".wm-window")?.getAttribute("aria-label")).toBe("Settings");
   });
 
   test("the title bar buttons maximize, restore, minimize, and close", async () => {
@@ -168,11 +168,13 @@ describe("Desktop and its apps", () => {
 
   test("a second window of an app gets a number in its title", async () => {
     const { host } = await mountDesktop(null);
-    [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Apps")!.click();
-    await settle();
-    [...host.querySelectorAll<HTMLElement>("#launcher [role=option]")].find((li) => li.textContent?.startsWith("Echo"))!.click();
-    await settle();
-    expect([...host.querySelectorAll(".wm-window")].map((w) => w.getAttribute("aria-label"))).toEqual(["Echo", "Echo 2"]);
+    for (let i = 0; i < 2; i++) {
+      [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Apps")!.click();
+      await settle();
+      [...host.querySelectorAll<HTMLElement>("#launcher [role=option]")].find((li) => li.textContent?.startsWith("Echo"))!.click();
+      await settle();
+    }
+    expect([...host.querySelectorAll(".wm-window")].map((w) => w.getAttribute("aria-label"))).toEqual(["Settings", "Echo", "Echo 2"]);
   });
 });
 

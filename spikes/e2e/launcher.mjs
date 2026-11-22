@@ -103,7 +103,7 @@ try {
   const window = page.locator('.wm-window[aria-label="Calculator"], .wm-window[aria-label="Rechner"]');
   await window.waitFor({ timeout: 60_000 });
   check(true, `the app window shows: ${await window.getAttribute("aria-label")}`);
-  // The new session opens an Echo window too: the check names the window of the app.
+  // The first login opens a Settings window too: the check names the window of the app.
   await page.waitForFunction(
     () => document.querySelector('.wm-window[aria-label="Calculator"] .wm-icon, .wm-window[aria-label="Rechner"] .wm-icon')?.getAttribute("src")?.startsWith("blob:"),
     null,

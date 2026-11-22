@@ -83,8 +83,6 @@ async function run(name, url, user, wayland) {
     log("the password logs in");
 
     // 2. The echo channel, and a reload keeps the session.
-    // The state store can give back the windows of a run before: the Echo window goes to the front.
-    await raise(page, page.locator('.wm-window[aria-label="Echo"]'));
     const time = await echo(page, `hello from ${name}`);
     log(`the echo channel works, round trip ${time} ms`);
     await page.reload();

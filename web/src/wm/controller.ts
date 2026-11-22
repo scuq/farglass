@@ -197,8 +197,8 @@ export function createDesktopController(connection: Connection): DesktopControll
     if (restored) {
       setDesktop(restored);
     } else if (!loaded) {
-      // A new session: open one window, thus the desktop is not empty.
-      apply((state) => withApp(state, "echo"));
+      // The first login of the user: open the settings, thus the user can set up the desktop.
+      apply((state) => withApp(state, "settings"));
     }
     if (!loaded) {
       loaded = true;

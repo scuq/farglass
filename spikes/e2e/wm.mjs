@@ -60,7 +60,10 @@ try {
     if (request.resourceType() === "script") scripts.push(new URL(request.url()).pathname);
   });
   await page.goto(url);
-  const first = page.locator(".wm-window").first();
+  // The first login opens Settings: the test uses an Echo window that it opens.
+  await page.locator(".wm-window").first().waitFor({ timeout: TIMEOUT_MS });
+  await launch(page, "Echo");
+  const first = page.locator('.wm-window[aria-label="Echo"]');
   await first.waitFor({ timeout: TIMEOUT_MS });
   const id = await first.getAttribute("data-window");
 
@@ -123,7 +126,7 @@ try {
 
   // 3. A second window, a size change, and Alt+Tab.
   await launch(page, "Echo");
-  await page.locator(".wm-window").nth(1).waitFor({ timeout: TIMEOUT_MS });
+  await page.locator('.wm-window[aria-label="Echo 2"]').waitFor({ timeout: TIMEOUT_MS });
   const second = await page.locator(".wm-window.wm-focused").getAttribute("data-window");
   const corner = await page.locator(`[data-window="${second}"] .wm-edge-se`).boundingBox();
   const small = await box(page, second);

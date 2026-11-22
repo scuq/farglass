@@ -17,7 +17,7 @@
 
 import { execFileSync } from "node:child_process";
 import { chromium } from "playwright";
-import { echo, launch, logout, raise, TIMEOUT_MS } from "./lib.mjs";
+import { echo, launch, logout, TIMEOUT_MS } from "./lib.mjs";
 
 const [url, user, expect] = process.argv.slice(2);
 let failed = false;
@@ -64,7 +64,6 @@ try {
       await old.first().getByRole("button", { name: "Close" }).click();
       await page.waitForFunction((n) => document.querySelectorAll(".wm-window .term-app").length < n, count, { timeout: TIMEOUT_MS });
     }
-    await raise(page, page.locator('.wm-window[aria-label="Echo"]'));
     const time = await echo(page, `hello from the web session of ${user} ${Date.now()}`);
     console.log(`PASS: the agent in the web session answers, round trip ${time} ms`);
     if (expect === "polkit") {

@@ -5,6 +5,7 @@ import { CONNECTION_CHANNEL, type Connection, encodeJsonFrame, FrameType, parseJ
 import { fakeConnection } from "./proto/testing";
 import { reconnectDelay } from "./reconnect";
 import { StateClient } from "./state";
+import { emptyDesktop, openWindow } from "./wm/model";
 
 let dispose: (() => void) | undefined;
 
@@ -119,12 +120,13 @@ describe("StateClient", () => {
     const { server, connection } = await fakeConnection("alice");
     const host = mount(() => <App connect={() => Promise.resolve(connection)} />);
     await settle();
-    // The desktop asks for its state first. With no state, it opens an echo window.
+    // The desktop asks for its state first. The saved desktop has an echo window.
+    const echoDesktop = openWindow(emptyDesktop(), { id: "e", app: "echo", title: "Echo", w: 400, h: 300 }, { x: 0, y: 0, w: 1024, h: 768 });
     const desktopChannel = server
       .take()
       .find((frame) => frame.type === FrameType.Open && parseJson<{ kind: string }>(frame).kind === "state")!.channel;
     server.push(readyFrame(desktopChannel));
-    server.push(encodeJsonFrame(desktopChannel, FrameType.Control, { type: "value", key: "desktop", value: null }));
+    server.push(encodeJsonFrame(desktopChannel, FrameType.Control, { type: "value", key: "desktop", value: echoDesktop }));
     // The echo module loads on first use. Its get request goes on the state channel of the desktop.
     const get = await vi.waitFor(() => {
       const found = server.received

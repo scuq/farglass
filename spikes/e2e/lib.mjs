@@ -59,6 +59,15 @@ export function start(name, command, args, env, pattern) {
 
 /** Sends `text` on the echo panel of `page` and returns the round-trip time from the log line. */
 export async function echo(page, text) {
+  // The first login opens Settings, not Echo: open an Echo window if there is none.
+  const window = page.locator('.wm-window[aria-label="Echo"]').first();
+  await page.locator(".wm-window").first().waitFor({ timeout: TIMEOUT_MS });
+  if ((await window.count()) === 0) {
+    await launch(page, "Echo");
+    await window.waitFor({ timeout: TIMEOUT_MS });
+  } else {
+    await raise(page, window);
+  }
   await page.getByRole("status").filter({ hasText: "Echo channel open" }).waitFor({ timeout: TIMEOUT_MS });
   await page.getByLabel("Message").fill(text);
   await page.getByRole("button", { name: "Send" }).click();

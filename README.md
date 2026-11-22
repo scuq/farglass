@@ -229,7 +229,8 @@ Each connection from the host itself becomes that user.
 farglassd accepts `--dev-user` only on a loopback address, and refuses connections from other addresses.
 Start the agent as the same user, as in the previous section.
 Then open `https://localhost:8443`.
-The shell opens an echo channel to the agent.
+On the first login of a user, the shell opens the Settings window.
+To test the channel to the agent, open Echo in the launcher.
 Each message comes back with its round-trip time.
 
 To change the shell with live reload, start farglassd as before and then start the Vite server:

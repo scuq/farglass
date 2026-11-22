@@ -95,7 +95,7 @@ try {
   // 1. The window shows with the title and the pixels of the app.
   const window = page.locator(".wm-window").filter({ has: page.locator(".linux-app") });
   await window.waitFor({ timeout: 30_000 });
-  // The test started the app, not the user: the window opens behind Echo, with a mark in the panel (F041).
+  // The test started the app, not the user: the window opens behind the other windows, with a mark in the panel (F041).
   const task = page.locator(".panel-tasks .wm-task").filter({ hasText: await window.getAttribute("aria-label") }).first();
   if ((await task.getAttribute("data-attention")) !== "true") {
     throw new Error("the window that the user did not ask for has no mark in the panel");
