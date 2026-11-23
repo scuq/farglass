@@ -324,7 +324,11 @@ impl Service {
                     drop(answers);
                     let _ = pam.await;
                     let name = lock(&seen).name.clone().or(user);
-                    self.count_failure(&address, name.as_deref());
+                    // As an abandoned attempt: with no answer it is no guess. A lock screen
+                    // left open in a background tab does not block its user.
+                    if answered {
+                        self.count_failure(&address, name.as_deref());
+                    }
                     log_event("login-deadline", &rhost, name.as_deref()).refused();
                     let message = "The login took too long. Try again.".to_owned();
                     return send(&mut link, &LoginEvent::Failure { message }).await;
@@ -365,9 +369,12 @@ impl Service {
             }
             Err(failure) => {
                 let name = failure.user.clone().or(user);
-                self.count_failure(&address, name.as_deref());
                 // The conversation stopped at the deadline: PAM failed for no answer.
-                if Instant::now() >= deadline {
+                let late = Instant::now() >= deadline;
+                if answered || !late {
+                    self.count_failure(&address, name.as_deref());
+                }
+                if late {
                     log_event("login-deadline", &rhost, name.as_deref()).refused();
                     let message = "The login took too long. Try again.".to_owned();
                     return send(&mut link, &LoginEvent::Failure { message }).await;

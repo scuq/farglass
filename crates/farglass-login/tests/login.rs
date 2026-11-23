@@ -662,14 +662,30 @@ async fn a_browser_with_a_device_cookie_gets_a_reserved_place() {
 }
 
 #[tokio::test]
-async fn a_login_that_passes_the_deadline_fails_and_counts() {
+async fn a_login_that_passes_the_deadline_fails_and_counts_only_after_an_answer() {
     let harness =
         Harness::start(|settings| settings.login_deadline = Duration::from_millis(300)).await;
     let user = current_user();
-    for _ in 0..limiter::FREE_FAILURES {
+    // No answer, as a lock screen left open: the deadline ends the login, and it does not count.
+    for _ in 0..=limiter::FREE_FAILURES {
         let mut attempt = harness.attempt(Some(&user)).await;
         first_prompt(&mut attempt).await;
-        // No answer: the deadline ends the login.
+        assert!(
+            matches!(result(&mut attempt).await, LoginEvent::Failure { message } if message.contains("too long"))
+        );
+    }
+    let mut attempt = harness.attempt(Some(&user)).await;
+    first_prompt(&mut attempt).await;
+    drop(attempt);
+
+    // The username, then no password until the deadline: it counts.
+    for _ in 0..limiter::FREE_FAILURES {
+        let mut attempt = harness.attempt(None).await;
+        let (prompt, _) = first_prompt(&mut attempt).await;
+        attempt
+            .answer(prompt, Zeroizing::new(user.clone()))
+            .await
+            .unwrap();
         assert!(
             matches!(result(&mut attempt).await, LoginEvent::Failure { message } if message.contains("too long"))
         );
