@@ -6,7 +6,7 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ---
 
-## Unreleased
+## v0.1.6 — 23 November 2026 — Lock screen lockout fix and a longer idle lock
 
 ### Changed
 - farglassd locks a session after 48 minutes with no keyboard or pointer activity, not after 15 minutes. If `idle_lock_minutes` is set in the configuration of farglassd, that value stays in effect.
