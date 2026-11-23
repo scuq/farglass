@@ -123,7 +123,7 @@ impl Default for Config {
             login_socket: PathBuf::from("/run/farglass/login.sock"),
             allowed_origins: Vec::new(),
             idle_logout_minutes: 480,
-            idle_lock_minutes: 15,
+            idle_lock_minutes: 48,
             http3: true,
             dev_user: None,
             allow_user_agents: false,

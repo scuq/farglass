@@ -10,8 +10,8 @@ use tokio::sync::broadcast;
 /// The default time with no browser connection before the idle logout (8 hours).
 pub const IDLE_LOGOUT: Duration = Duration::from_secs(8 * 60 * 60);
 
-/// The default time with no keyboard or pointer activity before the idle lock (15 minutes).
-pub const IDLE_LOCK: Duration = Duration::from_secs(15 * 60);
+/// The default time with no keyboard or pointer activity before the idle lock (48 minutes).
+pub const IDLE_LOCK: Duration = Duration::from_secs(48 * 60);
 
 #[derive(Debug)]
 struct Entry {

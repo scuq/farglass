@@ -669,7 +669,7 @@ Each change of the host goes through polkit, thus the host can ask for an admini
 ## Lock screen
 
 Lock in the session menu locks the session in each tab of the user.
-farglassd also locks it after 15 minutes with no keyboard or pointer activity in a tab of the user, and after `loginctl lock-session`.
+farglassd also locks it after 48 minutes with no keyboard or pointer activity in a tab of the user, and after `loginctl lock-session`.
 While the session is locked, the browser gets no channel of the session, and the page has no desktop.
 Your programs continue on the host.
 The password of the user unlocks the session in each tab.

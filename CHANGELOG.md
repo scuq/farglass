@@ -8,6 +8,9 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ## Unreleased
 
+### Changed
+- farglassd locks a session after 48 minutes with no keyboard or pointer activity, not after 15 minutes. If `idle_lock_minutes` is set in the configuration of farglassd, that value stays in effect.
+
 ### Fixed
 - A lock screen or a login screen that stays open with no input, for example in a background tab, no longer blocks the login with "Too many failed logins". A login that ran out of time counted as a failed login also when no one typed a password.
 
