@@ -15,7 +15,8 @@ use crate::message::{
     NotifyAction, NotifyEvent, NotifyReply, Open, PasskeyEvent, PasskeyInfo, PasskeyRequest,
     PolkitEvent, PolkitReply, PtyEvent, PtyRequest, Ready, RedirectEvent, RedirectRect,
     RedirectRequest, StateEvent, StateRequest, StatsEvent, SurfaceAck, SurfaceEvent, SurfaceInput,
-    SurfaceRect, SurfaceRequest, Urgency, Usage, WindowUsage,
+    SurfaceRect, SurfaceRequest, TrayEvent, TrayItem, TrayRequest, TrayStatus, Urgency, Usage,
+    WindowUsage,
 };
 use crate::{
     ChannelId, FrameError, FrameType, HEADER_LEN, MAX_PAYLOAD_LEN, PROTOCOL_VERSION,
@@ -126,6 +127,10 @@ fn messages() -> String {
     declare::<BookmarkProblem>(&cfg, &mut out);
     declare::<BookmarksRequest>(&cfg, &mut out);
     declare::<BookmarksEvent>(&cfg, &mut out);
+    declare::<TrayStatus>(&cfg, &mut out);
+    declare::<TrayItem>(&cfg, &mut out);
+    declare::<TrayEvent>(&cfg, &mut out);
+    declare::<TrayRequest>(&cfg, &mut out);
     declare::<ClipboardMime>(&cfg, &mut out);
     declare::<ClipboardMessage>(&cfg, &mut out);
     declare::<SurfaceInput>(&cfg, &mut out);

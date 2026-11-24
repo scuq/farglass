@@ -11,6 +11,7 @@ import { startSurfaceManager, stopSurfaceManager } from "../surface/manager";
 import { parseVideoMode, VIDEO_KEY } from "../surface/redirect";
 import { KeyHints } from "../keys/KeyHints";
 import { Panel } from "../panel/Panel";
+import { startTray } from "../panel/tray";
 import { Tour, TOUR_EVENT } from "../tour/Tour";
 import { PolkitDialog } from "../polkit/PolkitDialog";
 import type { Connection } from "../proto";
@@ -83,6 +84,8 @@ export function Desktop(props: { connection: Connection; user: string; onlogout:
   onCleanup(startHostApps(props.connection));
   // The bookmarks file for the bookmarks app and the launcher (F100).
   onCleanup(startBookmarks(props.connection));
+  // The system tray: the items of the programs that stay in a tray (F102).
+  onCleanup(startTray(props.connection));
   // The tour of the shortcuts starts from the settings (F044).
   const startTour = () => controller.setTourOpen(true);
   window.addEventListener(TOUR_EVENT, startTour);

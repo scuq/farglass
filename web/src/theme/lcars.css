@@ -239,6 +239,10 @@
   font-weight: 700;
   box-shadow: inset 0 -2px var(--lcars-coral);
 }
+/* A tray item that needs attention (F102): the coral line of a window that needs attention. */
+:root[data-theme="lcars"] .panel button.panel-tray-item[data-status="needs-attention"] {
+  box-shadow: inset 0 -2px var(--lcars-coral);
+}
 :root[data-theme="lcars"] .panel button:not(.popover *)[aria-pressed="true"] {
   outline: none;
   color: var(--fg);

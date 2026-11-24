@@ -9,7 +9,7 @@ Each user logs in with the PAM stack of the host and gets a real logind session.
 ## What farglass has
 
 - Login: PAM, passkeys as a second factor, a machine PIN, and a lock screen.
-- Shell: a window manager, a panel, a launcher, workspaces, an overview, a layout picker, context menus, and keyboard shortcuts with a tour.
+- Shell: a window manager, a panel with a system tray, a launcher, workspaces, an overview, a layout picker, context menus, and keyboard shortcuts with a tour.
 - Shell apps: a terminal, settings, bookmarks, notifications, and the polkit password dialog.
 - Linux apps of the host: a headless Wayland compositor sends their windows as tiles and video, with sound and the clipboard. X11 apps can show through Xwayland, off by default.
 - Video redirection: a video in the host Chromium plays in the client browser.
@@ -472,6 +472,7 @@ The panel at the top has these parts, from left to right:
   The agent reads them from the systemd scope of the app or the terminal, every 2 s, and only while a tab is open.
 - **Overview** shows all workspaces with their windows. Each window has a letter: press it to go to that window, also on a different workspace. Escape closes the overview.
 - **Tile** opens the layout picker. Each layout shows a preview with your windows: columns, grid, center, wide, and spotlight. The window with the focus gets the main place. Select a layout with the arrow keys or 1 to 5, and press Enter.
+- The system tray: one icon for each program that stays in the tray, for example a password manager. See [System tray](#system-tray).
 - The keyboard layout of the Linux apps, for example US, DE, or AT. A click opens a menu: Automatic, the layouts that you used last, and More layouts, which opens Settings > Keyboard.
 - The clock, with the date in its tooltip. It shows the time of the client.
   Settings > Date and time selects a 24-hour clock, a 12-hour clock, or the format of the language of the browser.
@@ -485,7 +486,7 @@ A click on an app with no window starts it.
 A click on an app with windows shows its last used window, and each next click shows its next window.
 Right-click an icon to pin it, to open a new window, or to close its windows.
 The dock and the launcher use the same pins.
-The bar at the top keeps Apps, the workspaces, Overview, Tile, the keyboard layout, the clock, and the session menu.
+The bar at the top keeps Apps, the workspaces, Overview, Tile, the system tray, the keyboard layout, the clock, and the session menu.
 
 
 A right click opens the menu of the shell:
@@ -806,6 +807,30 @@ A click on the notification or on one of its buttons sends the action to the pro
 The pointer on a notification stops its time. A critical notification stays until you close it.
 
 `npm --prefix spikes/e2e run notify` tests the notifications in Chromium through gdbus.
+
+## System tray
+
+Some programs stay in a tray when you close their window, for example Bitwarden and Seafile.
+farglass is the tray of the web session: the panel shows one icon for each of these programs, left of the keyboard layout.
+With no such program, the panel shows no tray.
+
+- A click on an icon does the main action of the program. Most programs show their window again.
+- A click with the middle button does the second action of the program, if it has one.
+- The wheel on an icon goes to the program, for example to change a volume.
+- The pointer on an icon shows the title of the program.
+- An icon with a line below it asks you to look at the program.
+
+The tray uses the StatusNotifierItem protocol on the session bus of the user.
+The agent owns the name `org.kde.StatusNotifierWatcher` and needs no configuration.
+A program that knows only the older XEmbed tray of X11 shows no icon.
+
+The agent does not take the name from a different owner.
+While a local desktop of the same user owns the name, the tray of the web session is empty.
+A program that started before the agent shows its icon after it registers again. If the icon does not show, start the program again.
+
+A window that is minimized in farglass is still open for its program.
+A click on the icon of such a program can close the window, because the program hides a window that it shows.
+Click the icon again to get the window back.
 
 ## Focus protection
 

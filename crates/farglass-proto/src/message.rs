@@ -182,6 +182,10 @@ pub enum Open {
     ///
     /// The agent sends [`BookmarksEvent::Loaded`] at once. The shell sends [`BookmarksRequest`].
     Bookmarks,
+    /// The system tray of the session (F102): the status notifier items of the programs.
+    ///
+    /// The agent sends [`TrayEvent::Items`] at once, then each change. The shell sends [`TrayRequest`].
+    Tray,
     /// The polkit prompts of the session. The shell keeps one open while the desktop shows.
     ///
     /// The agent sends [`PolkitEvent`] and gets [`PolkitReply`], as control messages.
@@ -953,6 +957,101 @@ pub enum SurfaceRequest {
     },
 }
 
+/// The status of a tray item, as the program gives it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "kebab-case")]
+pub enum TrayStatus {
+    /// The item has nothing to tell.
+    Passive,
+    /// The item is in use.
+    Active,
+    /// The item asks the user to look at it.
+    NeedsAttention,
+}
+
+/// One item of the system tray: the status notifier item of a program.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TrayItem {
+    /// The number of the item in the agent. The bus name of the program does not go to the shell.
+    pub id: u32,
+    /// The name that the program gives the item, for example `bitwarden`. It is not unique.
+    pub name: String,
+    /// The title for the user. It is never empty.
+    pub title: String,
+    /// The title of the tooltip, if it has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub tooltip: Option<String>,
+    /// The status.
+    pub status: TrayStatus,
+    /// The icon in base64. With the status [`TrayStatus::NeedsAttention`], the attention icon if the item has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub icon: Option<String>,
+    /// The mime type of the icon: `image/png` or `image/svg+xml`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub icon_mime: Option<String>,
+    /// Reports whether the item has a menu.
+    pub menu: bool,
+    /// Reports whether the item is only a menu: it has no action for a click.
+    pub menu_only: bool,
+}
+
+/// A message of the agent on a tray channel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum TrayEvent {
+    /// All items. The agent sends it one time, after the channel opens.
+    Items {
+        /// The items.
+        items: Vec<TrayItem>,
+    },
+    /// A new item, or a change of the item with the same id.
+    Item {
+        /// The item.
+        item: TrayItem,
+    },
+    /// The program removed the item, or left the bus.
+    Removed {
+        /// The id of the item.
+        id: u32,
+    },
+}
+
+/// A request of the shell on a tray channel. `x` and `y` are the position of the pointer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum TrayRequest {
+    /// The main action of the item: a click. Most programs show their window.
+    Activate {
+        /// The id of the item.
+        id: u32,
+        /// The horizontal position.
+        x: i32,
+        /// The vertical position.
+        y: i32,
+    },
+    /// The second action of the item: a click with the middle button.
+    SecondaryActivate {
+        /// The id of the item.
+        id: u32,
+        /// The horizontal position.
+        x: i32,
+        /// The vertical position.
+        y: i32,
+    },
+    /// The wheel moved on the item.
+    Scroll {
+        /// The id of the item.
+        id: u32,
+        /// The distance. A positive value is up or to the right.
+        delta: i32,
+        /// Reports whether the direction is horizontal.
+        horizontal: bool,
+    },
+}
+
 /// A message of the agent on a notify channel.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -1206,6 +1305,39 @@ mod tests {
         assert_eq!(
             serde_json::to_value(Open::Echo).unwrap(),
             json!({"kind": "echo"})
+        );
+    }
+
+    #[test]
+    fn tray_messages_use_kebab_case_and_omit_a_missing_icon() {
+        assert_eq!(
+            serde_json::to_value(Open::Tray).unwrap(),
+            json!({"kind": "tray"})
+        );
+        let item = TrayItem {
+            id: 3,
+            name: "bitwarden".to_owned(),
+            title: "Bitwarden".to_owned(),
+            tooltip: None,
+            status: TrayStatus::NeedsAttention,
+            icon: None,
+            icon_mime: None,
+            menu: true,
+            menu_only: false,
+        };
+        assert_eq!(
+            serde_json::to_value(TrayEvent::Item { item }).unwrap(),
+            json!({"type": "item", "item": {
+                "id": 3, "name": "bitwarden", "title": "Bitwarden",
+                "status": "needs-attention", "menu": true, "menu_only": false,
+            }})
+        );
+        let request: TrayRequest =
+            serde_json::from_value(json!({"type": "secondary-activate", "id": 3, "x": 10, "y": 4}))
+                .unwrap();
+        assert_eq!(
+            request,
+            TrayRequest::SecondaryActivate { id: 3, x: 10, y: 4 }
         );
     }
 

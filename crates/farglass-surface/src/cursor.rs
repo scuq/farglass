@@ -1,4 +1,4 @@
-//! The pointer images of the clients as PNG files for a CSS cursor (F084).
+//! The pointer images of the clients as PNG files for a CSS cursor (F084), and the PNG encoder.
 
 use std::io::Write as _;
 
@@ -15,23 +15,39 @@ pub fn png(image: &CursorImage) -> Option<Vec<u8>> {
     if width == 0 || height == 0 || image.pixels.len() != width * height * 4 {
         return None;
     }
+    let mut rgba = Vec::with_capacity(image.pixels.len());
+    for &[b, g, r, a] in image.pixels.as_chunks::<4>().0 {
+        let a = match image.format {
+            Format::Argb8888 => a,
+            Format::Xrgb8888 => 255,
+        };
+        let straight = |c: u8| match a {
+            0 => 0,
+            255 => c,
+            _ => {
+                u8::try_from((u16::from(c) * 255 + u16::from(a) / 2) / u16::from(a)).unwrap_or(255)
+            }
+        };
+        rgba.extend_from_slice(&[straight(r), straight(g), straight(b), a]);
+    }
+    png_rgba(image.width, image.height, &rgba)
+}
+
+/// Returns a PNG file of `width` by `height` pixels, or `None` if `rgba` does not match the size.
+///
+/// `rgba` has straight alpha in the byte order red, green, blue, alpha.
+#[must_use]
+pub fn png_rgba(width: u32, height: u32, rgba: &[u8]) -> Option<Vec<u8>> {
+    let columns = usize::try_from(width).ok()?;
+    let rows = usize::try_from(height).ok()?;
+    if columns == 0 || rows == 0 || rgba.len() != columns.checked_mul(rows)?.checked_mul(4)? {
+        return None;
+    }
     // Each row starts with the filter type 0: the bytes as they are.
-    let mut raw = Vec::with_capacity(height * (width * 4 + 1));
-    for row in image.pixels.chunks_exact(width * 4) {
+    let mut raw = Vec::with_capacity(rows * (columns * 4 + 1));
+    for row in rgba.chunks_exact(columns * 4) {
         raw.push(0);
-        for &[b, g, r, a] in row.as_chunks::<4>().0 {
-            let a = match image.format {
-                Format::Argb8888 => a,
-                Format::Xrgb8888 => 255,
-            };
-            let straight = |c: u8| match a {
-                0 => 0,
-                255 => c,
-                _ => u8::try_from((u16::from(c) * 255 + u16::from(a) / 2) / u16::from(a))
-                    .unwrap_or(255),
-            };
-            raw.extend_from_slice(&[straight(r), straight(g), straight(b), a]);
-        }
+        raw.extend_from_slice(row);
     }
     let mut zlib = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
     zlib.write_all(&raw).ok()?;
@@ -39,8 +55,8 @@ pub fn png(image: &CursorImage) -> Option<Vec<u8>> {
 
     let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
     let mut header = Vec::with_capacity(13);
-    header.extend_from_slice(&image.width.to_be_bytes());
-    header.extend_from_slice(&image.height.to_be_bytes());
+    header.extend_from_slice(&width.to_be_bytes());
+    header.extend_from_slice(&height.to_be_bytes());
     // 8 bits for each channel, RGBA, deflate, no interlace.
     header.extend_from_slice(&[8, 6, 0, 0, 0]);
     chunk(&mut out, b"IHDR", &header);

@@ -194,6 +194,48 @@ describe("apps of the host", () => {
   });
 });
 
+describe("system tray", () => {
+  test("the panel shows one button for each item, and a click goes to the program", async () => {
+    const { host, server, channelOf } = await mountDesktop();
+    const tray = channelOf("tray");
+    const requests = () =>
+      server
+        .take()
+        .filter((f) => f.channel === tray)
+        .map((f) => parseJson(f));
+    // With no item, the panel has no tray.
+    expect(host.querySelector(".panel-tray")).toBeNull();
+    server.push(readyFrame(tray));
+    const item = (id: number, title: string, more: object = {}) => ({ id, name: title.toLowerCase(), title, status: "active", menu: false, menu_only: false, ...more });
+    server.push(encodeJsonFrame(tray, FrameType.Control, { type: "items", items: [item(2, "Seafile", { tooltip: "In sync" }), item(1, "Bitwarden", { icon: "AAAA", icon_mime: "image/png" })] }));
+    await settle();
+    const buttons = () => [...host.querySelectorAll<HTMLButtonElement>(".panel-tray .panel-tray-item")];
+    expect(host.querySelector(".panel-tray")?.getAttribute("aria-label")).toBe("System tray");
+    expect(buttons().map((button) => button.getAttribute("aria-label"))).toEqual(["Bitwarden", "Seafile"]);
+    expect(buttons()[0]!.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,AAAA");
+    // An item with no icon shows a letter.
+    expect(buttons()[1]!.textContent).toBe("S");
+    expect(buttons()[1]!.title).toBe("Seafile: In sync");
+
+    requests();
+    buttons()[0]!.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 900, clientY: 12 }));
+    buttons()[1]!.dispatchEvent(new MouseEvent("auxclick", { bubbles: true, button: 1, clientX: 930, clientY: 12 }));
+    await settle();
+    expect(requests()).toEqual([
+      { type: "activate", id: 1, x: 900, y: 12 },
+      { type: "secondary-activate", id: 2, x: 930, y: 12 },
+    ]);
+
+    server.push(encodeJsonFrame(tray, FrameType.Control, { type: "item", item: item(2, "Seafile", { status: "needs-attention" }) }));
+    await settle();
+    expect(buttons()[1]!.dataset.status).toBe("needs-attention");
+    server.push(encodeJsonFrame(tray, FrameType.Control, { type: "removed", id: 1 }));
+    server.push(encodeJsonFrame(tray, FrameType.Control, { type: "removed", id: 2 }));
+    await settle();
+    expect(host.querySelector(".panel-tray")).toBeNull();
+  });
+});
+
 describe("bookmarks in the launcher", () => {
   test("the launcher shows the bookmarks only with the option, and opens them on the host or in a tab", async () => {
     const opened = vi.spyOn(window, "open").mockReturnValue(null);

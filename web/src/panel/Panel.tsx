@@ -15,11 +15,12 @@ import { Dock } from "./Dock";
 import { KeyboardIndicator, type KeyboardState } from "./KeyboardIndicator";
 import { Launcher } from "./Launcher";
 import { Popover } from "./Popover";
+import { Tray } from "./Tray";
 import "./panel.css";
 
 /**
  * The panel at the top: the launcher, the workspaces, the open windows of the
- * workspace, the clock, and the session menu.
+ * workspace, the system tray, the clock, and the session menu.
  */
 export function Panel(props: { controller: DesktopController; user: string; onlogout: () => void; onlock: () => void; keyboard?: KeyboardState }) {
   const c = props.controller;
@@ -153,6 +154,7 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
       <button type="button" class="panel-tile" aria-haspopup="dialog" onClick={() => c.setLayoutsOpen(!c.layoutsOpen())} title={`Select a layout for the windows of the workspace (${c.hint("layouts")})`}>
         Tile
       </button>
+      <Tray />
       <Show when={props.keyboard}>{(keyboard) => <KeyboardIndicator controller={c} keyboard={keyboard()} />}</Show>
       <Clock settings={clock} />
       <button

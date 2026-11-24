@@ -12,7 +12,7 @@ use farglass_proto::message::{
     AppsEvent, AppsRequest, AudioEvent, BookmarksEvent, BookmarksRequest, Bus, ClipboardMessage,
     ClipboardMime, Close, CloseReason, DbusEvent, DbusRequest, LinkMessage, MAX_CLIPBOARD_LEN,
     NotifyReply, Open, PolkitReply, PtyEvent, PtyRequest, Ready, RedirectRequest, StateEvent,
-    StateRequest, SurfaceAck, SurfaceInput, SurfaceRequest,
+    StateRequest, SurfaceAck, SurfaceInput, SurfaceRequest, TrayRequest,
 };
 use farglass_proto::{ChannelId, Frame, FrameError, FrameType, PROTOCOL_VERSION, Side};
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -35,6 +35,7 @@ use crate::surfaces::{self, Surfaces};
 use crate::terminal::{
     AttachError, Output, Sink, TerminalLink, TerminalOptions, Terminals, ViewerId,
 };
+use crate::tray::{self, Tray};
 
 /// farglassd must send its hello message in this time.
 const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
@@ -84,6 +85,8 @@ pub struct Session {
     pub launcher: Arc<Launcher>,
     /// The bookmarks file and the browsers that open its bookmarks (F100).
     pub bookmarks: Arc<Bookmarks>,
+    /// The system tray: the status notifier items of the programs (F102).
+    pub tray: Arc<Tray>,
     /// The sound of the apps.
     pub audio: Arc<Audio>,
     /// The video players of the host browsers.
@@ -118,6 +121,7 @@ impl Default for Session {
             buses,
             polkit: Polkit::new(HELPER),
             notifications: Notifications::new(),
+            tray: Tray::new(),
             surfaces,
             bookmarks: Bookmarks::new(crate::bookmarks::default_path(), launcher.clone()),
             launcher,
@@ -373,6 +377,19 @@ where
                         }
                     }
                     Kind::Notify { .. } => None,
+                    Kind::Tray { .. } if frame.frame_type() == FrameType::Control => {
+                        match frame.parse::<TrayRequest>() {
+                            Ok(request) => {
+                                session.tray.request(request);
+                                None
+                            }
+                            Err(error) => Some((
+                                CloseReason::ProtocolError,
+                                format!("The tray request is not valid: {error}"),
+                            )),
+                        }
+                    }
+                    Kind::Tray { .. } => None,
                     Kind::Surfaces { .. } if frame.frame_type() == FrameType::Control => {
                         match frame.parse::<SurfaceRequest>() {
                             Ok(request) => {
@@ -884,6 +901,11 @@ enum Kind {
         /// Dropping the guard removes the channel from the agent.
         _viewer: notify::ViewerGuard,
     },
+    /// Gets the items of the system tray. Dropping the channel removes it.
+    Tray {
+        /// Dropping the guard removes the channel from the agent.
+        _viewer: tray::ViewerGuard,
+    },
     /// Gives keyboard and pointer input to the Wayland apps.
     SurfaceInput,
     /// Lists and starts the apps of the host.
@@ -990,6 +1012,15 @@ fn open(
                 }
             });
             accept(Kind::Notify { _viewer: guard })
+        }
+        Ok(Open::Tray) => {
+            let events = events.clone();
+            let guard = session.tray.add_viewer(move |event| {
+                if let Ok(frame) = Frame::json(channel, FrameType::Control, &event) {
+                    let _ = events.send(frame);
+                }
+            });
+            accept(Kind::Tray { _viewer: guard })
         }
         Ok(Open::Surfaces) => {
             let events = events.clone();

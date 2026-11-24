@@ -12,6 +12,7 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 - The Bookmarks app keeps URLs with short names. Each bookmark opens in Firefox, Chromium, Chrome, or Brave on the host, in a profile of that browser, or in a private window. A bookmark can also open in a new tab of the browser that shows farglass.
 - The bookmarks are in the file `~/.config/farglass/bookmarks.toml`. Copy the file to use the same bookmarks on a different host. A change by hand shows in the app, and a save from the app keeps the comments of the file.
 - To find the bookmarks by their short names in the launcher, select Show in launcher search in the Bookmarks app. This option is off by default.
+- The panel has a system tray. A program that stays in the tray when you close its window, for example Bitwarden or Seafile, shows an icon there. Click the icon to get the window back. Before, such a program had no icon, and you had to start it again to get its window.
 - Alt+Shift+Space opens and closes the launcher on Windows and Linux. The key works in each browser and needs no F1 key, which many laptops reach only with Fn.
 
 ### Fixed

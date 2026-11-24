@@ -64,7 +64,7 @@ id: number,
 /**
  * Reports whether the shell decodes the video messages (F037). A shell before this field sends none and gets tiles only.
  */
-video?: boolean, } | { "kind": "surface-input" } | { "kind": "clipboard" } | { "kind": "audio" } | { "kind": "redirect" } | { "kind": "stats" } | { "kind": "apps" } | { "kind": "bookmarks" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" } | { "kind": "passkeys" };
+video?: boolean, } | { "kind": "surface-input" } | { "kind": "clipboard" } | { "kind": "audio" } | { "kind": "redirect" } | { "kind": "stats" } | { "kind": "apps" } | { "kind": "bookmarks" } | { "kind": "tray" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" } | { "kind": "passkeys" };
 
 /**
  * The payload of a ready frame. The receiver of the open frame accepts the channel.
@@ -974,6 +974,110 @@ name?: string,
  * The cause, for the user.
  */
 message: string, };
+
+/**
+ * The status of a tray item, as the program gives it.
+ */
+export type TrayStatus = "passive" | "active" | "needs-attention";
+
+/**
+ * One item of the system tray: the status notifier item of a program.
+ */
+export type TrayItem = { 
+/**
+ * The number of the item in the agent. The bus name of the program does not go to the shell.
+ */
+id: number, 
+/**
+ * The name that the program gives the item, for example `bitwarden`. It is not unique.
+ */
+name: string, 
+/**
+ * The title for the user. It is never empty.
+ */
+title: string, 
+/**
+ * The title of the tooltip, if it has one.
+ */
+tooltip?: string, 
+/**
+ * The status.
+ */
+status: TrayStatus, 
+/**
+ * The icon in base64. With the status [`TrayStatus::NeedsAttention`], the attention icon if the item has one.
+ */
+icon?: string, 
+/**
+ * The mime type of the icon: `image/png` or `image/svg+xml`.
+ */
+icon_mime?: string, 
+/**
+ * Reports whether the item has a menu.
+ */
+menu: boolean, 
+/**
+ * Reports whether the item is only a menu: it has no action for a click.
+ */
+menu_only: boolean, };
+
+/**
+ * A message of the agent on a tray channel.
+ */
+export type TrayEvent = { "type": "items", 
+/**
+ * The items.
+ */
+items: Array<TrayItem>, } | { "type": "item", 
+/**
+ * The item.
+ */
+item: TrayItem, } | { "type": "removed", 
+/**
+ * The id of the item.
+ */
+id: number, };
+
+/**
+ * A request of the shell on a tray channel. `x` and `y` are the position of the pointer.
+ */
+export type TrayRequest = { "type": "activate", 
+/**
+ * The id of the item.
+ */
+id: number, 
+/**
+ * The horizontal position.
+ */
+x: number, 
+/**
+ * The vertical position.
+ */
+y: number, } | { "type": "secondary-activate", 
+/**
+ * The id of the item.
+ */
+id: number, 
+/**
+ * The horizontal position.
+ */
+x: number, 
+/**
+ * The vertical position.
+ */
+y: number, } | { "type": "scroll", 
+/**
+ * The id of the item.
+ */
+id: number, 
+/**
+ * The distance. A positive value is up or to the right.
+ */
+delta: number, 
+/**
+ * Reports whether the direction is horizontal.
+ */
+horizontal: boolean, };
 
 /**
  * The kind of a clipboard content.

@@ -351,18 +351,138 @@ pub fn scan(dirs: &[PathBuf], languages: &[String]) -> Vec<DesktopApp> {
     apps
 }
 
-/// Returns the file of the icon `icon` and its mime type: an absolute path, the hicolor theme, or `pixmaps`.
-#[must_use]
-pub fn find_icon(dirs: &[PathBuf], icon: &str) -> Option<(PathBuf, &'static str)> {
-    let mime = |path: &Path| match path.extension().and_then(|e| e.to_str()) {
+/// Returns the mime type of an icon file from its extension: SVG or PNG only.
+fn icon_mime(path: &Path) -> Option<&'static str> {
+    match path.extension().and_then(|e| e.to_str()) {
         Some("svg") => Some("image/svg+xml"),
         Some("png") => Some("image/png"),
         _ => None,
+    }
+}
+
+/// Reports whether `path` is a file of at most [`MAX_ICON`] bytes.
+fn icon_usable(path: &Path) -> bool {
+    path.metadata()
+        .is_ok_and(|meta| meta.is_file() && meta.len() <= MAX_ICON)
+}
+
+/// The icon themes that [`find_tray_icon`] reads first, after hicolor.
+const TRAY_THEMES: [&str; 6] = [
+    "Adwaita",
+    "AdwaitaLegacy",
+    "breeze",
+    "Papirus",
+    "gnome",
+    "oxygen",
+];
+
+/// The largest number of icon themes that [`find_tray_icon`] reads in one data directory.
+const MAX_TRAY_THEMES: usize = 24;
+
+/// The sizes of the status icons of a theme, the best for the panel first.
+const TRAY_SIZES: [&str; 10] = [
+    "scalable", "48x48", "64x64", "32x32", "24x24", "22x22", "96x96", "128x128", "256x256", "16x16",
+];
+
+/// Returns the names of the icon themes in `icons`: the usual themes first, then the others by name.
+/// The hicolor theme is not in the list.
+fn tray_themes(icons: &Path) -> Vec<String> {
+    let mut others: Vec<String> = std::fs::read_dir(icons)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|name| name != "hicolor" && !TRAY_THEMES.contains(&name.as_str()))
+        .collect();
+    others.sort();
+    TRAY_THEMES
+        .iter()
+        .filter(|name| icons.join(name).is_dir())
+        .map(|name| (*name).to_owned())
+        .chain(others)
+        .take(MAX_TRAY_THEMES)
+        .collect()
+}
+
+/// Returns the file of the icon `icon` of a tray item and its mime type (F102).
+///
+/// `theme_path` is the `IconThemePath` of the item, or empty. The order is:
+/// the directory `theme_path`, the hicolor theme in `theme_path`, the `status`
+/// icons of the hicolor theme in `dirs`, [`find_icon`], then the `status`
+/// icons of the other themes in `dirs`. The agent does not know the icon theme
+/// of the user, because the web session has no desktop settings.
+#[must_use]
+pub fn find_tray_icon(
+    dirs: &[PathBuf],
+    theme_path: &str,
+    icon: &str,
+) -> Option<(PathBuf, &'static str)> {
+    if icon.is_empty() {
+        return None;
+    }
+    if icon.starts_with('/') {
+        return find_icon(dirs, icon);
+    }
+    if icon.contains('/') || icon.starts_with('.') {
+        return None;
+    }
+    let named = |base: PathBuf| {
+        ["svg", "png"]
+            .map(|extension| base.join(format!("{icon}.{extension}")))
+            .into_iter()
+            .find(|path| icon_usable(path))
+            .and_then(|path| icon_mime(&path).map(|mime| (path, mime)))
     };
-    let usable = |path: &Path| {
-        path.metadata()
-            .is_ok_and(|meta| meta.is_file() && meta.len() <= MAX_ICON)
-    };
+    let theme = Path::new(theme_path);
+    if theme.is_absolute() {
+        if let Some(found) = named(theme.to_path_buf()) {
+            return Some(found);
+        }
+        for size in ICON_SIZES {
+            for kind in ["status", "apps"] {
+                if let Some(found) = named(theme.join("hicolor").join(size).join(kind)) {
+                    return Some(found);
+                }
+            }
+        }
+    }
+    for size in ICON_SIZES {
+        for dir in dirs {
+            if let Some(found) = named(dir.join("icons/hicolor").join(size).join("status")) {
+                return Some(found);
+            }
+        }
+    }
+    if let Some(found) = find_icon(dirs, icon) {
+        return Some(found);
+    }
+    for dir in dirs {
+        let icons = dir.join("icons");
+        for theme in tray_themes(&icons) {
+            let theme = icons.join(theme);
+            for size in TRAY_SIZES {
+                // The usual layout is size/status. The breeze theme has status/size, with the number only.
+                let number = size.split('x').next().unwrap_or(size);
+                for base in [
+                    theme.join(size).join("status"),
+                    theme.join("status").join(number),
+                ] {
+                    if let Some(found) = named(base) {
+                        return Some(found);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Returns the file of the icon `icon` and its mime type: an absolute path, the hicolor theme, or `pixmaps`.
+#[must_use]
+pub fn find_icon(dirs: &[PathBuf], icon: &str) -> Option<(PathBuf, &'static str)> {
+    let mime = icon_mime;
+    let usable = icon_usable;
     if icon.starts_with('/') {
         let path = PathBuf::from(icon);
         return mime(&path)

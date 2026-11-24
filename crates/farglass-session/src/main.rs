@@ -122,6 +122,26 @@ async fn agent() {
             }
         });
     }
+    // The system tray (F102), before the compositor: a program looks for the watcher when it starts.
+    // FARGLASS_TRAY_NAME changes the bus name, for tests.
+    {
+        let tray = session.tray.clone();
+        let buses = session.buses.clone();
+        let name = std::env::var("FARGLASS_TRAY_NAME")
+            .unwrap_or_else(|_| farglass_session::tray::WATCHER_NAME.to_owned());
+        tokio::spawn(async move {
+            let result = match buses
+                .connection(farglass_proto::message::Bus::Session)
+                .await
+            {
+                Ok(connection) => farglass_session::tray::serve(tray, &connection, &name).await,
+                Err(error) => Err(error),
+            };
+            if let Err(error) = result {
+                tracing::warn!(%error, "the agent does not serve the system tray");
+            }
+        });
+    }
     // Video redirection (F040): the native messaging host of the host browser connects to this socket.
     if let Some(socket) = farglass_session::redirect::socket_path() {
         match session.redirect.listen(&socket) {
