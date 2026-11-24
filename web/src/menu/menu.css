@@ -12,8 +12,11 @@
   box-shadow: 0 8px 28px rgb(0 0 0 / 0.28);
   font: inherit;
   outline: none;
+  /* A popover clips by default. A submenu shows out of the box of its menu. */
+  overflow: visible;
 }
 .context-menu-item {
+  position: relative;
   display: flex;
   justify-content: space-between;
   gap: 1.5rem;
@@ -37,4 +40,45 @@
   height: 1px;
   margin: 0.25rem 0.5rem;
   background: var(--line);
+}
+/* A menu with states or icons has a column for them before the labels. */
+.context-menu-label {
+  flex: 1;
+}
+.context-menu-lead {
+  order: -1;
+  flex: none;
+  width: 1rem;
+  margin-right: -0.9rem;
+  text-align: center;
+}
+.context-menu-lead img {
+  display: block;
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+.context-menu-arrow {
+  flex: none;
+  margin-right: -0.4rem;
+}
+/* A submenu: at the right of its entry, or at the left if the viewport has no space. */
+.context-menu-sub {
+  position: absolute;
+  top: -0.3rem;
+  left: 100%;
+  z-index: 1;
+  width: max-content;
+  max-width: 24rem;
+}
+.context-menu-sub[data-side="left"] {
+  left: auto;
+  right: 100%;
+}
+/* The entries of a submenu do not get the colors of the selected entry around them. */
+.context-menu-item[data-active="true"] .context-menu-sub .context-menu-item:not([data-active="true"]) {
+  color: var(--fg);
+}
+.context-menu-item[data-active="true"] .context-menu-sub .context-menu-item[aria-disabled="true"] {
+  color: var(--muted);
 }

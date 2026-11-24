@@ -5,6 +5,9 @@
  * or the ContextMenu key asks the provider of the nearest element. A provider
  * that gives no items blocks the menus of the elements around it. A text field
  * gets the text menu of the shell. The menu of the browser never shows.
+ *
+ * `openMenuAt` opens a menu with items that come later than the click, for
+ * example the menu of a tray item, which the agent reads from the program.
  */
 
 /** One entry of a menu. */
@@ -15,8 +18,57 @@ export type MenuItem =
       readonly disabled?: boolean;
       /** The keys of the same action, as a hint. */
       readonly shortcut?: string | undefined;
+      /** The state of an entry that is on or off. An entry with no state has none. */
+      readonly checked?: boolean | undefined;
+      /** The entry is one of a group, and only one of the group is on. */
+      readonly radio?: boolean | undefined;
+      /** The URL of an icon. */
+      readonly icon?: string | undefined;
+      /** The entries of a submenu. The entry then opens the submenu, and `action` does not run. */
+      readonly submenu?: readonly MenuItem[] | undefined;
     }
   | { readonly separator: true };
+
+/** Returns the submenu of `item`, or undefined for an entry with no submenu and for a separator. */
+export function submenuOf(item: MenuItem | undefined): readonly MenuItem[] | undefined {
+  return item && !("separator" in item) && item.submenu && item.submenu.length > 0 ? item.submenu : undefined;
+}
+
+/** Returns the items of the submenu at `path`: the index of the open entry at each depth. */
+export function itemsAt(items: readonly MenuItem[], path: readonly number[]): readonly MenuItem[] {
+  let level = items;
+  for (const index of path) {
+    level = submenuOf(level[index]) ?? [];
+  }
+  return level;
+}
+
+/** Opens a menu with `items` at a point. `source` is the element that the menu belongs to. */
+export type MenuOpener = (items: readonly MenuItem[], x: number, y: number, source: Element | null) => void;
+
+let opener: MenuOpener | undefined;
+
+/** Sets the function that shows a menu. The context menu host of the shell sets it. Returns a function that removes it. */
+export function setMenuOpener(next: MenuOpener): () => void {
+  opener = next;
+  return () => {
+    if (opener === next) {
+      opener = undefined;
+    }
+  };
+}
+
+/**
+ * Opens a menu with `items` at the point (`x`, `y`). Returns `false` if the shell shows no menus, or with no items.
+ * `source` is the element that the menu belongs to: the focus goes back to it when the menu closes.
+ */
+export function openMenuAt(items: readonly MenuItem[], x: number, y: number, source: Element | null = null): boolean {
+  if (!opener || items.length === 0) {
+    return false;
+  }
+  opener(items, x, y, source);
+  return true;
+}
 
 /** Gives the items of the menu of an element at the time of the click. */
 export type MenuProvider = () => readonly MenuItem[];

@@ -1,10 +1,13 @@
 //! Tests of the system tray: the tray channel of the link and the D-Bus watcher.
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use farglass_proto::codec::FrameCodec;
-use farglass_proto::message::{LinkMessage, Open, TrayEvent, TrayItem, TrayRequest, TrayStatus};
+use farglass_proto::message::{
+    LinkMessage, Open, TrayEvent, TrayItem, TrayRequest, TrayStatus, TrayToggle,
+};
 use farglass_proto::{ChannelId, Frame, FrameType, PROTOCOL_VERSION};
 use farglass_session::link::Session;
 use farglass_session::tray::{self, Properties, Tray};
@@ -12,8 +15,8 @@ use futures_util::{SinkExt as _, StreamExt as _};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use tokio_util::codec::Framed;
-use zbus::OwnedObjectPath;
 use zbus::object_server::SignalEmitter;
+use zbus::{OwnedObjectPath, OwnedVariant, Variant};
 
 const WAIT: Duration = Duration::from_secs(10);
 
@@ -95,6 +98,7 @@ enum Call {
     Activate(i32, i32),
     SecondaryActivate(i32, i32),
     Scroll(i32, String),
+    MenuEvent(i32, String),
 }
 
 /// A status notifier item as a program exports it.
@@ -102,6 +106,8 @@ struct FakeItem {
     id: &'static str,
     title: &'static str,
     pixel: Arc<Mutex<[u8; 4]>>,
+    /// An item of libappindicator has no action for a click: it refuses Activate.
+    clickable: bool,
     calls: mpsc::UnboundedSender<Call>,
 }
 
@@ -137,8 +143,12 @@ impl FakeItem {
         false
     }
 
-    fn activate(&self, x: i32, y: i32) {
+    fn activate(&self, x: i32, y: i32) -> zbus::fdo::Result<()> {
+        if !self.clickable {
+            return Err(zbus::fdo::Error::UnknownMethod("No Activate.".to_owned()));
+        }
         let _ = self.calls.send(Call::Activate(x, y));
+        Ok(())
     }
 
     fn secondary_activate(&self, x: i32, y: i32) {
@@ -151,6 +161,81 @@ impl FakeItem {
 
     #[zbus(signal)]
     async fn new_icon(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
+}
+
+/// One entry `(ia{sv}av)` of a menu.
+type MenuEntry = (i32, HashMap<String, OwnedVariant>, Vec<OwnedVariant>);
+
+fn entry(
+    id: i32,
+    properties: &[(&str, Variant<'static>)],
+    children: Vec<OwnedVariant>,
+) -> MenuEntry {
+    let properties = properties
+        .iter()
+        .map(|(key, value)| {
+            (
+                (*key).to_owned(),
+                value.try_clone().unwrap().try_into().unwrap(),
+            )
+        })
+        .collect();
+    (id, properties, children)
+}
+
+fn child(entry: MenuEntry) -> OwnedVariant {
+    Variant::from(entry).try_into().unwrap()
+}
+
+/// The menu of a program, as libdbusmenu exports it.
+struct FakeMenu {
+    calls: mpsc::UnboundedSender<Call>,
+}
+
+#[zbus::interface(name = "com.canonical.dbusmenu")]
+impl FakeMenu {
+    fn about_to_show(&self, _id: i32) -> bool {
+        false
+    }
+
+    fn get_layout(&self, _parent: i32, _depth: i32, _properties: Vec<String>) -> (u32, MenuEntry) {
+        let quit = entry(7, &[("label", "_Quit".into())], Vec::new());
+        let root = entry(
+            0,
+            &[("children-display", "submenu".into())],
+            vec![
+                child(entry(1, &[("label", "_Show window".into())], Vec::new())),
+                child(entry(
+                    2,
+                    &[
+                        ("label", "Sync".into()),
+                        ("toggle-type", "checkmark".into()),
+                        ("toggle-state", 1_i32.into()),
+                    ],
+                    Vec::new(),
+                )),
+                child(entry(3, &[("type", "separator".into())], Vec::new())),
+                child(entry(
+                    4,
+                    &[("label", "Hidden".into()), ("visible", false.into())],
+                    Vec::new(),
+                )),
+                child(entry(
+                    5,
+                    &[
+                        ("label", "More".into()),
+                        ("children-display", "submenu".into()),
+                    ],
+                    vec![child(quit)],
+                )),
+            ],
+        );
+        (1, root)
+    }
+
+    fn event(&self, id: i32, event_id: String, _data: OwnedVariant, _timestamp: u32) {
+        let _ = self.calls.send(Call::MenuEvent(id, event_id));
+    }
 }
 
 async fn item_event(events: &mut mpsc::UnboundedReceiver<TrayEvent>) -> TrayItem {
@@ -207,6 +292,7 @@ async fn the_watcher_takes_items_by_name_and_by_path_and_sends_the_clicks() {
                 id: "seafile",
                 title: "Seafile",
                 pixel: pixel.clone(),
+                clickable: true,
                 calls: calls.clone(),
             },
         )
@@ -237,7 +323,8 @@ async fn the_watcher_takes_items_by_name_and_by_path_and_sends_the_clicks() {
                 id: "bitwarden",
                 title: "Bitwarden",
                 pixel: Arc::new(Mutex::new([255, 0, 0, 255])),
-                calls,
+                clickable: true,
+                calls: calls.clone(),
             },
         )
         .await
@@ -307,11 +394,84 @@ async fn the_watcher_takes_items_by_name_and_by_path_and_sends_the_clicks() {
         Some(Call::Scroll(-120, "vertical".to_owned()))
     );
 
+    // The menu of the item (F103): the agent reads it when the shell asks, with no hidden entry.
+    named
+        .object_server()
+        .at(
+            "/MenuBar",
+            FakeMenu {
+                calls: calls.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    tray.request(TrayRequest::Menu { id: seafile.id });
+    let menu = match tokio::time::timeout(WAIT, events.recv()).await {
+        Ok(Some(TrayEvent::Menu { id, items })) if id == seafile.id => items,
+        other => panic!("no menu: {other:?}"),
+    };
+    assert_eq!(
+        menu.iter()
+            .map(|entry| entry.label.as_str())
+            .collect::<Vec<_>>(),
+        ["Show window", "Sync", "", "More"]
+    );
+    assert_eq!(menu[1].toggle, Some(TrayToggle::Check));
+    assert!(menu[1].checked);
+    assert!(menu[2].separator);
+    assert_eq!(menu[3].children[0].label, "Quit");
+    tray.request(TrayRequest::MenuClick {
+        id: seafile.id,
+        item: 7,
+    });
+    assert_eq!(
+        called.recv().await,
+        Some(Call::MenuEvent(7, "clicked".to_owned()))
+    );
+
+    // An item that refuses Activate, as libappindicator: the click opens its menu, and the item is a menu from now on.
+    let indicator = zbus::Connection::session().await.unwrap();
+    indicator
+        .object_server()
+        .at(
+            "/org/ayatana/NotificationItem/probe",
+            FakeItem {
+                id: "probe",
+                title: "Probe",
+                pixel: Arc::new(Mutex::new([255, 9, 9, 9])),
+                clickable: false,
+                calls: calls.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    indicator
+        .object_server()
+        .at("/MenuBar", FakeMenu { calls })
+        .await
+        .unwrap();
+    register(&indicator, &watcher, "/org/ayatana/NotificationItem/probe").await;
+    let probe = item_event(&mut events).await;
+    assert!(!probe.menu_only);
+    tray.request(TrayRequest::Activate {
+        id: probe.id,
+        x: 0,
+        y: 0,
+    });
+    assert!(item_event(&mut events).await.menu_only);
+    match tokio::time::timeout(WAIT, events.recv()).await {
+        Ok(Some(TrayEvent::Menu { id, items })) => {
+            assert_eq!(id, probe.id);
+            assert_eq!(items.len(), 4);
+        }
+        other => panic!("no menu after the click: {other:?}"),
+    }
+
     // A program that leaves the bus takes its item with it.
     pathed.close().await.unwrap();
     match tokio::time::timeout(WAIT, events.recv()).await {
         Ok(Some(TrayEvent::Removed { id })) => assert_eq!(id, bitwarden.id),
         other => panic!("no removal: {other:?}"),
     }
-    assert_eq!(tray.items().len(), 1);
+    assert_eq!(tray.items().len(), 2);
 }

@@ -998,6 +998,41 @@ pub struct TrayItem {
     pub menu_only: bool,
 }
 
+/// The kind of a menu entry that has a state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "kebab-case")]
+pub enum TrayToggle {
+    /// A check mark: on or off.
+    Check,
+    /// One of a group: only one is on.
+    Radio,
+}
+
+/// One entry of the menu of a tray item (F103).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TrayMenuItem {
+    /// The id of the entry in the menu of the program.
+    pub id: i32,
+    /// The label, with no mnemonic marks. A separator has none.
+    pub label: String,
+    /// Reports whether the user can select the entry.
+    pub enabled: bool,
+    /// Reports whether the entry is a line between groups.
+    pub separator: bool,
+    /// The kind of state, if the entry has a state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub toggle: Option<TrayToggle>,
+    /// Reports whether the state is on.
+    pub checked: bool,
+    /// The icon as a PNG file in base64.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub icon: Option<String>,
+    /// The entries of the submenu. The agent removes the entries that the program hides.
+    pub children: Vec<Self>,
+}
+
 /// A message of the agent on a tray channel.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -1016,6 +1051,15 @@ pub enum TrayEvent {
     Removed {
         /// The id of the item.
         id: u32,
+    },
+    /// The menu of an item (F103): the answer to [`TrayRequest::Menu`], or to
+    /// [`TrayRequest::Activate`] on an item that has no action for a click.
+    /// Each tray channel gets it. A shell that did not ask ignores it.
+    Menu {
+        /// The id of the item.
+        id: u32,
+        /// The entries.
+        items: Vec<TrayMenuItem>,
     },
 }
 
@@ -1049,6 +1093,18 @@ pub enum TrayRequest {
         delta: i32,
         /// Reports whether the direction is horizontal.
         horizontal: bool,
+    },
+    /// Asks for the menu of the item (F103). The agent answers with [`TrayEvent::Menu`].
+    Menu {
+        /// The id of the item.
+        id: u32,
+    },
+    /// The user selected an entry of the menu (F103).
+    MenuClick {
+        /// The id of the item.
+        id: u32,
+        /// The id of the entry.
+        item: i32,
     },
 }
 
@@ -1338,6 +1394,30 @@ mod tests {
         assert_eq!(
             request,
             TrayRequest::SecondaryActivate { id: 3, x: 10, y: 4 }
+        );
+        let click: TrayRequest =
+            serde_json::from_value(json!({"type": "menu-click", "id": 3, "item": 7})).unwrap();
+        assert_eq!(click, TrayRequest::MenuClick { id: 3, item: 7 });
+        let entry = TrayMenuItem {
+            id: 7,
+            label: "Lock".to_owned(),
+            enabled: true,
+            separator: false,
+            toggle: Some(TrayToggle::Radio),
+            checked: true,
+            icon: None,
+            children: Vec::new(),
+        };
+        assert_eq!(
+            serde_json::to_value(TrayEvent::Menu {
+                id: 3,
+                items: vec![entry]
+            })
+            .unwrap(),
+            json!({"type": "menu", "id": 3, "items": [{
+                "id": 7, "label": "Lock", "enabled": true, "separator": false,
+                "toggle": "radio", "checked": true, "children": [],
+            }]})
         );
     }
 

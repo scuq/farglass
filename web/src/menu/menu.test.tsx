@@ -5,7 +5,7 @@ import { fakeConnection } from "../proto/testing";
 import { Desktop } from "../wm/Desktop";
 import { type Desktop as DesktopState, emptyDesktop, openWindow } from "../wm/model";
 import { ContextMenuHost } from "./ContextMenuHost";
-import { type MenuItem, nextEnabled, placeMenu, providerFor, setContextMenu, textField, textFieldMenu } from "./menu";
+import { itemsAt, type MenuItem, nextEnabled, openMenuAt, placeMenu, providerFor, setContextMenu, textField, textFieldMenu } from "./menu";
 
 let dispose: (() => void) | undefined;
 
@@ -230,5 +230,157 @@ describe("context menus of the shell", () => {
     press("Enter");
     await settle();
     expect(host.querySelector('[data-window="a"]')).toBeNull();
+  });
+
+  test("a menu has check marks, radio marks, and a submenu that the pointer and the keys open", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    dispose = render(() => <ContextMenuHost />, host);
+    const ran: string[] = [];
+    const entry = (label: string, more: object = {}) => ({ label, action: () => ran.push(label), ...more });
+    const tree: MenuItem[] = [
+      entry("Show"),
+      entry("Sync", { checked: true }),
+      entry("Slow", { checked: false, radio: true }),
+      { separator: true },
+      entry("More", { submenu: [entry("Lock", { disabled: true }), entry("Quit")] }),
+    ];
+    // With no menu host, openMenuAt gives false. With no items, it opens nothing.
+    expect(openMenuAt([], 10, 10)).toBe(false);
+    expect(openMenuAt(tree, 10, 10)).toBe(true);
+    await settle();
+    const menu = host.querySelector<HTMLElement>(".context-menu")!;
+    const role = (label: string) => [...menu.querySelectorAll<HTMLElement>(".context-menu-item")].find((item) => item.firstElementChild?.textContent === label)!;
+    expect(role("Show").getAttribute("role")).toBe("menuitem");
+    expect([role("Sync").getAttribute("role"), role("Sync").getAttribute("aria-checked")]).toEqual(["menuitemcheckbox", "true"]);
+    expect([role("Slow").getAttribute("role"), role("Slow").getAttribute("aria-checked")]).toEqual(["menuitemradio", "false"]);
+    expect(role("Sync").querySelector(".context-menu-lead")?.textContent).toBe("✓");
+    expect([role("More").getAttribute("aria-haspopup"), role("More").getAttribute("aria-expanded")]).toEqual(["menu", "false"]);
+    expect(menu.querySelector(".context-menu-sub")).toBeNull();
+
+    // The keys: End goes to More, the Right arrow opens it and selects the first entry that is not disabled.
+    const press = (key: string) => menu.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+    press("End");
+    await settle();
+    press("ArrowRight");
+    await settle();
+    expect(role("More").getAttribute("aria-expanded")).toBe("true");
+    const sub = menu.querySelector<HTMLElement>(".context-menu-sub")!;
+    expect(sub.getAttribute("aria-label")).toBe("More");
+    expect(sub.querySelector("[data-active=true]")?.firstElementChild?.textContent).toBe("Quit");
+    // The Left arrow closes the submenu, and its entry is selected again.
+    press("ArrowLeft");
+    await settle();
+    expect(menu.querySelector(".context-menu-sub")).toBeNull();
+    expect(role("More").dataset.active).toBe("true");
+    // Enter opens the submenu again, and Enter on an entry runs it and closes the menu.
+    press("Enter");
+    await settle();
+    press("Enter");
+    await settle();
+    expect(ran).toEqual(["Quit"]);
+    expect(menu.querySelector(".context-menu-item")).toBeNull();
+
+    // The pointer: on More it opens the submenu, a click on an entry of it runs only that entry.
+    openMenuAt(tree, 10, 10);
+    await settle();
+    role("More").dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
+    await settle();
+    expect(menu.querySelector(".context-menu-sub")).not.toBeNull();
+    // A disabled entry does not run and does not close the menu.
+    role("Lock").click();
+    await settle();
+    expect(menu.querySelector(".context-menu-sub")).not.toBeNull();
+    role("Quit").click();
+    await settle();
+    expect(ran).toEqual(["Quit", "Quit"]);
+    // The pointer on a different entry of the menu closes the submenu.
+    openMenuAt(tree, 10, 10);
+    await settle();
+    role("More").dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
+    await settle();
+    role("Show").dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
+    await settle();
+    expect(menu.querySelector(".context-menu-sub")).toBeNull();
+    expect(role("Show").dataset.active).toBe("true");
+  });
+
+  test("the submenu at a path is the list of its entries", () => {
+    const leaf = { label: "Leaf", action: noop };
+    const tree: MenuItem[] = [{ label: "A", action: noop }, { label: "B", action: noop, submenu: [{ label: "C", action: noop, submenu: [leaf] }] }];
+    expect(itemsAt(tree, [])).toBe(tree);
+    expect(itemsAt(tree, [1, 0])).toEqual([leaf]);
+    expect(itemsAt(tree, [0])).toEqual([]);
+  });
+
+  test("a right click on a tray item asks the agent for the menu, and a click on an entry goes to the program", async () => {
+    const { server, connection } = await fakeConnection("alice");
+    const host = document.createElement("div");
+    document.body.append(host);
+    dispose = render(
+      () => (
+        <>
+          <Desktop connection={connection} user="alice" onlogout={noop} />
+          <ContextMenuHost />
+        </>
+      ),
+      host,
+    );
+    const opened = server.take().filter((f) => f.type === FrameType.Open);
+    const channelOf = (kind: string) => opened.find((f) => parseJson<{ kind: string }>(f).kind === kind)!.channel;
+    server.push(readyFrame(channelOf("state")));
+    server.push(encodeJsonFrame(channelOf("state"), FrameType.Control, { type: "value", key: "desktop", value: emptyDesktop() }));
+    const tray = channelOf("tray");
+    const requests = () =>
+      server
+        .take()
+        .filter((f) => f.channel === tray)
+        .map((f) => parseJson(f));
+    const item = (id: number, title: string, more: object = {}) => ({ id, name: title.toLowerCase(), title, status: "active", menu: true, menu_only: false, ...more });
+    server.push(readyFrame(tray));
+    server.push(encodeJsonFrame(tray, FrameType.Control, { type: "items", items: [item(1, "Bitwarden"), item(2, "Probe", { menu_only: true }), item(3, "Plain", { menu: false })] }));
+    await settle();
+    const button = (title: string) => host.querySelector<HTMLButtonElement>(`.panel-tray-item[aria-label="${title}"]`)!;
+    const entry = (id: number, label: string, more: object = {}) => ({ id, label, enabled: true, separator: false, checked: false, children: [], ...more });
+    const menu = (id: number) => server.push(encodeJsonFrame(tray, FrameType.Control, { type: "menu", id, items: [entry(10, "Show window"), entry(11, "Lock", { toggle: "check", checked: true })] }));
+    requests();
+
+    // A menu that this tab did not ask for does not open.
+    menu(1);
+    await settle();
+    expect(items(host)).toEqual([]);
+
+    expect(rightClick(button("Bitwarden"))).toBe(true);
+    await settle();
+    expect(requests()).toEqual([{ type: "menu", id: 1 }]);
+    // The menu of a different item is not the answer.
+    menu(2);
+    await settle();
+    expect(items(host)).toEqual([]);
+    rightClick(button("Bitwarden"));
+    menu(1);
+    await settle();
+    expect(items(host)).toEqual(["Show window"]);
+    expect(host.querySelector(".context-menu [role=menuitemcheckbox]")?.getAttribute("aria-checked")).toBe("true");
+    requests();
+    choose(host, "Show window");
+    await settle();
+    expect(requests()).toEqual([{ type: "menu-click", id: 1, item: 10 }]);
+
+    // An item that is only a menu opens it on a click. An item with no menu does its second action on a right click.
+    button("Probe").click();
+    rightClick(button("Plain"));
+    await settle();
+    expect(requests()).toEqual([
+      { type: "menu", id: 2 },
+      { type: "secondary-activate", id: 3, x: 0, y: 0 },
+    ]);
+    // A click on an item with a main action sends it. If the program refuses it, the agent sends the menu, and it opens.
+    button("Bitwarden").click();
+    await settle();
+    expect(requests()).toEqual([{ type: "activate", id: 1, x: 0, y: 0 }]);
+    menu(1);
+    await settle();
+    expect(items(host)).toEqual(["Show window"]);
   });
 });

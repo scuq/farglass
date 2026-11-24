@@ -1022,6 +1022,48 @@ menu: boolean,
 menu_only: boolean, };
 
 /**
+ * The kind of a menu entry that has a state.
+ */
+export type TrayToggle = "check" | "radio";
+
+/**
+ * One entry of the menu of a tray item (F103).
+ */
+export type TrayMenuItem = { 
+/**
+ * The id of the entry in the menu of the program.
+ */
+id: number, 
+/**
+ * The label, with no mnemonic marks. A separator has none.
+ */
+label: string, 
+/**
+ * Reports whether the user can select the entry.
+ */
+enabled: boolean, 
+/**
+ * Reports whether the entry is a line between groups.
+ */
+separator: boolean, 
+/**
+ * The kind of state, if the entry has a state.
+ */
+toggle?: TrayToggle, 
+/**
+ * Reports whether the state is on.
+ */
+checked: boolean, 
+/**
+ * The icon as a PNG file in base64.
+ */
+icon?: string, 
+/**
+ * The entries of the submenu. The agent removes the entries that the program hides.
+ */
+children: Array<TrayMenuItem>, };
+
+/**
  * A message of the agent on a tray channel.
  */
 export type TrayEvent = { "type": "items", 
@@ -1036,7 +1078,15 @@ item: TrayItem, } | { "type": "removed",
 /**
  * The id of the item.
  */
-id: number, };
+id: number, } | { "type": "menu", 
+/**
+ * The id of the item.
+ */
+id: number, 
+/**
+ * The entries.
+ */
+items: Array<TrayMenuItem>, };
 
 /**
  * A request of the shell on a tray channel. `x` and `y` are the position of the pointer.
@@ -1077,7 +1127,19 @@ delta: number,
 /**
  * Reports whether the direction is horizontal.
  */
-horizontal: boolean, };
+horizontal: boolean, } | { "type": "menu", 
+/**
+ * The id of the item.
+ */
+id: number, } | { "type": "menu-click", 
+/**
+ * The id of the item.
+ */
+id: number, 
+/**
+ * The id of the entry.
+ */
+item: number, };
 
 /**
  * The kind of a clipboard content.

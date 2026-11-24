@@ -1,10 +1,14 @@
-//! The system tray of the session (F102).
+//! The system tray of the session (F102) and the menus of its items (F103).
 //!
 //! A program that stays in a tray looks for `org.kde.StatusNotifierWatcher` on
 //! the session bus and registers a status notifier item there. The agent owns
 //! that name. It reads each item and sends it to the tray channels of the
 //! shell, and the panel shows one button for each item. A click in the shell
 //! goes back to the program as a method call on its item.
+//!
+//! The menu of an item is a `com.canonical.dbusmenu` object of the program.
+//! The agent reads it each time the shell asks, and sends a click on an entry
+//! back as the event `clicked`.
 //!
 //! Each program on the bus can register an item, thus each value has a limit.
 
@@ -15,7 +19,9 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use base64::Engine as _;
-use farglass_proto::message::{TrayEvent, TrayItem, TrayRequest, TrayStatus};
+use farglass_proto::message::{
+    TrayEvent, TrayItem, TrayMenuItem, TrayRequest, TrayStatus, TrayToggle,
+};
 use futures_util::{FutureExt as _, StreamExt as _};
 use tokio::sync::mpsc;
 use tokio::task::AbortHandle;
@@ -52,6 +58,21 @@ const MAX_PIXMAPS: usize = 16;
 
 /// The largest number of characters of a name or a title.
 const MAX_TEXT: usize = 256;
+
+/// The interface of the menu of an item.
+const MENU_INTERFACE: &str = "com.canonical.dbusmenu";
+
+/// The value of the property `Menu` of an item that has no menu.
+const NO_MENU: &str = "/NO_DBUSMENU";
+
+/// The largest depth of the submenus that the agent reads.
+const MAX_MENU_DEPTH: usize = 8;
+
+/// The largest number of entries of one menu, with its submenus.
+pub const MAX_MENU_ITEMS: usize = 500;
+
+/// The largest size in bytes of the icon of a menu entry.
+const MAX_MENU_ICON: usize = 64 * 1024;
 
 /// The time that a program has to answer a call.
 const CALL_TIMEOUT: Duration = Duration::from_secs(2);
@@ -216,9 +237,114 @@ pub fn item_from(id: u32, properties: &Properties, dirs: &[PathBuf]) -> TrayItem
         status: status_of(&properties.status),
         icon,
         icon_mime: icon_mime.map(str::to_owned),
-        menu: !properties.menu.is_empty() && properties.menu != "/NO_DBUSMENU",
+        menu: menu_path_of(properties).is_some(),
         menu_only: properties.item_is_menu,
     }
+}
+
+/// Returns the object path of the menu of the item, or `None` if it has no menu.
+fn menu_path_of(properties: &Properties) -> Option<&str> {
+    (!properties.menu.is_empty() && properties.menu != NO_MENU).then_some(properties.menu.as_str())
+}
+
+/// Returns `label` with no mnemonic marks: `_Open` is `Open`, and `a__b` is `a_b`.
+#[must_use]
+pub fn strip_mnemonic(label: &str) -> String {
+    let mut text = String::with_capacity(label.len());
+    let mut chars = label.chars().peekable();
+    while let Some(char) = chars.next() {
+        if char != '_' {
+            text.push(char);
+        } else if chars.next_if_eq(&'_').is_some() {
+            text.push('_');
+        }
+    }
+    text
+}
+
+/// Returns the value in `value`: a property of a menu entry is a variant in a variant.
+fn inner<'a, 'v>(value: &'a Variant<'v>) -> &'a Variant<'v> {
+    let mut value = value;
+    while let Variant::Variant(next) = value {
+        value = next;
+    }
+    value
+}
+
+/// Returns the entries for the shell from `children`, the entries `(ia{sv}av)` of a menu of a program.
+///
+/// An entry that the program hides is not in the result. `depth` is the depth
+/// of `children`, and the entries below [`MAX_MENU_DEPTH`] are not read.
+/// `budget` is the number of entries that the result can still have.
+#[must_use]
+pub fn layout_to_items(
+    children: &[Variant<'_>],
+    depth: usize,
+    budget: &mut usize,
+) -> Vec<TrayMenuItem> {
+    let mut items = Vec::new();
+    if depth >= MAX_MENU_DEPTH {
+        return items;
+    }
+    for child in children {
+        if *budget == 0 {
+            break;
+        }
+        let Variant::Structure(entry) = inner(child) else {
+            continue;
+        };
+        let [
+            Variant::I32(id),
+            Variant::Dict(properties),
+            Variant::Array(submenu),
+        ] = entry.fields()
+        else {
+            continue;
+        };
+        let property = |name: &str| {
+            properties
+                .iter()
+                .find(|(key, _)| matches!(key, Variant::Str(key) if key.as_str() == name))
+                .map(|(_, value)| inner(value))
+        };
+        let text = |name: &str| match property(name) {
+            Some(Variant::Str(text)) => text.as_str(),
+            _ => "",
+        };
+        if matches!(property("visible"), Some(Variant::Bool(false))) {
+            continue;
+        }
+        *budget -= 1;
+        // The icon is a PNG file. A different file does not go to the shell.
+        let icon = match property("icon-data") {
+            Some(Variant::Array(bytes)) if bytes.len() <= MAX_MENU_ICON => bytes
+                .inner()
+                .iter()
+                .map(|byte| match byte {
+                    Variant::U8(byte) => Some(*byte),
+                    _ => None,
+                })
+                .collect::<Option<Vec<u8>>>()
+                .filter(|bytes| bytes.starts_with(b"\x89PNG\r\n\x1a\n"))
+                .map(|bytes| base64::engine::general_purpose::STANDARD.encode(bytes)),
+            _ => None,
+        };
+        items.push(TrayMenuItem {
+            id: *id,
+            label: clip(&strip_mnemonic(text("label"))),
+            enabled: !matches!(property("enabled"), Some(Variant::Bool(false))),
+            separator: text("type") == "separator",
+            toggle: match text("toggle-type") {
+                "checkmark" => Some(TrayToggle::Check),
+                "radio" => Some(TrayToggle::Radio),
+                _ => None,
+            },
+            checked: matches!(property("toggle-state"), Some(Variant::I32(1))),
+            icon,
+            children: layout_to_items(submenu.inner(), depth + 1, budget),
+        });
+    }
+    items
 }
 
 /// Returns one icon from the value `(iiay)`, or `None` if it is not valid.
@@ -308,6 +434,10 @@ struct Entry {
     path: String,
     /// The item for the shell, after the agent read it.
     item: Option<TrayItem>,
+    /// The object path of the menu of the item.
+    menu: Option<String>,
+    /// The item has no action for a click: the agent learned it from a click that the program refused.
+    menu_only: bool,
     /// The task that follows the signals of the item.
     task: Option<AbortHandle>,
 }
@@ -427,6 +557,8 @@ impl Tray {
                 owner: owner.to_owned(),
                 path: path.to_owned(),
                 item: None,
+                menu: None,
+                menu_only: false,
                 task: None,
             },
         );
@@ -443,12 +575,13 @@ impl Tray {
     }
 
     /// Sets what the shell shows for the item `id`, and sends it to the shell if it changed.
-    pub fn update(&self, id: u32, item: TrayItem) {
+    pub fn update(&self, id: u32, mut item: TrayItem) {
         {
             let mut inner = self.lock();
             let Some(entry) = inner.items.get_mut(&id) else {
                 return;
             };
+            item.menu_only |= entry.menu_only;
             if entry.item.as_ref() == Some(&item) {
                 return;
             }
@@ -493,6 +626,47 @@ impl Tray {
             .items
             .get(&id)
             .map(|entry| (entry.owner.clone(), entry.path.clone()))
+    }
+
+    /// Sets the object path of the menu of the item `id`, or `None` for an item with no menu.
+    pub fn set_menu_path(&self, id: u32, menu: Option<String>) {
+        if let Some(entry) = self.lock().items.get_mut(&id) {
+            entry.menu = menu;
+        }
+    }
+
+    /// Returns the object path of the menu of the item `id`.
+    #[must_use]
+    pub fn menu_path(&self, id: u32) -> Option<String> {
+        self.lock()
+            .items
+            .get(&id)
+            .and_then(|entry| entry.menu.clone())
+    }
+
+    /// Marks the item `id` as an item with no action for a click, and tells the shell.
+    /// The mark stays when the agent reads the item again.
+    pub fn set_menu_only(&self, id: u32) {
+        let item = {
+            let mut inner = self.lock();
+            let Some(entry) = inner.items.get_mut(&id) else {
+                return;
+            };
+            entry.menu_only = true;
+            match entry.item.as_mut() {
+                Some(item) if !item.menu_only => {
+                    item.menu_only = true;
+                    item.clone()
+                }
+                _ => return,
+            }
+        };
+        self.broadcast(&TrayEvent::Item { item });
+    }
+
+    /// Sends the menu of the item `id` to the shell.
+    pub fn show_menu(&self, id: u32, items: Vec<TrayMenuItem>) {
+        self.broadcast(&TrayEvent::Menu { id, items });
     }
 
     /// Returns the names of the items in the list of the watcher.
@@ -631,6 +805,7 @@ async fn refresh(tray: &Tray, connection: &Connection, id: u32, owner: &str, pat
         tracing::debug!(id, owner, path, "a tray item did not give its properties");
         return;
     };
+    tray.set_menu_path(id, menu_path_of(&properties).map(str::to_owned));
     let item = tokio::task::spawn_blocking(move || item_from(id, &properties, &data_dirs())).await;
     if let Ok(item) = item {
         tray.update(id, item);
@@ -665,32 +840,131 @@ async fn watch(tray: Arc<Tray>, connection: Connection, id: u32, owner: String, 
     }
 }
 
-/// Sends a request of the shell to the program of its item.
-async fn send(connection: Connection, owner: String, path: String, request: TrayRequest) {
-    let (member, body) = match request {
-        TrayRequest::Activate { x, y, .. } => ("Activate", Variant::from((x, y))),
-        TrayRequest::SecondaryActivate { x, y, .. } => ("SecondaryActivate", Variant::from((x, y))),
-        TrayRequest::Scroll {
-            delta, horizontal, ..
-        } => (
-            "Scroll",
-            Variant::from((delta, if horizontal { "horizontal" } else { "vertical" })),
-        ),
+/// Why a call to a program failed.
+enum CallError {
+    /// The program answered with an error, for example for a method that it does not have.
+    Refused(zbus::Error),
+    /// The program did not answer in [`CALL_TIMEOUT`].
+    Timeout,
+}
+
+/// Calls the method `member` of `interface` at `path` of the program `owner`, and waits for the answer.
+async fn call<B>(
+    connection: &Connection,
+    owner: &str,
+    path: &str,
+    interface: &str,
+    member: &str,
+    body: &B,
+) -> Result<zbus::Message, CallError>
+where
+    B: serde::Serialize + zbus::DynamicType + Sync,
+{
+    let call = connection.call_method(Some(owner), path, Some(interface), member, body);
+    match tokio::time::timeout(CALL_TIMEOUT, call).await {
+        Ok(Ok(reply)) => Ok(reply),
+        Ok(Err(error)) => {
+            tracing::debug!(%error, member, owner, "a tray item refused a call");
+            Err(CallError::Refused(error))
+        }
+        Err(_) => {
+            tracing::debug!(member, owner, "a tray item did not answer a call");
+            Err(CallError::Timeout)
+        }
+    }
+}
+
+/// Reads the menu at `path` of the program `owner`. Returns `None` if the program does not give it.
+async fn read_menu(connection: &Connection, owner: &str, path: &str) -> Option<Vec<TrayMenuItem>> {
+    // The program can fill the menu now. Not each program has this method.
+    let _ = call(
+        connection,
+        owner,
+        path,
+        MENU_INTERFACE,
+        "AboutToShow",
+        &(0_i32,),
+    )
+    .await;
+    // The full tree from the root, with all properties.
+    let body = (0_i32, -1_i32, Vec::<&str>::new());
+    let reply = call(connection, owner, path, MENU_INTERFACE, "GetLayout", &body)
+        .await
+        .ok()?;
+    let body = reply.body();
+    let layout: zbus::Structure<'_> = body.deserialize().ok()?;
+    let [_revision, Variant::Structure(root)] = layout.fields() else {
+        return None;
     };
-    let Variant::Structure(body) = body else {
+    let [_, _, Variant::Array(children)] = root.fields() else {
+        return None;
+    };
+    let mut budget = MAX_MENU_ITEMS;
+    Some(layout_to_items(children.inner(), 0, &mut budget))
+}
+
+/// Reads the menu of the item `id` and sends it to the shell.
+async fn open_menu(tray: &Tray, connection: &Connection, id: u32, owner: &str) {
+    let Some(path) = tray.menu_path(id) else {
         return;
     };
-    let call = connection.call_method(
-        Some(owner.as_str()),
-        path.as_str(),
-        Some(ITEM_INTERFACE),
-        member,
-        &body,
-    );
-    match tokio::time::timeout(CALL_TIMEOUT, call).await {
-        Ok(Ok(_)) => {}
-        Ok(Err(error)) => tracing::debug!(%error, member, owner, "a tray item refused a request"),
-        Err(_) => tracing::debug!(member, owner, "a tray item did not answer a request"),
+    match read_menu(connection, owner, &path).await {
+        Some(items) => tray.show_menu(id, items),
+        None => tracing::debug!(id, owner, path, "a tray item did not give its menu"),
+    }
+}
+
+/// Does a request of the shell: a method call on the item of a program, or on its menu.
+async fn handle(tray: Arc<Tray>, connection: Connection, request: TrayRequest) {
+    let id = item_of(&request);
+    let Some((owner, path)) = tray.address(id) else {
+        return;
+    };
+    let item = |member: &'static str| (owner.as_str(), path.as_str(), ITEM_INTERFACE, member);
+    match request {
+        TrayRequest::Activate { x, y, .. } => {
+            let (owner, path, interface, member) = item("Activate");
+            let done = call(&connection, owner, path, interface, member, &(x, y)).await;
+            // An item of libappindicator has no Activate: its menu is its only action.
+            // The bus gives a standard error, for example UnknownMethod, as an FDO error.
+            if matches!(
+                done,
+                Err(CallError::Refused(
+                    zbus::Error::MethodError(..) | zbus::Error::FDO(_)
+                ))
+            ) && tray.menu_path(id).is_some()
+            {
+                tray.set_menu_only(id);
+                open_menu(&tray, &connection, id, owner).await;
+            }
+        }
+        TrayRequest::SecondaryActivate { x, y, .. } => {
+            let (owner, path, interface, member) = item("SecondaryActivate");
+            let _ = call(&connection, owner, path, interface, member, &(x, y)).await;
+        }
+        TrayRequest::Scroll {
+            delta, horizontal, ..
+        } => {
+            let (owner, path, interface, member) = item("Scroll");
+            let orientation = if horizontal { "horizontal" } else { "vertical" };
+            let _ = call(
+                &connection,
+                owner,
+                path,
+                interface,
+                member,
+                &(delta, orientation),
+            )
+            .await;
+        }
+        TrayRequest::Menu { .. } => open_menu(&tray, &connection, id, &owner).await,
+        TrayRequest::MenuClick { item, .. } => {
+            if let Some(menu) = tray.menu_path(id) {
+                // The event has the id of the entry, the name, a value that `clicked` does not use, and a time.
+                let body = (item, "clicked", Variant::from(0_i32), 0_u32);
+                let _ = call(&connection, &owner, &menu, MENU_INTERFACE, "Event", &body).await;
+            }
+        }
     }
 }
 
@@ -699,7 +973,9 @@ const fn item_of(request: &TrayRequest) -> u32 {
     match request {
         TrayRequest::Activate { id, .. }
         | TrayRequest::SecondaryActivate { id, .. }
-        | TrayRequest::Scroll { id, .. } => *id,
+        | TrayRequest::Scroll { id, .. }
+        | TrayRequest::Menu { id }
+        | TrayRequest::MenuClick { id, .. } => *id,
     }
 }
 
@@ -769,10 +1045,8 @@ pub async fn serve(tray: Arc<Tray>, connection: &Connection, name: &str) -> zbus
     let connection = connection.clone();
     tokio::spawn(async move {
         while let Some(request) = requests.recv().await {
-            if let Some((owner, path)) = tray.address(item_of(&request)) {
-                // Each call has its own task: a program that does not answer does not stop the other items.
-                tokio::spawn(send(connection.clone(), owner, path, request));
-            }
+            // Each request has its own task: a program that does not answer does not stop the other items.
+            tokio::spawn(handle(tray.clone(), connection.clone(), request));
         }
     });
     Ok(())
@@ -974,6 +1248,166 @@ mod tests {
         assert_eq!(found("dialog-information").as_deref(), Some("breeze"));
         assert_eq!(found("sync-ok").as_deref(), Some("hicolor"));
         assert_eq!(found("missing"), None);
+    }
+
+    #[test]
+    fn a_label_has_no_mnemonic_marks() {
+        assert_eq!(strip_mnemonic("_Show window"), "Show window");
+        assert_eq!(strip_mnemonic("Save _As…"), "Save As…");
+        assert_eq!(strip_mnemonic("snake__case"), "snake_case");
+        assert_eq!(strip_mnemonic("_"), "");
+        assert_eq!(strip_mnemonic("plain"), "plain");
+    }
+
+    /// Returns an entry `(ia{sv}av)` of a menu, as a program sends it.
+    fn entry(
+        id: i32,
+        properties: &[(&str, Variant<'static>)],
+        children: Vec<Variant<'static>>,
+    ) -> Variant<'static> {
+        let properties: HashMap<String, Variant<'static>> = properties
+            .iter()
+            .map(|(key, value)| {
+                (
+                    (*key).to_owned(),
+                    Variant::Variant(Box::new(value.try_clone().unwrap())),
+                )
+            })
+            .collect();
+        Variant::Variant(Box::new(Variant::from((id, properties, children))))
+    }
+
+    #[test]
+    fn a_menu_becomes_a_tree_with_states_and_with_no_hidden_entry() {
+        let png = b"\x89PNG\r\n\x1a\nrest".to_vec();
+        let children = vec![
+            entry(
+                1,
+                &[("label", "_Show".into()), ("icon-data", png.clone().into())],
+                Vec::new(),
+            ),
+            entry(
+                2,
+                &[
+                    ("label", "Sync".into()),
+                    ("toggle-type", "checkmark".into()),
+                    ("toggle-state", 1_i32.into()),
+                ],
+                Vec::new(),
+            ),
+            entry(3, &[("type", "separator".into())], Vec::new()),
+            entry(
+                4,
+                &[("label", "Hidden".into()), ("visible", false.into())],
+                Vec::new(),
+            ),
+            entry(
+                5,
+                &[
+                    ("label", "More".into()),
+                    ("children-display", "submenu".into()),
+                ],
+                vec![
+                    entry(
+                        6,
+                        &[
+                            ("label", "Slow".into()),
+                            ("toggle-type", "radio".into()),
+                            ("toggle-state", 0_i32.into()),
+                        ],
+                        Vec::new(),
+                    ),
+                    entry(
+                        7,
+                        &[
+                            ("label", "Quit".into()),
+                            ("enabled", false.into()),
+                            ("icon-data", b"<html>".to_vec().into()),
+                        ],
+                        Vec::new(),
+                    ),
+                ],
+            ),
+        ];
+        let mut budget = MAX_MENU_ITEMS;
+        let items = layout_to_items(&children, 0, &mut budget);
+        assert_eq!(budget, MAX_MENU_ITEMS - 6);
+        assert_eq!(
+            items.iter().map(|item| item.id).collect::<Vec<_>>(),
+            [1, 2, 3, 5]
+        );
+        assert_eq!(items[0].label, "Show");
+        assert_eq!(
+            items[0].icon,
+            Some(base64::engine::general_purpose::STANDARD.encode(&png))
+        );
+        assert!(items[0].enabled && !items[0].separator);
+        assert_eq!(
+            (items[1].toggle, items[1].checked),
+            (Some(TrayToggle::Check), true)
+        );
+        assert!(items[2].separator);
+        let more = &items[3].children;
+        assert_eq!(
+            (more[0].toggle, more[0].checked),
+            (Some(TrayToggle::Radio), false)
+        );
+        assert_eq!(more[1].label, "Quit");
+        assert!(!more[1].enabled);
+        // The icon is not a PNG file.
+        assert_eq!(more[1].icon, None);
+    }
+
+    #[test]
+    fn a_menu_has_a_limit_of_entries_and_of_depth() {
+        let flat: Vec<Variant<'static>> = (0..10).map(|id| entry(id, &[], Vec::new())).collect();
+        let mut budget = 4;
+        assert_eq!(layout_to_items(&flat, 0, &mut budget).len(), 4);
+        assert_eq!(budget, 0);
+
+        let mut deep = entry(100, &[], Vec::new());
+        for id in 0..12 {
+            deep = entry(id, &[], vec![deep]);
+        }
+        let mut budget = MAX_MENU_ITEMS;
+        let mut level = layout_to_items(&[deep], 0, &mut budget);
+        let mut depth = 0;
+        while let Some(item) = level.pop() {
+            depth += 1;
+            level = item.children;
+        }
+        assert_eq!(depth, MAX_MENU_DEPTH);
+    }
+
+    #[test]
+    fn an_item_with_no_click_action_stays_a_menu_after_the_agent_reads_it_again() {
+        let tray = Tray::new();
+        let id = tray.register(":1.5", "/StatusNotifierItem").unwrap();
+        tray.set_menu_path(id, Some("/MenuBar".to_owned()));
+        tray.update(id, item(id, "Probe"));
+        let (_guard, events) = shown(&tray);
+        events.try_recv().unwrap();
+
+        tray.set_menu_only(id);
+        let TrayEvent::Item { item: marked } = events.try_recv().unwrap() else {
+            panic!("no item");
+        };
+        assert!(marked.menu_only);
+        // The mark is set one time, and the properties of the program do not remove it.
+        tray.set_menu_only(id);
+        tray.update(id, item(id, "Probe"));
+        assert!(events.try_recv().is_err());
+        assert!(tray.items()[0].menu_only);
+        assert_eq!(tray.menu_path(id).as_deref(), Some("/MenuBar"));
+
+        tray.show_menu(id, Vec::new());
+        assert_eq!(
+            events.try_recv().unwrap(),
+            TrayEvent::Menu {
+                id,
+                items: Vec::new()
+            }
+        );
     }
 
     #[test]

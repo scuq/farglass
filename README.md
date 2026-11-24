@@ -815,6 +815,11 @@ farglass is the tray of the web session: the panel shows one icon for each of th
 With no such program, the panel shows no tray.
 
 - A click on an icon does the main action of the program. Most programs show their window again.
+  If the program has no main action, the click opens its menu.
+- Right-click an icon to open the menu of the program, for example with Show, Lock, and Quit.
+  Shift+F10 and the ContextMenu key open the menu of the icon that has the focus.
+  The menu shows the check marks, the icons, and the submenus of the program.
+  An icon with no menu does the second action of the program on a right click.
 - A click with the middle button does the second action of the program, if it has one.
 - The wheel on an icon goes to the program, for example to change a volume.
 - The pointer on an icon shows the title of the program.
@@ -827,6 +832,11 @@ A program that knows only the older XEmbed tray of X11 shows no icon.
 The agent does not take the name from a different owner.
 While a local desktop of the same user owns the name, the tray of the web session is empty.
 A program that started before the agent shows its icon after it registers again. If the icon does not show, start the program again.
+
+The agent reads the menu from the program at each right click, through the `com.canonical.dbusmenu` interface.
+If the program does not answer in 2 s, no menu opens.
+
+`npm --prefix spikes/e2e run tray` tests the tray in Chromium with the example program `tray-item`: the icon, a click, the menu with a submenu, and the keyboard.
 
 A window that is minimized in farglass is still open for its program.
 A click on the icon of such a program can close the window, because the program hides a window that it shows.
