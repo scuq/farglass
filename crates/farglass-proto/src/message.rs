@@ -676,6 +676,23 @@ pub struct WindowUsage {
     pub usage: Usage,
 }
 
+/// The use of the whole host, by all users (F105).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+pub struct HostUsage {
+    /// The CPU in percent of all cores, from 0 to 100, over the last interval.
+    pub cpu: f64,
+    /// The memory in use in bytes: the total minus the available memory.
+    #[ts(type = "number")]
+    pub memory: u64,
+    /// The memory of the host in bytes.
+    #[ts(type = "number")]
+    pub memory_total: u64,
+    /// The bytes each second that the network devices of the host received.
+    pub net_in: f64,
+    /// The bytes each second that the network devices of the host sent.
+    pub net_out: f64,
+}
+
 /// A message of the agent on a stats channel.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -690,6 +707,10 @@ pub enum StatsEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         server: Option<Usage>,
+        /// The whole host. None if the agent cannot read it, or from an agent before this field.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        host: Option<HostUsage>,
     },
 }
 

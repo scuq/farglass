@@ -53,10 +53,21 @@ async fn a_busy_terminal_shows_its_cpu_and_the_agent_shows_its_own() {
             if frame.channel() != stats || frame.frame_type() != FrameType::Control {
                 continue;
             }
-            let StatsEvent::Sample { windows, agent, .. } = frame.parse().unwrap();
+            let StatsEvent::Sample {
+                windows,
+                agent,
+                host,
+                ..
+            } = frame.parse().unwrap();
             assert!(agent.memory > 1_000_000, "the agent has its memory");
+            // The first sample has no interval for the host yet.
+            if let Some(host) = &host {
+                assert!(host.memory_total > host.memory && host.memory > 0);
+                assert!((0.0..=100.0).contains(&host.cpu));
+            }
             if let Some(window) = windows.iter().find(|w| w.window == "window-t1")
                 && window.usage.cpu > 50.0
+                && host.is_some()
             {
                 return window.usage.clone();
             }

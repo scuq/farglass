@@ -1,8 +1,10 @@
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import type { Usage } from "../../../proto";
-import { formatBytes, isBusy, statsClient } from "../../../stats";
+import { formatBytes, isBusy, SAMPLE_SECONDS, type StatsPoint, statsClient } from "../../../stats";
 import type { AppContext } from "../../types";
 import { Section } from "../common";
+import { Sparkline, type SparkSeries } from "../Sparkline";
+import { niceMax } from "../sparkline";
 
 /** The levels of the resource score. */
 export type Score = "light" | "moderate" | "heavy";
@@ -20,23 +22,43 @@ const SCORE_TEXT: Readonly<Record<Score, string>> = {
   heavy: "Heavy: a large or fast window, a video, or a slow connection. A smaller window or the video redirection helps.",
 };
 
+/** The milliseconds with no sample from which the numbers count as old: three samples. */
+const STALE_MS = 3 * SAMPLE_SECONDS * 1000;
+
+const percent = (value: number) => `${value.toFixed(1)} %`;
+const rate = (value: number) => `${formatBytes(value)}/s`;
+
+/** One number of the page with its graph of the last 5 minutes. */
+function Tile(props: { label: string; field: string; value: string; graph: string; series: readonly SparkSeries[]; max: number; format: (value: number) => string }) {
+  return (
+    <div class="settings-tile">
+      <span class="settings-tile-label">{props.label}</span>
+      <span class="settings-tile-value" data-field={props.field}>
+        {props.value}
+      </span>
+      <Sparkline label={props.graph} series={props.series} max={props.max} interval={SAMPLE_SECONDS} format={props.format} />
+    </div>
+  );
+}
+
 /**
- * What the desktop costs (F046): the CPU and the memory of farglassd and of the agent, from the
- * stats of the agent, and the data rate of the connection of this tab.
+ * The use of the host (F105), and what the desktop costs (F046): the CPU and the memory of
+ * farglassd and of the agent, and the data rate of the connection of this tab. The numbers
+ * and the graphs of the last 5 minutes come from the stats of the agent.
  */
 export function ResourcesPage(props: { context: AppContext }) {
-  const connection = props.context.connection;
-  const [rate, setRate] = createSignal<{ received: number; sent: number } | null>(null);
-  let last = { ...connection.bytes, at: performance.now() };
-  const timer = setInterval(() => {
-    const now = { ...connection.bytes, at: performance.now() };
-    const seconds = Math.max(0.001, (now.at - last.at) / 1000);
-    setRate({ received: (now.received - last.received) / seconds, sent: (now.sent - last.sent) / seconds });
-    last = now;
-  }, 2000);
-  onCleanup(() => clearInterval(timer));
-
   const sample = () => statsClient()?.sample() ?? null;
+  const history = () => statsClient()?.history() ?? [];
+  const last = () => history().at(-1);
+  /** The values of one number of the history, for a graph. */
+  const values = (pick: (point: StatsPoint) => number | undefined) => history().map((point) => pick(point) ?? 0);
+
+  // The numbers are old when the agent sends none: the page tells it and does not show them as new.
+  const [age, setAge] = createSignal(0);
+  const timer = setInterval(() => setAge(statsClient()?.age() ?? 0), 1000);
+  onCleanup(() => clearInterval(timer));
+  const stale = () => history().length > 0 && age() >= STALE_MS;
+
   /** The terminals and Linux apps of the desktop with their use, the most CPU first. */
   const apps = () => {
     const titles = new Map((props.context.windows?.() ?? []).map((win) => [win.id, win.title]));
@@ -47,15 +69,65 @@ export function ResourcesPage(props: { context: AppContext }) {
   };
   const line = (usage: Usage | undefined) => (usage ? `CPU ${usage.cpu.toFixed(1)} %, memory ${formatBytes(usage.memory)}` : "Not known");
   const score = () => {
-    const each = sample();
-    const traffic = rate();
-    if (!each || !traffic) return null;
-    return scoreOf(each.agent.cpu + (each.server?.cpu ?? 0), traffic.received + traffic.sent);
+    const each = last();
+    if (!each) return null;
+    return scoreOf(each.agent.cpu + (each.server?.cpu ?? 0), each.rate.received + each.rate.sent);
   };
+  const host = () => last()?.host;
+  const received = () => values((point) => point.rate.received);
+  const sent = () => values((point) => point.rate.sent);
+  const hostIn = () => values((point) => point.host?.net_in);
+  const hostOut = () => values((point) => point.host?.net_out);
+  const serverCpu = () => values((point) => point.server?.cpu);
+  const agentCpu = () => values((point) => point.agent.cpu);
 
   return (
-    <div class="settings-page">
+    <div class="settings-page" data-stale={stale() ? "true" : undefined}>
       <h2>Resources</h2>
+      <Show when={stale()}>
+        <p class="settings-note settings-stale" role="status">
+          The numbers are old: the agent sent none for {Math.round(age() / 1000)} s.
+        </p>
+      </Show>
+      <Show when={host()}>
+        {(use) => (
+          <Section id="resources-host">
+            <div class="settings-tiles">
+              <Tile
+                label="CPU"
+                field="host-cpu"
+                value={percent(use().cpu)}
+                graph="CPU of the host"
+                series={[{ name: "", values: values((point) => point.host?.cpu) }]}
+                max={100}
+                format={percent}
+              />
+              <Tile
+                label="Memory"
+                field="host-memory"
+                value={`${formatBytes(use().memory)} of ${formatBytes(use().memory_total)}`}
+                graph="Memory of the host"
+                series={[{ name: "", values: values((point) => point.host?.memory) }]}
+                max={use().memory_total}
+                format={formatBytes}
+              />
+              <Tile
+                label="Network"
+                field="host-net"
+                value={`${rate(use().net_in)} in, ${rate(use().net_out)} out`}
+                graph="Network of the host"
+                series={[
+                  { name: "in", values: hostIn() },
+                  { name: "out", values: hostOut() },
+                ]}
+                max={niceMax([...hostIn(), ...hostOut()], 10_000)}
+                format={rate}
+              />
+            </div>
+            <p class="settings-note">All users and all programs of the host. The CPU is in percent of all cores.</p>
+          </Section>
+        )}
+      </Show>
       <Section id="resources-farglass">
         <Show when={score()} fallback={<p class="settings-note">Measuring: the first numbers come after 2 s.</p>}>
           {(level) => (
@@ -64,45 +136,72 @@ export function ResourcesPage(props: { context: AppContext }) {
             </p>
           )}
         </Show>
-        <dl class="settings-facts">
-          <dt>farglassd</dt>
-          <dd data-field="server">{line(sample()?.server)}</dd>
-          <dt>The agent of the session</dt>
-          <dd data-field="agent">{line(sample()?.agent)}</dd>
-          <dt>The connection of this tab</dt>
-          <dd data-field="rate">{rate() ? `${formatBytes(rate()!.received)}/s in, ${formatBytes(rate()!.sent)}/s out` : "Measuring"}</dd>
-        </dl>
+        <div class="settings-tiles">
+          <Tile
+            label="farglassd"
+            field="server"
+            value={line(sample()?.server)}
+            graph="CPU of farglassd"
+            series={[{ name: "", values: serverCpu() }]}
+            max={niceMax(serverCpu(), 5)}
+            format={percent}
+          />
+          <Tile
+            label="The agent of the session"
+            field="agent"
+            value={line(sample()?.agent)}
+            graph="CPU of the agent"
+            series={[{ name: "", values: agentCpu() }]}
+            max={niceMax(agentCpu(), 5)}
+            format={percent}
+          />
+          <Tile
+            label="The connection of this tab"
+            field="rate"
+            value={last() ? `${rate(last()!.rate.received)} in, ${rate(last()!.rate.sent)} out` : "Measuring"}
+            graph="Data rate of this tab"
+            series={[
+              { name: "in", values: received() },
+              { name: "out", values: sent() },
+            ]}
+            max={niceMax([...received(), ...sent()], 10_000)}
+            format={rate}
+          />
+        </div>
+        <p class="settings-note">The graphs of farglassd and of the agent show the CPU, in percent of one core.</p>
       </Section>
       <Section id="resources-apps">
         <Show when={apps().length > 0} fallback={<p class="settings-note">No terminal and no Linux app is open.</p>}>
-          <table class="settings-apps">
-            <thead>
-              <tr>
-                <th scope="col">Window</th>
-                <th scope="col">CPU</th>
-                <th scope="col">Memory</th>
-                <th scope="col">Network</th>
-              </tr>
-            </thead>
-            <tbody>
-              <For each={apps()}>
-                {(row) => (
-                  <tr data-window={row.id} data-busy={isBusy(row.usage) ? "true" : undefined}>
-                    <td>
-                      <button type="button" class="settings-link" onClick={() => props.context.activateWindow?.(row.id)} title="Go to the window">
-                        {row.title}
-                      </button>
-                    </td>
-                    <td>{row.usage.cpu.toFixed(1)} %</td>
-                    <td>{formatBytes(row.usage.memory)}</td>
-                    <td>{row.usage.net === undefined ? "–" : `${formatBytes(row.usage.net)}/s`}</td>
-                  </tr>
-                )}
-              </For>
-            </tbody>
-          </table>
+          <div class="settings-scroll">
+            <table class="settings-apps">
+              <thead>
+                <tr>
+                  <th scope="col">Window</th>
+                  <th scope="col">CPU</th>
+                  <th scope="col">Memory</th>
+                  <th scope="col">Network</th>
+                </tr>
+              </thead>
+              <tbody>
+                <For each={apps()}>
+                  {(row) => (
+                    <tr data-window={row.id} data-busy={isBusy(row.usage) ? "true" : undefined}>
+                      <td>
+                        <button type="button" class="settings-link" onClick={() => props.context.activateWindow?.(row.id)} title="Go to the window">
+                          {row.title}
+                        </button>
+                      </td>
+                      <td>{row.usage.cpu.toFixed(1)} %</td>
+                      <td>{formatBytes(row.usage.memory)}</td>
+                      <td>{row.usage.net === undefined ? "–" : `${formatBytes(row.usage.net)}/s`}</td>
+                    </tr>
+                  )}
+                </For>
+              </tbody>
+            </table>
+          </div>
         </Show>
-        <p class="settings-note">The numbers come every 2 s. The CPU is in percent of one core. An app is busy from 5 % CPU or 20 kB/s of network.</p>
+        <p class="settings-note">The numbers come every 2 s. The CPU of an app is in percent of one core. An app is busy from 5 % CPU or 20 kB/s of network.</p>
       </Section>
     </div>
   );

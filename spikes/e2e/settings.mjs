@@ -155,7 +155,19 @@ try {
   await go("Date and time");
   await win.locator('[data-field="host-time"]').waitFor({ timeout: TIMEOUT_MS });
   if (SHOTS) await win.screenshot({ path: join(SHOTS, "settings-datetime.png") });
+  // The use of the host with a graph of its history. The second sample of the agent starts the line.
   await go("Resources");
+  const hostCpu = win.locator('[data-field="host-cpu"]');
+  await hostCpu.waitFor({ timeout: TIMEOUT_MS });
+  check(/^\d+\.\d %$/.test(await hostCpu.textContent()), `the resource page shows the CPU of the host: ${await hostCpu.textContent()}`);
+  await page.waitForFunction(() => [...document.querySelectorAll(".spark-plot .spark-line")].every((line) => line.getAttribute("d")?.startsWith("M")), null, { timeout: TIMEOUT_MS });
+  const stroke = await win.locator(".spark-line").first().evaluate((line) => [getComputedStyle(line).stroke, getComputedStyle(document.documentElement).getPropertyValue("--focus")]);
+  check((await win.locator(".spark-plot").count()) === 6 && stroke[0] !== "none", `each number has a graph in the accent color: ${stroke[0]}`);
+  const plot = await win.locator(".spark-plot").first().boundingBox();
+  await page.mouse.move(plot.x + plot.width - 2, plot.y + plot.height / 2);
+  await win.locator(".spark-caption").first().filter({ hasText: /^(now|\d+ s ago): / }).waitFor({ timeout: TIMEOUT_MS });
+  check(true, "the pointer over a graph shows the value at that time");
+  await page.mouse.move(plot.x - 40, plot.y - 40);
   if (SHOTS) await win.screenshot({ path: join(SHOTS, "settings-resources.png") });
 
   // 7. A narrow window: the pages go to the top, and the mark of this session stays in one piece.

@@ -490,6 +490,31 @@ window: string,
 usage: Usage, };
 
 /**
+ * The use of the whole host, by all users (F105).
+ */
+export type HostUsage = { 
+/**
+ * The CPU in percent of all cores, from 0 to 100, over the last interval.
+ */
+cpu: number, 
+/**
+ * The memory in use in bytes: the total minus the available memory.
+ */
+memory: number, 
+/**
+ * The memory of the host in bytes.
+ */
+memory_total: number, 
+/**
+ * The bytes each second that the network devices of the host received.
+ */
+net_in: number, 
+/**
+ * The bytes each second that the network devices of the host sent.
+ */
+net_out: number, };
+
+/**
  * A message of the agent on a stats channel.
  */
 export type StatsEvent = { "type": "sample", 
@@ -504,7 +529,11 @@ agent: Usage,
 /**
  * farglassd. None if the agent cannot read it.
  */
-server?: Usage, };
+server?: Usage, 
+/**
+ * The whole host. None if the agent cannot read it, or from an agent before this field.
+ */
+host?: HostUsage, };
 
 /**
  * A passkey of the user, for the list of the settings (F034).

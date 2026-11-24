@@ -6,6 +6,8 @@
 //! a scope, it reads the process itself. The network is the TCP traffic of the
 //! processes of the scope, from `ss`: a user scope has no IP accounting.
 //!
+//! The agent also reads the use of the whole host from `/proc` (F105).
+//!
 //! The agent samples every [`INTERVAL`], and only while a stats channel is open.
 
 use std::collections::HashMap;
@@ -14,7 +16,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use farglass_proto::message::{StatsEvent, Usage, WindowUsage};
+use farglass_proto::message::{HostUsage, StatsEvent, Usage, WindowUsage};
 
 use crate::surfaces::Surfaces;
 
@@ -211,6 +213,123 @@ pub fn usage(before: &Counters, now: &Counters, elapsed: Duration) -> Usage {
     }
 }
 
+/// The counters of the whole host at one time.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HostCounters {
+    /// The clock ticks in which a CPU was not idle.
+    pub busy: u64,
+    /// The clock ticks of all CPUs.
+    pub total: u64,
+    /// The memory in use in bytes.
+    pub memory: u64,
+    /// The memory of the host in bytes.
+    pub memory_total: u64,
+    /// The bytes that the network devices received.
+    pub received: u64,
+    /// The bytes that the network devices sent.
+    pub sent: u64,
+}
+
+/// Parses the first line of `/proc/stat`: the busy ticks and all ticks of the CPUs.
+///
+/// Idle and iowait are not busy. The guest times are part of user and nice.
+#[must_use]
+pub fn parse_proc_stat(text: &str) -> Option<(u64, u64)> {
+    let line = text.lines().find(|line| line.starts_with("cpu "))?;
+    let ticks: Vec<u64> = line
+        .split_whitespace()
+        .skip(1)
+        .take(8)
+        .map_while(|value| value.parse().ok())
+        .collect();
+    if ticks.len() < 4 {
+        return None;
+    }
+    let total: u64 = ticks.iter().sum();
+    let idle = ticks[3] + ticks.get(4).copied().unwrap_or(0);
+    Some((total.saturating_sub(idle), total))
+}
+
+/// Parses `/proc/meminfo`: the memory in use and the memory of the host, in bytes.
+#[must_use]
+pub fn parse_meminfo(text: &str) -> Option<(u64, u64)> {
+    let field = |name: &str| {
+        text.lines()
+            .find_map(|line| line.strip_prefix(name))
+            .and_then(|rest| rest.split_whitespace().next()?.parse::<u64>().ok())
+            .map(|kilobytes| kilobytes * 1024)
+    };
+    let total = field("MemTotal:")?;
+    let available = field("MemAvailable:")?;
+    Some((total.saturating_sub(available), total))
+}
+
+/// Parses `/proc/net/dev`: the bytes received and sent by the interfaces that `keep` accepts.
+#[must_use]
+pub fn parse_net_dev(text: &str, keep: impl Fn(&str) -> bool) -> (u64, u64) {
+    text.lines()
+        .filter_map(|line| {
+            let (name, rest) = line.split_once(':')?;
+            if !keep(name.trim()) {
+                return None;
+            }
+            let fields: Vec<&str> = rest.split_whitespace().collect();
+            Some((
+                fields.first()?.parse::<u64>().ok()?,
+                fields.get(8)?.parse::<u64>().ok()?,
+            ))
+        })
+        .fold((0, 0), |(received, sent), (r, s)| (received + r, sent + s))
+}
+
+/// Reads the counters of the host, or None if `/proc` does not have them.
+fn host_counters() -> Option<HostCounters> {
+    let (busy, total) = parse_proc_stat(&std::fs::read_to_string("/proc/stat").ok()?)?;
+    let (memory, memory_total) = parse_meminfo(&std::fs::read_to_string("/proc/meminfo").ok()?)?;
+    let net = std::fs::read_to_string("/proc/net/dev").unwrap_or_default();
+    // A bridge and a virtual device carry the bytes of a hardware device again:
+    // only the devices with hardware count. A host with none counts all but the loopback.
+    let hardware = |name: &str| {
+        Path::new("/sys/class/net")
+            .join(name)
+            .join("device")
+            .exists()
+    };
+    let mut traffic = parse_net_dev(&net, hardware);
+    if traffic == (0, 0) {
+        traffic = parse_net_dev(&net, |name| name != "lo");
+    }
+    Some(HostCounters {
+        busy,
+        total,
+        memory,
+        memory_total,
+        received: traffic.0,
+        sent: traffic.1,
+    })
+}
+
+/// Returns the use of the host from two counters `elapsed` apart.
+#[must_use]
+pub fn host_usage(before: &HostCounters, now: &HostCounters, elapsed: Duration) -> HostUsage {
+    let seconds = elapsed.as_secs_f64().max(0.001);
+    let total = now.total.saturating_sub(before.total);
+    let cpu = if total == 0 {
+        0.0
+    } else {
+        now.busy.saturating_sub(before.busy) as f64 / total as f64 * 100.0
+    };
+    // A device that goes away takes its bytes out of the sum: the rate is not negative.
+    let rate = |before: u64, now: u64| (now.saturating_sub(before) as f64 / seconds).round();
+    HostUsage {
+        cpu: (cpu.min(100.0) * 10.0).round() / 10.0,
+        memory: now.memory,
+        memory_total: now.memory_total,
+        net_in: rate(before.received, now.received),
+        net_out: rate(before.sent, now.sent),
+    }
+}
+
 type Sink = Arc<dyn Fn(&StatsEvent) + Send + Sync>;
 
 /// A read of a source: the source, the time, and the counters.
@@ -314,6 +433,7 @@ impl Stats {
 
     async fn sample_loop(self: Arc<Self>) {
         let mut last: HashMap<Source, (Instant, Counters)> = HashMap::new();
+        let mut last_host: Option<(Instant, HostCounters)> = None;
         let mut timer = tokio::time::interval(INTERVAL);
         loop {
             timer.tick().await;
@@ -343,10 +463,11 @@ impl Stats {
                     .collect();
                 let agent = read(&Source::Process(me));
                 let server = server.and_then(|pid| read(&Source::Process(pid)));
-                (windows, agent, server)
+                let host = host_counters().map(|counters| (now, counters));
+                (windows, agent, server, host)
             })
             .await;
-            let Ok((windows, agent, server)) = read else {
+            let Ok((windows, agent, server, host_now)) = read else {
                 continue;
             };
             let mut next: HashMap<Source, (Instant, Counters)> = HashMap::new();
@@ -367,6 +488,13 @@ impl Stats {
             let agent = take(agent);
             let server = take(server);
             last = next;
+            let host = match (&last_host, &host_now) {
+                (Some((before_at, before)), Some((at, now))) => {
+                    Some(host_usage(before, now, at.duration_since(*before_at)))
+                }
+                _ => None,
+            };
+            last_host = host_now;
             // The first sample has no interval yet.
             let Some(agent) = agent else {
                 continue;
@@ -375,6 +503,7 @@ impl Stats {
                 windows,
                 agent,
                 server,
+                host,
             };
             for send in &sinks {
                 send(&event);
@@ -420,6 +549,47 @@ mod tests {
             Some(0.0),
             "a closed socket gives no negative rate"
         );
+    }
+
+    #[test]
+    fn the_host_counters_parse_and_give_the_use_over_the_interval() {
+        let stat = "cpu  100 0 50 800 50 0 0 0 0 0\ncpu0 50 0 25 400 25 0 0 0 0 0\n";
+        assert_eq!(parse_proc_stat(stat), Some((150, 1000)));
+        assert_eq!(parse_proc_stat("intr 5\n"), None);
+        let meminfo = "MemTotal:       16000000 kB\nMemFree:         1000000 kB\nMemAvailable:   12000000 kB\n";
+        assert_eq!(
+            parse_meminfo(meminfo),
+            Some((4_000_000 * 1024, 16_000_000 * 1024))
+        );
+        let dev = "Inter-|   Receive                                                |  Transmit\n face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n    lo: 500 5 0 0 0 0 0 0 500 5 0 0 0 0 0 0\n  eth0: 9000 9 0 0 0 0 0 0 3000 3 0 0 0 0 0 0\ndocker0: 70 1 0 0 0 0 0 0 80 1 0 0 0 0 0 0\n";
+        assert_eq!(parse_net_dev(dev, |name| name == "eth0"), (9000, 3000));
+        assert_eq!(parse_net_dev(dev, |name| name != "lo"), (9070, 3080));
+
+        let before = HostCounters {
+            busy: 100,
+            total: 1000,
+            memory: 1,
+            memory_total: 8,
+            received: 10_000,
+            sent: 5_000,
+        };
+        let now = HostCounters {
+            busy: 150,
+            total: 1200,
+            memory: 2,
+            memory_total: 8,
+            received: 14_000,
+            sent: 4_000,
+        };
+        let usage = host_usage(&before, &now, Duration::from_secs(2));
+        assert!((usage.cpu - 25.0).abs() < 0.01);
+        assert_eq!((usage.memory, usage.memory_total), (2, 8));
+        assert!((usage.net_in - 2000.0).abs() < 0.01);
+        assert!(
+            usage.net_out.abs() < 0.01,
+            "a device that went away gives no negative rate"
+        );
+        assert!(host_counters().is_some_and(|host| host.memory_total > 0 && host.total > 0));
     }
 
     #[test]

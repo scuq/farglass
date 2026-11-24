@@ -752,7 +752,12 @@ The settings app has these pages:
 - System: the hostname, the display name, and the facts of the host (hostname1).
 - Network: the devices of NetworkManager with their state and addresses. The page does not change the network, because a change can stop the connection to farglass.
 - Users and sessions: the sessions of logind. End stops a session after a confirm step.
-- Resources: what the desktop costs. The CPU and the memory of farglassd and of the agent, the data rate of the connection of the tab, and a score: light, moderate, or heavy.
+- Resources: the use of the host, and what the desktop costs.
+  The host has the CPU in percent of all cores, the memory, and the network of its hardware devices, for all users and programs.
+  The desktop has the CPU and the memory of farglassd and of the agent, the data rate of the connection of the tab, and a score: light, moderate, or heavy.
+  Each number has a graph of the last 5 minutes, with one value every 2 s. Move the pointer over a graph to read the value at a time.
+  The shell keeps the history while the desktop is open, thus the graphs do not start empty when you open the page.
+  If the agent sends no numbers for 6 s, the page tells that the numbers are old.
   A table lists each open terminal and Linux app with its CPU, memory, and network, the most CPU first. A click on a window name goes to that window.
 - Power: Restart and Power off, each after a confirm step.
 

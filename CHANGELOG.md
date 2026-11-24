@@ -16,6 +16,9 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 - Right-click an icon in the system tray to open the menu of its program, for example to lock or to quit it. The menu has the check marks and the submenus of the program.
 - Alt+Shift+Space opens and closes the launcher on Windows and Linux. The key works in each browser and needs no F1 key, which many laptops reach only with Fn.
 - The settings have a filter above the list of pages. Type a word, for example `timezone` or `hostname`, to see the settings of all pages that match. Escape clears the filter, and Ctrl+F in the Settings window goes to it.
+- Settings > Resources shows the use of the whole host: the CPU, the memory, and the network of all users and programs.
+- Settings > Resources shows a graph of the last 5 minutes for each number of the host and of farglass. Move the pointer over a graph to read the value at a time. The graphs have the accent color of the theme.
+- Settings > Resources tells when its numbers are old, for example after the connection to the host stopped.
 
 ### Changed
 - Each page of the settings shows its settings in groups with a title.

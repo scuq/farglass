@@ -7,6 +7,8 @@
   --ok: #1d6b38;
   --bad: #a3261b;
   --focus: #2f6fd0;
+  /* The line of a graph: the accent color. --ok and --bad stay for a state. */
+  --chart: var(--focus);
   --title-focused: #e4ebf7;
   --bar: #ecece8;
   font-family: system-ui, sans-serif;

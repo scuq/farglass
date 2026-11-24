@@ -11,7 +11,7 @@ use crate::login::{LocalSession, LoginEvent, LoginReply};
 use crate::message::{
     AppsEvent, AppsRequest, AudioEvent, Bookmark, BookmarkBrowser, BookmarkFile, BookmarkProblem,
     BookmarksEvent, BookmarksRequest, Bus, ClipboardMessage, ClipboardMime, Close, CloseReason,
-    ConnectionMessage, DbusEvent, DbusRequest, HostApp, MAX_CLIPBOARD_LEN, Notification,
+    ConnectionMessage, DbusEvent, DbusRequest, HostApp, HostUsage, MAX_CLIPBOARD_LEN, Notification,
     NotifyAction, NotifyEvent, NotifyReply, Open, PasskeyEvent, PasskeyInfo, PasskeyRequest,
     PolkitEvent, PolkitReply, PtyEvent, PtyRequest, Ready, RedirectEvent, RedirectRect,
     RedirectRequest, StateEvent, StateRequest, StatsEvent, SurfaceAck, SurfaceEvent, SurfaceInput,
@@ -110,6 +110,7 @@ fn messages() -> String {
     declare::<SurfaceAck>(&cfg, &mut out);
     declare::<Usage>(&cfg, &mut out);
     declare::<WindowUsage>(&cfg, &mut out);
+    declare::<HostUsage>(&cfg, &mut out);
     declare::<StatsEvent>(&cfg, &mut out);
     declare::<PasskeyInfo>(&cfg, &mut out);
     declare::<PasskeyRequest>(&cfg, &mut out);
