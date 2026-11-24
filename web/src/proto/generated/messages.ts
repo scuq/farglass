@@ -64,7 +64,7 @@ id: number,
 /**
  * Reports whether the shell decodes the video messages (F037). A shell before this field sends none and gets tiles only.
  */
-video?: boolean, } | { "kind": "surface-input" } | { "kind": "clipboard" } | { "kind": "audio" } | { "kind": "redirect" } | { "kind": "stats" } | { "kind": "apps" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" } | { "kind": "passkeys" };
+video?: boolean, } | { "kind": "surface-input" } | { "kind": "clipboard" } | { "kind": "audio" } | { "kind": "redirect" } | { "kind": "stats" } | { "kind": "apps" } | { "kind": "bookmarks" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" } | { "kind": "passkeys" };
 
 /**
  * The payload of a ready frame. The receiver of the open frame accepts the channel.
@@ -851,6 +851,125 @@ id: string, } | { "type": "failed",
  * The app.
  */
 id: string, 
+/**
+ * The cause, for the user.
+ */
+message: string, };
+
+/**
+ * A bookmark: a URL with a short name, and the browser that opens it (F100).
+ */
+export type Bookmark = { 
+/**
+ * The short name. It is unique in the file.
+ */
+name: string, 
+/**
+ * The URL: `http` or `https` only.
+ */
+url: string, 
+/**
+ * The browser: `firefox`, `chromium`, `chrome`, `brave`, `client` for a tab of the
+ * client browser, or the desktop file id of a different browser.
+ */
+browser: string, 
+/**
+ * The profile, by the name that the browser shows. With none, the browser uses its default profile.
+ */
+profile?: string, 
+/**
+ * Opens the URL in a private window.
+ */
+private?: boolean, };
+
+/**
+ * The contents of the bookmarks file.
+ */
+export type BookmarkFile = { 
+/**
+ * Shows the bookmarks in the search of the launcher.
+ */
+launcher: boolean, 
+/**
+ * The bookmarks, in the order of the file.
+ */
+bookmarks: Array<Bookmark>, };
+
+/**
+ * A browser of the host that can open a bookmark.
+ */
+export type BookmarkBrowser = { 
+/**
+ * The value of [`Bookmark::browser`], for example `firefox`.
+ */
+id: string, 
+/**
+ * The name of its desktop entry.
+ */
+name: string, 
+/**
+ * The names of its profiles.
+ */
+profiles: Array<string>, };
+
+/**
+ * A problem of one bookmark of the file, for example a browser that is not installed.
+ */
+export type BookmarkProblem = { 
+/**
+ * The position of the bookmark in [`BookmarkFile::bookmarks`].
+ */
+index: number, 
+/**
+ * The problem, for the user.
+ */
+message: string, };
+
+/**
+ * A request of the shell on a bookmarks channel.
+ */
+export type BookmarksRequest = { "type": "load" } | { "type": "save", 
+/**
+ * The new contents.
+ */
+file: BookmarkFile, } | { "type": "open", 
+/**
+ * The name of the bookmark.
+ */
+name: string, };
+
+/**
+ * A message of the agent on a bookmarks channel.
+ */
+export type BookmarksEvent = { "type": "loaded", 
+/**
+ * The path of the file.
+ */
+path: string, 
+/**
+ * The contents. An empty file if it does not exist or if it is not valid.
+ */
+file: BookmarkFile, 
+/**
+ * The browsers of the host that are installed.
+ */
+browsers: Array<BookmarkBrowser>, 
+/**
+ * The problems of single bookmarks.
+ */
+problems: Array<BookmarkProblem>, 
+/**
+ * Why the file is not valid TOML. The agent then does not save over it.
+ */
+error?: string, } | { "type": "opened", 
+/**
+ * The name of the bookmark.
+ */
+name: string, } | { "type": "failed", 
+/**
+ * The name of the bookmark, for an open.
+ */
+name?: string, 
 /**
  * The cause, for the user.
  */

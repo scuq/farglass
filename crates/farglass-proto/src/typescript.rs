@@ -9,7 +9,8 @@ use ts_rs::{Config, TS};
 
 use crate::login::{LocalSession, LoginEvent, LoginReply};
 use crate::message::{
-    AppsEvent, AppsRequest, AudioEvent, Bus, ClipboardMessage, ClipboardMime, Close, CloseReason,
+    AppsEvent, AppsRequest, AudioEvent, Bookmark, BookmarkBrowser, BookmarkFile, BookmarkProblem,
+    BookmarksEvent, BookmarksRequest, Bus, ClipboardMessage, ClipboardMime, Close, CloseReason,
     ConnectionMessage, DbusEvent, DbusRequest, HostApp, MAX_CLIPBOARD_LEN, Notification,
     NotifyAction, NotifyEvent, NotifyReply, Open, PasskeyEvent, PasskeyInfo, PasskeyRequest,
     PolkitEvent, PolkitReply, PtyEvent, PtyRequest, Ready, RedirectEvent, RedirectRect,
@@ -119,6 +120,12 @@ fn messages() -> String {
     declare::<HostApp>(&cfg, &mut out);
     declare::<AppsRequest>(&cfg, &mut out);
     declare::<AppsEvent>(&cfg, &mut out);
+    declare::<Bookmark>(&cfg, &mut out);
+    declare::<BookmarkFile>(&cfg, &mut out);
+    declare::<BookmarkBrowser>(&cfg, &mut out);
+    declare::<BookmarkProblem>(&cfg, &mut out);
+    declare::<BookmarksRequest>(&cfg, &mut out);
+    declare::<BookmarksEvent>(&cfg, &mut out);
     declare::<ClipboardMime>(&cfg, &mut out);
     declare::<ClipboardMessage>(&cfg, &mut out);
     declare::<SurfaceInput>(&cfg, &mut out);

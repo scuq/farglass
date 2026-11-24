@@ -9,10 +9,10 @@ use std::time::Duration;
 use bytes::Bytes;
 use farglass_proto::codec::{CodecError, FrameCodec};
 use farglass_proto::message::{
-    AppsEvent, AppsRequest, AudioEvent, Bus, ClipboardMessage, ClipboardMime, Close, CloseReason,
-    DbusEvent, DbusRequest, LinkMessage, MAX_CLIPBOARD_LEN, NotifyReply, Open, PolkitReply,
-    PtyEvent, PtyRequest, Ready, RedirectRequest, StateEvent, StateRequest, SurfaceAck,
-    SurfaceInput, SurfaceRequest,
+    AppsEvent, AppsRequest, AudioEvent, BookmarksEvent, BookmarksRequest, Bus, ClipboardMessage,
+    ClipboardMime, Close, CloseReason, DbusEvent, DbusRequest, LinkMessage, MAX_CLIPBOARD_LEN,
+    NotifyReply, Open, PolkitReply, PtyEvent, PtyRequest, Ready, RedirectRequest, StateEvent,
+    StateRequest, SurfaceAck, SurfaceInput, SurfaceRequest,
 };
 use farglass_proto::{ChannelId, Frame, FrameError, FrameType, PROTOCOL_VERSION, Side};
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -22,6 +22,7 @@ use tokio::sync::mpsc;
 use tokio_util::codec::Framed;
 
 use crate::audio::{self, Audio};
+use crate::bookmarks::Bookmarks;
 use crate::dbus::{self, Buses, DbusOptions, Filter, Subscriptions};
 use crate::launch::{LaunchOptions, Launcher};
 use crate::logind::Logind;
@@ -81,6 +82,8 @@ pub struct Session {
     pub surfaces: Arc<Surfaces>,
     /// The apps of the host for the launcher.
     pub launcher: Arc<Launcher>,
+    /// The bookmarks file and the browsers that open its bookmarks (F100).
+    pub bookmarks: Arc<Bookmarks>,
     /// The sound of the apps.
     pub audio: Arc<Audio>,
     /// The video players of the host browsers.
@@ -106,6 +109,7 @@ impl Default for Session {
                 .map(|(id, _)| id)
                 .collect()
         }));
+        let launcher = Launcher::new(LaunchOptions::from_env());
         Self {
             store: StateStore::default(),
             terminals,
@@ -115,7 +119,8 @@ impl Default for Session {
             polkit: Polkit::new(HELPER),
             notifications: Notifications::new(),
             surfaces,
-            launcher: Launcher::new(LaunchOptions::from_env()),
+            bookmarks: Bookmarks::new(crate::bookmarks::default_path(), launcher.clone()),
+            launcher,
             audio: Audio::new(),
             redirect,
         }
@@ -425,7 +430,24 @@ where
                             )),
                         }
                     }
-                    Kind::Apps | Kind::Audio { .. } | Kind::Stats { .. } => None,
+                    Kind::Bookmarks if frame.frame_type() == FrameType::Control => {
+                        match frame.parse::<BookmarksRequest>() {
+                            Ok(request) => {
+                                bookmarks_request(
+                                    session.bookmarks.clone(),
+                                    channel,
+                                    request,
+                                    &events,
+                                );
+                                None
+                            }
+                            Err(error) => Some((
+                                CloseReason::ProtocolError,
+                                format!("The bookmarks request is not valid: {error}"),
+                            )),
+                        }
+                    }
+                    Kind::Apps | Kind::Bookmarks | Kind::Audio { .. } | Kind::Stats { .. } => None,
                     Kind::Redirect { .. } if frame.frame_type() == FrameType::Control => {
                         match frame.parse::<RedirectRequest>() {
                             Ok(request) => {
@@ -523,6 +545,42 @@ fn apps_request(
             },
         };
         for frame in frames.into_iter().flatten() {
+            let _ = events.send(frame);
+        }
+    });
+}
+
+/// Serves a request of a bookmarks channel on a blocking thread: it reads and writes the file (F100).
+fn bookmarks_request(
+    bookmarks: Arc<Bookmarks>,
+    channel: ChannelId,
+    request: BookmarksRequest,
+    events: &mpsc::UnboundedSender<Frame>,
+) {
+    let events = events.clone();
+    tokio::task::spawn_blocking(move || {
+        let event = match request {
+            BookmarksRequest::Load => bookmarks.load(),
+            BookmarksRequest::Save { file } => {
+                bookmarks
+                    .save(&file)
+                    .unwrap_or_else(|message| BookmarksEvent::Failed {
+                        name: None,
+                        message,
+                    })
+            }
+            BookmarksRequest::Open { name } => match bookmarks.open(&name) {
+                Ok(()) => BookmarksEvent::Opened { name },
+                Err(message) => {
+                    tracing::warn!(%message, "a bookmark did not open");
+                    BookmarksEvent::Failed {
+                        name: Some(name),
+                        message,
+                    }
+                }
+            },
+        };
+        if let Ok(frame) = Frame::json(channel, FrameType::Control, &event) {
             let _ = events.send(frame);
         }
     });
@@ -830,6 +888,8 @@ enum Kind {
     SurfaceInput,
     /// Lists and starts the apps of the host.
     Apps,
+    /// Reads and writes the bookmarks file, and opens its bookmarks.
+    Bookmarks,
     /// Gets the use of the host every 2 s. Dropping the channel removes it.
     Stats {
         /// Dropping the guard removes the channel from the agent.
@@ -995,6 +1055,15 @@ fn open(
         Ok(Open::Apps) => {
             apps_request(session.launcher.clone(), channel, AppsRequest::List, events);
             accept(Kind::Apps)
+        }
+        Ok(Open::Bookmarks) => {
+            bookmarks_request(
+                session.bookmarks.clone(),
+                channel,
+                BookmarksRequest::Load,
+                events,
+            );
+            accept(Kind::Bookmarks)
         }
         Ok(Open::Clipboard) => {
             let events = events.clone();

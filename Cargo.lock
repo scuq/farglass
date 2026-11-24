@@ -1217,8 +1217,10 @@ dependencies = [
  "tokio",
  "tokio-util",
  "toml",
+ "toml_edit",
  "tracing",
  "tracing-subscriber",
+ "url",
  "zbus",
  "zeroize",
 ]
@@ -3822,6 +3824,7 @@ dependencies = [
  "indexmap 2.14.2",
  "toml_datetime",
  "toml_parser",
+ "toml_writer",
  "winnow",
 ]
 

@@ -400,6 +400,19 @@ pub fn find_icon(dirs: &[PathBuf], icon: &str) -> Option<(PathBuf, &'static str)
 ///
 /// [`LaunchError::Exec`] if a quote has no end or the line has no program.
 pub fn exec_args(app: &DesktopApp) -> Result<Vec<String>, LaunchError> {
+    exec_args_with(app, None)
+}
+
+/// As [`exec_args`], but `files` go at the place of the first `%f`, `%F`, `%u`, or `%U`,
+/// or at the end if the line has none of them. A bookmark gives its options and its URL there (F100).
+///
+/// # Errors
+///
+/// [`LaunchError::Exec`] if a quote has no end or the line has no program.
+pub fn exec_args_with(
+    app: &DesktopApp,
+    mut files: Option<&[String]>,
+) -> Result<Vec<String>, LaunchError> {
     let invalid = || LaunchError::Exec(app.name.clone());
     // The words: the text and a flag that reports whether a part of it was in quotes.
     let mut words: Vec<(String, bool)> = Vec::new();
@@ -436,7 +449,15 @@ pub fn exec_args(app: &DesktopApp) -> Result<Vec<String>, LaunchError> {
     for (word, quoted) in words {
         if !quoted {
             match word.as_str() {
-                "%f" | "%F" | "%u" | "%U" | "%d" | "%D" | "%n" | "%N" | "%v" | "%m" => continue,
+                "%f" | "%F" | "%u" | "%U" => {
+                    // A file is never the program.
+                    if args.is_empty() {
+                        return Err(invalid());
+                    }
+                    args.extend(files.take().unwrap_or_default().iter().cloned());
+                    continue;
+                }
+                "%d" | "%D" | "%n" | "%N" | "%v" | "%m" => continue,
                 "%i" => {
                     if let Some(icon) = &app.icon {
                         args.push("--icon".to_owned());
@@ -466,6 +487,7 @@ pub fn exec_args(app: &DesktopApp) -> Result<Vec<String>, LaunchError> {
     if args.first().is_none_or(String::is_empty) {
         return Err(invalid());
     }
+    args.extend(files.unwrap_or_default().iter().cloned());
     Ok(args)
 }
 
@@ -577,7 +599,8 @@ impl Launcher {
         list
     }
 
-    fn app(&self, id: &str) -> Option<DesktopApp> {
+    /// Returns the desktop entry `id`. It reads the entries again if the last list does not have it.
+    pub fn app(&self, id: &str) -> Option<DesktopApp> {
         let find = |apps: &[DesktopApp]| apps.iter().find(|app| app.id == id).cloned();
         if let Some(app) = find(&self.apps.lock().unwrap_or_else(PoisonError::into_inner)) {
             return Some(app);
@@ -601,10 +624,19 @@ impl Launcher {
     ///
     /// [`LaunchError`] if the app is not known, its command line is not valid, or it does not start.
     pub fn launch(&self, id: &str) -> Result<u32, LaunchError> {
+        self.launch_with(id, None)
+    }
+
+    /// As [`Launcher::launch`], with `files` at the place of the file field code (see [`exec_args_with`]).
+    ///
+    /// # Errors
+    ///
+    /// [`LaunchError`] if the app is not known, its command line is not valid, or it does not start.
+    pub fn launch_with(&self, id: &str, files: Option<&[String]>) -> Result<u32, LaunchError> {
         let app = self
             .app(id)
             .ok_or_else(|| LaunchError::Unknown(id.to_owned()))?;
-        let args = with_redirect_extension(exec_args(&app)?, &redirect_extension());
+        let args = with_redirect_extension(exec_args_with(&app, files)?, &redirect_extension());
         let mut command = if self.options.scope {
             let unit = format!(
                 "app-farglass-{}-{}.scope",
@@ -718,6 +750,33 @@ mod tests {
         );
         assert!(exec_args(&app("\"no end")).is_err());
         assert!(exec_args(&app("%U")).is_err());
+    }
+
+    #[test]
+    fn the_files_of_a_bookmark_go_at_the_place_of_the_field_code() {
+        let files = [
+            "-P".to_owned(),
+            "work".to_owned(),
+            "https://example.com/".to_owned(),
+        ];
+        assert_eq!(
+            exec_args_with(&app("firefox %u --flag"), Some(&files)).unwrap(),
+            ["firefox", "-P", "work", "https://example.com/", "--flag"]
+        );
+        assert_eq!(
+            exec_args_with(&app("firefox %U %F"), Some(&files)).unwrap(),
+            ["firefox", "-P", "work", "https://example.com/"],
+            "only the first field code gets the files"
+        );
+        assert_eq!(
+            exec_args_with(&app("/opt/browser"), Some(&files)).unwrap(),
+            ["/opt/browser", "-P", "work", "https://example.com/"],
+            "a line with no field code gets the files at the end"
+        );
+        assert!(
+            exec_args_with(&app("%U"), Some(&files)).is_err(),
+            "a file is never the program"
+        );
     }
 
     #[test]

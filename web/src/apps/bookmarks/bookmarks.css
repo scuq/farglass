@@ -1,0 +1,95 @@
+/* The bookmarks app: a bar, an optional form, and the list. */
+.bookmarks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 0;
+}
+.bookmarks-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.bookmarks-spacer {
+  flex: 1;
+}
+.bookmarks-form {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.5rem 0.75rem;
+  align-items: center;
+  padding: 0.75rem;
+  border: 1px solid var(--focus);
+  border-radius: 8px;
+}
+.bookmarks-form-buttons {
+  grid-column: 1 / -1;
+}
+.bookmarks-note {
+  margin: 0;
+  color: var(--muted);
+}
+.bookmarks-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.bookmarks-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem 0.25rem 0.25rem;
+}
+.bookmarks-row + .bookmarks-row {
+  border-top: 1px solid var(--line);
+}
+.bookmarks-open {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0.4rem 0.5rem;
+  color: var(--fg);
+  font: inherit;
+  text-align: start;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.bookmarks-open:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+.bookmarks-open:disabled {
+  cursor: default;
+}
+.bookmarks-name {
+  font-weight: 600;
+}
+.bookmarks-line {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.9em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bookmarks-problem,
+.bookmarks-error {
+  color: var(--bad);
+}
+.bookmarks-error {
+  margin: 0;
+}
+.bookmarks-empty {
+  padding: 0.75rem;
+  color: var(--muted);
+}
+.bookmarks-path {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}

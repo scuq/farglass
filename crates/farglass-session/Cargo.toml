@@ -21,6 +21,8 @@ pty-process.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 toml.workspace = true
+toml_edit.workspace = true
+url.workspace = true
 zbus.workspace = true
 tokio = { workspace = true, features = ["io-util", "process", "time"] }
 tokio-util.workspace = true

@@ -10,7 +10,7 @@ Each user logs in with the PAM stack of the host and gets a real logind session.
 
 - Login: PAM, passkeys as a second factor, a machine PIN, and a lock screen.
 - Shell: a window manager, a panel, a launcher, workspaces, an overview, a layout picker, context menus, and keyboard shortcuts with a tour.
-- Shell apps: a terminal, settings, notifications, and the polkit password dialog.
+- Shell apps: a terminal, settings, bookmarks, notifications, and the polkit password dialog.
 - Linux apps of the host: a headless Wayland compositor sends their windows as tiles and video, with sound and the clipboard. X11 apps can show through Xwayland, off by default.
 - Video redirection: a video in the host Chromium plays in the client browser.
 - Transport: WebSocket, or WebTransport over HTTP/3.
@@ -757,6 +757,35 @@ The settings app has these pages:
 
 Each change of the host goes through polkit, thus the host can ask for an administrator password in the shell.
 `npm --prefix spikes/e2e run settings` tests the app on the real system bus and changes only the appearance.
+
+## Bookmarks
+
+The Bookmarks app opens URLs by their short names.
+Each bookmark opens in a browser of the host, in a profile of that browser, or in a private window.
+A bookmark of `client` opens in a new tab of the browser that shows farglass, not on the host.
+
+The bookmarks are in `$XDG_CONFIG_HOME/farglass/bookmarks.toml`, by default `~/.config/farglass/bookmarks.toml`.
+You can edit the file in the app or by hand.
+To use the same bookmarks on a different host, copy the file.
+A save from the app keeps the comments of the file.
+If the file is not valid TOML, the app shows the error and does not change the file.
+
+```toml
+[options]
+launcher = false            # show the bookmarks in the launcher search
+
+[[bookmark]]
+name = "gh"                 # the short name, unique in the file
+url = "https://github.com/" # http or https only
+browser = "firefox"         # firefox, chromium, chrome, brave, client, or a desktop file id
+profile = "work"            # optional: the name of the profile that the browser shows
+private = true              # optional: a private window
+```
+
+- `browser`: Firefox, Chromium, Chrome, and Brave can be installed as packages or as Flatpak apps. A different desktop file id opens the URL with no profile and no private window.
+- `profile`: the name that the browser shows, not the directory of the profile. Thus the file works on a host where the directory has a different name. With no profile, the browser uses its default profile.
+- If the host does not have the browser or the profile of a bookmark, the app shows the problem on that bookmark.
+- `launcher`: with `true`, the launcher finds each bookmark by its short name. The default is `false`.
 
 ## Lock screen
 

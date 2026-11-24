@@ -49,7 +49,7 @@ async function host(component: () => Promise<{ default: AppComponent }>) {
 
 describe("registry", () => {
   test("the shell finds each app by its manifest", () => {
-    expect(Object.keys(APPS).sort()).toEqual(["about", "echo", "linux", "settings", "terminal"]);
+    expect(Object.keys(APPS).sort()).toEqual(["about", "bookmarks", "echo", "linux", "settings", "terminal"]);
     for (const app of Object.values(APPS)) {
       expect(app.icon).toBeTruthy();
       expect(typeof app.component.preload).toBe("function");

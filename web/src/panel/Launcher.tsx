@@ -1,6 +1,7 @@
 import { createMemo, createSignal, createUniqueId, For, Show } from "solid-js";
 import { APPS } from "../apps/registry";
 import { PAGES } from "../apps/settings/pages";
+import { bookmarks, describe } from "../launcher/bookmarks";
 import { calculate } from "../launcher/calc";
 import calcIcon from "../launcher/calc.svg";
 import { hostApps, isShellIcon } from "../launcher/hostApps";
@@ -20,6 +21,8 @@ interface Entry {
   readonly setting?: string | undefined;
   /** The value of a calculation or a conversion, to copy (F042). */
   readonly calc?: string;
+  /** The name of a bookmark (F100). */
+  readonly bookmark?: string;
   readonly preload?: () => void;
 }
 
@@ -32,6 +35,8 @@ const PAGE_KEYWORDS = PAGES.flatMap((page) => [page.label, ...page.keywords]);
 
 /** The icon of an app of the host with no icon of its own. */
 const HOST_ICON = APPS.linux?.icon;
+/** The icon of a bookmark. */
+const BOOKMARK_ICON = APPS.bookmarks?.icon;
 
 /**
  * The launcher: one search field for the apps of the shell, the desktop entries
@@ -63,6 +68,8 @@ export function Launcher(props: {
   const listId = createUniqueId();
   // The desktop entries can change while the shell runs, for example after an install.
   hostApps()?.refresh();
+  // The bookmarks file can change by hand.
+  bookmarks()?.refresh();
 
   const usage = () => props.usage ?? EMPTY_LAUNCHER;
 
@@ -96,7 +103,25 @@ export function Launcher(props: {
       icon: () => apps?.icon(app.id) ?? HOST_ICON,
       host: app.id,
     }));
-    return [...own, ...host];
+    // Only with the option of the file: the default is off (F100).
+    const marks = bookmarks();
+    const marked: Entry[] = (marks?.launcherBookmarks() ?? []).map((bookmark) => {
+      let host = bookmark.url;
+      try {
+        host = new URL(bookmark.url).hostname;
+      } catch {
+        // The agent marks the bookmark as not valid; the launcher shows it as it is.
+      }
+      return {
+        id: `bookmark:${bookmark.name}`,
+        title: bookmark.name,
+        keywords: [host, "bookmark"],
+        description: describe(marks?.state() ?? null, bookmark),
+        icon: () => BOOKMARK_ICON,
+        bookmark: bookmark.name,
+      };
+    });
+    return [...own, ...host, ...marked];
   };
   /** The rows of the list. A query gives one list. No query gives the sections, if an app is pinned or was used. */
   const rows = createMemo((): Row[] => {
@@ -145,6 +170,26 @@ export function Launcher(props: {
       copied.then(
         () => props.onclose(),
         () => setFailure(`The browser did not let the launcher copy ${entry.calc}.`),
+      );
+      return;
+    }
+    if (entry.bookmark !== undefined) {
+      const marks = bookmarks();
+      const bookmark = marks?.launcherBookmarks().find((each) => each.name === entry.bookmark);
+      if (!marks || !bookmark || starting()) return;
+      setFailure(null);
+      setStarting(entry.id);
+      // In the handler of the key or the click: a bookmark of this browser opens a tab at once.
+      marks.open(bookmark).then(
+        () => {
+          setStarting(null);
+          used(entry);
+          props.onclose();
+        },
+        (message: string) => {
+          setStarting(null);
+          setFailure(message);
+        },
       );
       return;
     }

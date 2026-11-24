@@ -2,6 +2,7 @@ import { createSignal, onCleanup, Show } from "solid-js";
 import { APPEARANCE_KEY, applyAppearance, parseAppearance } from "../appearance";
 import { Notifications } from "../notify/Notifications";
 import { startSound } from "../audio/player";
+import { startBookmarks } from "../launcher/bookmarks";
 import { startHostApps } from "../launcher/hostApps";
 import { startStats } from "../stats";
 import { resolveLayout, xkbOf } from "../keys/layout";
@@ -80,6 +81,8 @@ export function Desktop(props: { connection: Connection; user: string; onlogout:
   onCleanup(() => stopSurfaceManager(props.connection));
   // The desktop entries of the host for the launcher, and the icons of their windows (F031).
   onCleanup(startHostApps(props.connection));
+  // The bookmarks file for the bookmarks app and the launcher (F100).
+  onCleanup(startBookmarks(props.connection));
   // The tour of the shortcuts starts from the settings (F044).
   const startTour = () => controller.setTourOpen(true);
   window.addEventListener(TOUR_EVENT, startTour);

@@ -194,6 +194,131 @@ describe("apps of the host", () => {
   });
 });
 
+describe("bookmarks in the launcher", () => {
+  test("the launcher shows the bookmarks only with the option, and opens them on the host or in a tab", async () => {
+    const opened = vi.spyOn(window, "open").mockReturnValue(null);
+    try {
+      const { host, server, channelOf } = await mountDesktop();
+      const marks = channelOf("bookmarks");
+      const requests = () =>
+        server
+          .take()
+          .filter((f) => f.channel === marks)
+          .map((f) => parseJson(f));
+      const loaded = (launcher: boolean) =>
+        server.push(
+          encodeJsonFrame(marks, FrameType.Control, {
+            type: "loaded",
+            path: "/home/alice/.config/farglass/bookmarks.toml",
+            file: {
+              launcher,
+              bookmarks: [
+                { name: "gh", url: "https://github.com/", browser: "firefox", profile: "work", private: true },
+                { name: "docs", url: "https://docs.example/", browser: "client" },
+              ],
+            },
+            browsers: [{ id: "firefox", name: "Firefox", profiles: ["work"] }],
+            problems: [],
+          }),
+        );
+      server.push(readyFrame(marks));
+      loaded(false);
+      await settle();
+      const input = () => host.querySelector<HTMLInputElement>(".launcher-search")!;
+      byText(host, "button", "Apps").click();
+      await settle();
+      type(input(), "gh");
+      await settle();
+      // The option is off by default: no bookmark in the results.
+      const titles = () => [...host.querySelectorAll("#launcher [role=option] .launcher-title")].map((el) => el.textContent);
+      expect(titles()).not.toContain("gh");
+      expect(requests()).toContainEqual({ type: "load" });
+
+      loaded(true);
+      await settle();
+      type(input(), "gh");
+      await settle();
+      const option = byText(host, "#launcher [role=option]", "gh");
+      expect(option.querySelector(".launcher-description")?.textContent).toBe("Firefox · work · private · github.com");
+      requests();
+      key("keydown", { key: "Enter" }, input());
+      await settle();
+      expect(requests()).toEqual([{ type: "open", name: "gh" }]);
+      server.push(encodeJsonFrame(marks, FrameType.Control, { type: "opened", name: "gh" }));
+      await settle();
+      expect(host.querySelector("#launcher [role=option]")).toBeNull();
+
+      // A bookmark of the client browser opens a tab here, and the agent gets no request.
+      byText(host, "button", "Apps").click();
+      await settle();
+      type(input(), "docs");
+      await settle();
+      key("keydown", { key: "Enter" }, input());
+      await settle();
+      expect(opened).toHaveBeenCalledWith("https://docs.example/", "_blank", "noopener,noreferrer");
+      expect(requests().filter((r) => (r as { type: string }).type === "open")).toEqual([]);
+    } finally {
+      opened.mockRestore();
+    }
+  });
+});
+
+describe("bookmarks app", () => {
+  test("the app lists the bookmarks with their problems and saves a new one", async () => {
+    const { host, server, channelOf } = await mountDesktop();
+    const marks = channelOf("bookmarks");
+    const requests = () =>
+      server
+        .take()
+        .filter((f) => f.channel === marks)
+        .map((f) => parseJson(f));
+    const file = { launcher: false, bookmarks: [{ name: "gh", url: "https://github.com/", browser: "brave" }] };
+    const loaded = (current: typeof file, problems: { index: number; message: string }[] = []) =>
+      server.push(
+        encodeJsonFrame(marks, FrameType.Control, {
+          type: "loaded",
+          path: "/home/alice/.config/farglass/bookmarks.toml",
+          file: current,
+          browsers: [{ id: "firefox", name: "Firefox", profiles: ["default-release", "work"] }],
+          problems,
+        }),
+      );
+    server.push(readyFrame(marks));
+    loaded(file, [{ index: 0, message: "brave is not installed on this host." }]);
+    byText(host, "button", "Apps").click();
+    await settle();
+    byText(host, "#launcher [role=option]", "Bookmarks").click();
+    await settle();
+    await settle();
+    await vi.waitFor(() => expect(host.querySelector(".bookmarks-row")).not.toBeNull());
+    const row = byText(host, ".bookmarks-row", "gh");
+    expect(row.querySelector(".bookmarks-problem")?.textContent).toBe("brave is not installed on this host.");
+    expect(row.querySelector<HTMLButtonElement>(".bookmarks-open")!.disabled).toBe(true);
+    requests();
+
+    byText(host, ".bookmarks button", "Add").click();
+    await settle();
+    const field = (id: string) => host.querySelector<HTMLInputElement & HTMLSelectElement>(`#${id}`)!;
+    type(field("bookmark-name"), "mail");
+    type(field("bookmark-url"), "https://mail.example/");
+    field("bookmark-browser").value = "firefox";
+    field("bookmark-browser").dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+    field("bookmark-profile").value = "work";
+    field("bookmark-profile").dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+    const form = host.querySelector<HTMLFormElement>(".bookmarks-form")!;
+    form.requestSubmit();
+    await settle();
+    const saved = { launcher: false, bookmarks: [...file.bookmarks, { name: "mail", url: "https://mail.example/", browser: "firefox", profile: "work" }] };
+    expect(requests()).toEqual([{ type: "save", file: saved }]);
+    loaded(saved as typeof file);
+    await settle();
+    expect(host.querySelector(".bookmarks-form")).toBeNull();
+    expect(byText(host, ".bookmarks-row", "mail").querySelector(".bookmarks-line")?.textContent).toBe("Firefox · work · mail.example");
+  });
+});
+
 describe("launcher", () => {
   test("the Apps button opens the launcher with all apps, and a click opens an app", async () => {
     const { host } = await mountDesktop();
@@ -201,7 +326,7 @@ describe("launcher", () => {
     byText(host, "button", "Apps").click();
     await settle();
     const options = [...host.querySelectorAll("#launcher [role=option]")].map((li) => li.querySelector(".launcher-title")?.textContent);
-    expect(options).toEqual(["About farglass", "Echo", "Settings", "Terminal"]);
+    expect(options).toEqual(["About farglass", "Bookmarks", "Echo", "Settings", "Terminal"]);
     byText(host, "#launcher [role=option]", "About farglass").click();
     await settle();
     expect(host.querySelector(".wm-window")?.getAttribute("aria-label")).toBe("About farglass");
@@ -220,6 +345,8 @@ describe("launcher", () => {
     await settle();
     expect(host.querySelector(".launcher-empty")?.textContent).toBe("No app matches.");
     type(input, "");
+    await settle();
+    key("keydown", { key: "ArrowDown" }, input);
     await settle();
     key("keydown", { key: "ArrowDown" }, input);
     await settle();
@@ -264,11 +391,13 @@ describe("launcher", () => {
     const input = host.querySelector<HTMLInputElement>(".launcher-search")!;
     key("keydown", { key: "ArrowDown" }, input);
     await settle();
+    key("keydown", { key: "ArrowDown" }, input);
+    await settle();
     server.take();
     // Alt+P pins the selected app, Echo. The selection stays on it.
     key("keydown", { key: "p", code: "KeyP", altKey: true }, input);
     await settle();
-    expect([sections(), titles()]).toEqual([["Pinned", "All apps"], ["Echo", "About farglass", "Settings", "Terminal"]]);
+    expect([sections(), titles()]).toEqual([["Pinned", "All apps"], ["Echo", "About farglass", "Bookmarks", "Settings", "Terminal"]]);
     expect(host.querySelector("#launcher [aria-selected=true] .launcher-title")?.textContent).toBe("Echo");
     const sets = () =>
       server
@@ -283,11 +412,11 @@ describe("launcher", () => {
     expect(Object.keys(sets().at(-1)?.value?.used ?? {})).toEqual(["terminal"]);
     byText(host, "button", "Apps").click();
     await settle();
-    expect([sections(), titles()]).toEqual([["Pinned", "Most used", "All apps"], ["Echo", "Terminal", "About farglass", "Settings"]]);
+    expect([sections(), titles()]).toEqual([["Pinned", "Most used", "All apps"], ["Echo", "Terminal", "About farglass", "Bookmarks", "Settings"]]);
     // The button of the entry removes the pin.
     byText(host, "#launcher [role=option]", "Echo").querySelector<HTMLButtonElement>(".launcher-pin")!.click();
     await settle();
-    expect([sections(), titles()]).toEqual([["Most used", "All apps"], ["Terminal", "About farglass", "Echo", "Settings"]]);
+    expect([sections(), titles()]).toEqual([["Most used", "All apps"], ["Terminal", "About farglass", "Bookmarks", "Echo", "Settings"]]);
   });
 
   test("a calculation and a unit conversion are the first result, and Enter copies the value", async () => {

@@ -178,6 +178,10 @@ pub enum Open {
     /// The agent sends [`AppsEvent::List`] at once. The shell sends [`AppsRequest`].
     /// An [`AppsEvent::Icon`] with a mime type is followed by one data frame with the bytes of the icon.
     Apps,
+    /// The bookmarks of the user (F100): the file `bookmarks.toml` and the browsers of the host.
+    ///
+    /// The agent sends [`BookmarksEvent::Loaded`] at once. The shell sends [`BookmarksRequest`].
+    Bookmarks,
     /// The polkit prompts of the session. The shell keeps one open while the desktop shows.
     ///
     /// The agent sends [`PolkitEvent`] and gets [`PolkitReply`], as control messages.
@@ -771,6 +775,110 @@ pub enum AppsEvent {
     Failed {
         /// The app.
         id: String,
+        /// The cause, for the user.
+        message: String,
+    },
+}
+
+/// A bookmark: a URL with a short name, and the browser that opens it (F100).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct Bookmark {
+    /// The short name. It is unique in the file.
+    pub name: String,
+    /// The URL: `http` or `https` only.
+    pub url: String,
+    /// The browser: `firefox`, `chromium`, `chrome`, `brave`, `client` for a tab of the
+    /// client browser, or the desktop file id of a different browser.
+    pub browser: String,
+    /// The profile, by the name that the browser shows. With none, the browser uses its default profile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub profile: Option<String>,
+    /// Opens the URL in a private window.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub private: bool,
+}
+
+/// The contents of the bookmarks file.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct BookmarkFile {
+    /// Shows the bookmarks in the search of the launcher.
+    pub launcher: bool,
+    /// The bookmarks, in the order of the file.
+    pub bookmarks: Vec<Bookmark>,
+}
+
+/// A browser of the host that can open a bookmark.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct BookmarkBrowser {
+    /// The value of [`Bookmark::browser`], for example `firefox`.
+    pub id: String,
+    /// The name of its desktop entry.
+    pub name: String,
+    /// The names of its profiles.
+    pub profiles: Vec<String>,
+}
+
+/// A problem of one bookmark of the file, for example a browser that is not installed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct BookmarkProblem {
+    /// The position of the bookmark in [`BookmarkFile::bookmarks`].
+    pub index: u32,
+    /// The problem, for the user.
+    pub message: String,
+}
+
+/// A request of the shell on a bookmarks channel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum BookmarksRequest {
+    /// Reads the file and the browsers again. The agent answers with [`BookmarksEvent::Loaded`].
+    Load,
+    /// Writes the file. The agent keeps the comments of the file and answers with
+    /// [`BookmarksEvent::Loaded`], or with [`BookmarksEvent::Failed`] and no change.
+    Save {
+        /// The new contents.
+        file: BookmarkFile,
+    },
+    /// Opens the bookmark `name` of the file in its browser on the host.
+    /// The agent reads the URL from the file. It refuses a bookmark of the client browser.
+    Open {
+        /// The name of the bookmark.
+        name: String,
+    },
+}
+
+/// A message of the agent on a bookmarks channel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum BookmarksEvent {
+    /// The file and the browsers of the host.
+    Loaded {
+        /// The path of the file.
+        path: String,
+        /// The contents. An empty file if it does not exist or if it is not valid.
+        file: BookmarkFile,
+        /// The browsers of the host that are installed.
+        browsers: Vec<BookmarkBrowser>,
+        /// The problems of single bookmarks.
+        problems: Vec<BookmarkProblem>,
+        /// Why the file is not valid TOML. The agent then does not save over it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        error: Option<String>,
+    },
+    /// The browser of the bookmark started.
+    Opened {
+        /// The name of the bookmark.
+        name: String,
+    },
+    /// A save or an open failed.
+    Failed {
+        /// The name of the bookmark, for an open.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        name: Option<String>,
         /// The cause, for the user.
         message: String,
     },
