@@ -9,7 +9,7 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 ## Unreleased
 
 ### Added
-- Settings > Keyboard has a layout for the Linux apps, for example German or Swiss French. The Linux apps then type the characters that are on your keys. By default, farglass selects the layout from the language of your browser.
+- Settings > Keyboard has a layout for the Linux apps, for example German or Swiss French. The Linux apps then type the characters that are on your keys. In Chromium and Edge, farglass uses the layout of your keyboard by default. In other browsers, the default is English (US), and you can select a different layout.
 
 ## v0.1.7 — 24 November 2026 — An ssh-agent for each web session
 

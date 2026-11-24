@@ -4,8 +4,8 @@ import { Notifications } from "../notify/Notifications";
 import { startSound } from "../audio/player";
 import { startHostApps } from "../launcher/hostApps";
 import { startStats } from "../stats";
-import { KEYBOARD_KEY, layoutOf, parseKeyboardSettings } from "../keys/scheme";
-import { xkbOf } from "../keys/layout";
+import { resolveLayout, xkbOf } from "../keys/layout";
+import { KEYBOARD_KEY, parseKeyboardSettings } from "../keys/scheme";
 import { startSurfaceManager, stopSurfaceManager } from "../surface/manager";
 import { parseVideoMode, VIDEO_KEY } from "../surface/redirect";
 import { KeyHints } from "../keys/KeyHints";
@@ -32,17 +32,32 @@ export function Desktop(props: { connection: Connection; user: string; onlogout:
   const surfaces = startSurfaceManager(props.connection, controller);
   // Where the videos of the host browser play, from the settings (F040).
   onCleanup(controller.state.watch(VIDEO_KEY, (value) => surfaces.redirect.setMode(parseVideoMode(value))));
-  // The keyboard layout of the Linux apps, from the settings or the browser languages (F094).
+  // The keyboard layout of the Linux apps, from the settings or the keyboard of the client (F094, F095).
+  let setting: string | null = null;
   let keymap = "";
+  let asked = 0;
+  const sendKeymap = async () => {
+    if (setting === null) {
+      return;
+    }
+    const ask = ++asked;
+    const layout = await resolveLayout(setting);
+    // A newer change of the setting or of the focus wins.
+    if (ask === asked && layout !== keymap) {
+      keymap = layout;
+      surfaces.request({ type: "keymap", ...xkbOf(layout) });
+    }
+  };
   onCleanup(
     controller.state.watch(KEYBOARD_KEY, (value) => {
-      const layout = layoutOf(parseKeyboardSettings(value));
-      if (layout !== keymap) {
-        keymap = layout;
-        surfaces.request({ type: "keymap", ...xkbOf(layout) });
-      }
+      setting = parseKeyboardSettings(value).layout;
+      void sendKeymap();
     }),
   );
+  // The user can change the layout of the operating system while the browser is in the background.
+  const onFocus = () => void sendKeymap();
+  window.addEventListener("focus", onFocus);
+  onCleanup(() => window.removeEventListener("focus", onFocus));
   onCleanup(() => stopSurfaceManager(props.connection));
   // The desktop entries of the host for the launcher, and the icons of their windows (F031).
   onCleanup(startHostApps(props.connection));

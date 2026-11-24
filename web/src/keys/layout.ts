@@ -3,8 +3,9 @@
  *
  * The shell sends the physical key of each keyboard event to the compositor.
  * The compositor turns the key into a character with an XKB keymap, thus the
- * keymap must be the layout of the keyboard of the user. The shell suggests a
- * layout from the languages of the browser. The user can select a different one.
+ * keymap must be the layout of the keyboard of the user. In a browser with the
+ * Keyboard API (Chromium), the shell finds the layout from the characters of the
+ * keys. In a different browser, the layout is US until the user selects one.
  */
 
 /** One XKB layout: `id` is the layout, or the layout and the variant as `layout(variant)`. */
@@ -65,86 +66,86 @@ export const LAYOUTS: readonly KeyboardLayout[] = [
   { id: "ua", label: "Ukrainian" },
 ];
 
-/** The layout when no language of the browser has one. */
+/** The layout when the browser cannot tell the layout of the keyboard. */
 export const FALLBACK_LAYOUT = "us";
 
-/** The layouts of a language with a region, for example `de-CH`. A key with a region wins over a key with no region. */
-const BY_LANGUAGE: Readonly<Record<string, string>> = {
-  "en-gb": "gb",
-  "en-ie": "ie",
-  "en-ca": "us",
-  "de-at": "at",
-  "de-ch": "ch",
-  "de-li": "ch",
-  "fr-ch": "ch(fr)",
-  "fr-be": "be",
-  "nl-be": "be",
-  "fr-ca": "ca",
-  "pt-br": "br",
-  "es-es": "es",
-  sq: "al",
-  ar: "ara",
-  bg: "bg",
-  cs: "cz",
-  da: "dk",
-  de: "de",
-  el: "gr",
-  en: "us",
-  es: "latam",
-  et: "ee",
-  fi: "fi",
-  fr: "fr",
-  he: "il",
-  hr: "hr",
-  hu: "hu",
-  is: "is",
-  it: "it",
-  ja: "jp",
-  ko: "kr",
-  lt: "lt",
-  lv: "lv",
-  mk: "mk",
-  nb: "no",
-  nl: "us",
-  nn: "no",
-  no: "no",
-  pl: "pl",
-  pt: "pt",
-  ro: "ro",
-  ru: "ru",
-  sk: "sk",
-  sl: "si",
-  sr: "rs",
-  sv: "se",
-  th: "th",
-  tr: "tr",
-  uk: "ua",
-};
-
 /**
- * Returns the layout of the first language with a known layout, for example
- * `navigator.languages`. Spanish of Spain gets the Spanish layout, and other
- * Spanish gets the Latin American layout. Dutch of the Netherlands gets the US layout,
- * as most keyboards there have it.
+ * The characters of some keys of each layout, with no modifier: `KeyboardEvent.code`
+ * to the character. The first layout whose keys all match wins, thus a layout comes
+ * before a layout with fewer keys that it also matches. Dead keys are not in the
+ * table: browsers do not give their character in the same way. Layouts with the
+ * same keys, for example German and Austrian, give the first of them.
  */
-export function layoutFromLanguages(languages: readonly string[]): string {
-  for (const language of languages) {
-    const tag = language.toLowerCase().replace(/_/g, "-");
-    const parts = tag.split("-");
-    // A script subtag, for example sr-Latn-RS, is not a region.
-    const region = parts.slice(1).find((part) => part.length === 2 || /^\d{3}$/.test(part));
-    const layout = (region && BY_LANGUAGE[`${parts[0]}-${region}`]) || BY_LANGUAGE[parts[0] ?? ""];
-    if (layout) {
-      return layout;
-    }
-  }
-  return FALLBACK_LAYOUT;
+const SIGNATURES: readonly { readonly id: string; readonly keys: Readonly<Record<string, string>> }[] = [
+  { id: "ru", keys: { KeyQ: "й", KeyS: "ы" } },
+  { id: "ua", keys: { KeyQ: "й", KeyS: "і" } },
+  { id: "mk", keys: { KeyQ: "љ" } },
+  { id: "gr", keys: { KeyA: "α" } },
+  { id: "il", keys: { KeyA: "ש" } },
+  { id: "ara", keys: { KeyA: "ش" } },
+  { id: "th", keys: { KeyA: "ฟ" } },
+  { id: "us(dvorak)", keys: { KeyD: "e", KeyS: "o" } },
+  { id: "us(colemak)", keys: { KeyE: "f", KeyS: "r" } },
+  { id: "de(neo)", keys: { KeyQ: "x", KeyW: "v" } },
+  { id: "be", keys: { KeyQ: "a", Digit1: "&", Equal: "-" } },
+  { id: "fr", keys: { KeyQ: "a", Digit1: "&" } },
+  { id: "cz", keys: { KeyY: "z", Digit2: "ě", Digit3: "š" } },
+  { id: "sk", keys: { KeyY: "z", Digit2: "ľ", Digit3: "š" } },
+  { id: "hu", keys: { KeyY: "z", Digit0: "ö", Semicolon: "é" } },
+  { id: "hr", keys: { KeyY: "z", Semicolon: "č", Quote: "ć" } },
+  { id: "ch(fr)", keys: { KeyY: "z", Semicolon: "é", Quote: "à" } },
+  { id: "ch", keys: { KeyY: "z", Semicolon: "ö", Backquote: "§" } },
+  { id: "de", keys: { KeyY: "z", Semicolon: "ö", Quote: "ä" } },
+  { id: "lt", keys: { Digit1: "ą", Digit2: "č" } },
+  { id: "ro", keys: { Semicolon: "ș", Quote: "ț" } },
+  { id: "tr", keys: { Semicolon: "ş", BracketLeft: "ğ" } },
+  { id: "ee", keys: { Semicolon: "ö", BracketRight: "õ" } },
+  { id: "se", keys: { Semicolon: "ö", Quote: "ä", BracketLeft: "å" } },
+  { id: "no", keys: { Semicolon: "ø", Quote: "æ" } },
+  { id: "dk", keys: { Semicolon: "æ", Quote: "ø" } },
+  { id: "is", keys: { Semicolon: "æ", BracketLeft: "ð" } },
+  { id: "es", keys: { Semicolon: "ñ", Equal: "¡" } },
+  { id: "latam", keys: { Semicolon: "ñ", Equal: "¿" } },
+  { id: "it", keys: { Semicolon: "ò", Quote: "à" } },
+  { id: "pt", keys: { Semicolon: "ç", Equal: "«" } },
+  { id: "br", keys: { Semicolon: "ç", BracketRight: "[" } },
+  { id: "jp", keys: { Equal: "^", BracketLeft: "@" } },
+  { id: "gb", keys: { KeyY: "y", Semicolon: ";", Quote: "'", Backslash: "#" } },
+  { id: "us", keys: { KeyQ: "q", KeyY: "y", Semicolon: ";", Quote: "'", BracketLeft: "[", Backslash: "\\" } },
+];
+
+/** Returns the layout of a layout map of the Keyboard API, or null if no layout matches. */
+export function layoutFromMap(map: ReadonlyMap<string, string>): string | null {
+  const matches = (keys: Readonly<Record<string, string>>) => Object.entries(keys).every(([code, key]) => map.get(code)?.toLowerCase() === key);
+  return SIGNATURES.find((signature) => matches(signature.keys))?.id ?? null;
 }
 
-/** Returns the layout from the languages of this browser. */
-export function detectLayout(): string {
-  const languages = typeof navigator === "undefined" ? [] : navigator.languages?.length ? navigator.languages : [navigator.language];
-  return layoutFromLanguages(languages.filter(Boolean));
+/** The Keyboard API of Chromium, which other browsers do not have. */
+interface KeyboardApi {
+  getLayoutMap(): Promise<ReadonlyMap<string, string>>;
+}
+
+/**
+ * Returns the layout of the keyboard of this computer, or null if the browser
+ * cannot tell it. Ask again after the window gets the focus: the user can change
+ * the layout of the operating system.
+ */
+export async function detectLayout(): Promise<string | null> {
+  const keyboard = typeof navigator === "undefined" ? undefined : (navigator as Navigator & { keyboard?: Partial<KeyboardApi> }).keyboard;
+  if (typeof keyboard?.getLayoutMap !== "function") {
+    return null;
+  }
+  try {
+    return layoutFromMap(await keyboard.getLayoutMap());
+  } catch {
+    // The browser refuses the call, for example in a frame of a different origin.
+    return null;
+  }
+}
+
+/** Returns the layout of the setting: the selected layout, or for "auto" the layout of the keyboard, or US. */
+export async function resolveLayout(setting: "auto" | string): Promise<string> {
+  return setting === "auto" ? ((await detectLayout()) ?? FALLBACK_LAYOUT) : setting;
 }
 
 /** A valid id: an XKB layout name, with an optional variant in parentheses. */

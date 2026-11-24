@@ -1,6 +1,6 @@
 import { createSignal, createUniqueId, For } from "solid-js";
 import { ACTION_LABELS, type ActionId, type Binding, chordLabel, DEFAULT_KEYBOARD, detectScheme, KEYBOARD_KEY, type KeyboardSettings, parseKeyboardSettings, SCHEMES, schemeOf } from "../../../keys/scheme";
-import { detectLayout, LAYOUTS, layoutLabel } from "../../../keys/layout";
+import { detectLayout, FALLBACK_LAYOUT, LAYOUTS, layoutLabel } from "../../../keys/layout";
 import { TOUR_EVENT } from "../../../tour/Tour";
 import type { AppContext } from "../../types";
 
@@ -18,6 +18,17 @@ export function KeyboardPage(props: { context: AppContext }) {
     props.context.state.setShared(KEYBOARD_KEY, next);
   };
   const scheme = () => schemeOf(value());
+  // The layout of the keyboard, or null if this browser cannot tell it (F095).
+  // undefined until the browser answers.
+  const [detected, setDetected] = createSignal<string | null | undefined>(undefined);
+  void detectLayout().then((layout) => setDetected(layout));
+  const autoLabel = () => {
+    const layout = detected();
+    if (layout === undefined) {
+      return "Same as this keyboard";
+    }
+    return layout ? `Same as this keyboard (${layoutLabel(layout)})` : `${layoutLabel(FALLBACK_LAYOUT)}, until you select a layout`;
+  };
   const rows = () =>
     (Object.entries(SCHEMES[scheme()]) as [ActionId, readonly Binding[]][]).map(([action, bindings]) => ({
       action,
@@ -41,11 +52,11 @@ export function KeyboardPage(props: { context: AppContext }) {
       <fieldset>
         <legend>Layout of the Linux apps</legend>
         <select name="layout" aria-label="Layout of the Linux apps" onChange={(event) => change({ layout: event.currentTarget.value })}>
-          <option value="auto" selected={value().layout === "auto"}>Same as the browser language ({layoutLabel(detectLayout())})</option>
+          <option value="auto" selected={value().layout === "auto"}>{autoLabel()}</option>
           <For each={LAYOUTS}>{(layout) => <option value={layout.id} selected={value().layout === layout.id}>{layout.label}</option>}</For>
         </select>
       </fieldset>
-      <p class="settings-note">Select the layout of your keyboard. The Linux apps then type the characters that are on your keys. The terminal and the shell use the layout of this computer.</p>
+      <p class="settings-note">The Linux apps type the characters of this layout. Chromium and Edge tell farglass the layout of your keyboard. In a different browser, the layout is English (US) until you select the layout of your keyboard. The terminal and the shell always use the layout of this computer.</p>
       <label class="settings-choice">
         <input type="checkbox" name="hints" checked={value().hints} onChange={(event) => change({ hints: event.currentTarget.checked })} />
         Show the shortcuts when I hold {scheme() === "mac" ? "⌃⇧" : "Alt+Shift"}
