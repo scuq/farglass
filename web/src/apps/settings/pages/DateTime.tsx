@@ -1,8 +1,8 @@
-import { createSignal, For, onCleanup, Show } from "solid-js";
+import { createSignal, createUniqueId, For, onCleanup, Show } from "solid-js";
 import type { DbusClient } from "../../../dbus";
 import { CLOCK_KEY, type ClockSettings, DEFAULT_CLOCK, formatClock, parseClockSettings } from "../../../clock";
 import type { AppContext } from "../../types";
-import { Loading, type Outcome, OutcomeLine, runAction } from "../common";
+import { Loading, type Outcome, OutcomeLine, runAction, Section } from "../common";
 
 const DEST = "org.freedesktop.timedate1";
 const PATH = "/org/freedesktop/timedate1";
@@ -26,7 +26,6 @@ export function formatHostTime(ms: number, timezone: string): string {
   }
 }
 
-/** The time, the timezone, and the network time of the host, from timedate1. */
 /** The hour formats of the clock in the panel (F099). */
 const HOUR_CHOICES: readonly { id: ClockSettings["hours"]; label: string }[] = [
   { id: "auto", label: "Same as the language of the browser" },
@@ -34,7 +33,10 @@ const HOUR_CHOICES: readonly { id: ClockSettings["hours"]; label: string }[] = [
   { id: "12", label: "12 hours" },
 ];
 
+/** The clock of the panel, and the time, the timezone, and the network time of the host, from timedate1. */
 export function DateTimePage(props: { dbus: DbusClient; context: AppContext }) {
+  // Each window of Settings has its own radio group and its own list of timezones.
+  const group = createUniqueId();
   const [clock, setClock] = createSignal(DEFAULT_CLOCK);
   props.context.state.watchShared(CLOCK_KEY, (stored) => setClock(parseClockSettings(stored)));
   const changeClock = (patch: Partial<ClockSettings>) => {
@@ -105,62 +107,71 @@ export function DateTimePage(props: { dbus: DbusClient; context: AppContext }) {
   return (
     <div class="settings-page">
       <h2>Date and time</h2>
-      <fieldset>
-        <legend>Clock in the panel</legend>
-        <For each={HOUR_CHOICES}>
-          {(choice) => (
-            <label class="settings-choice">
-              <input type="radio" name="clock-hours" value={choice.id} checked={clock().hours === choice.id} onChange={() => changeClock({ hours: choice.id })} />
-              {choice.label} ({formatClock(example, choice.id)})
-            </label>
-          )}
-        </For>
-        <label class="settings-choice">
-          <input type="checkbox" name="clock-crockford" checked={clock().crockford} onChange={(event) => changeClock({ crockford: event.currentTarget.checked })} />
-          Also show the time as a crockford timestamp
-        </label>
-        <p class="settings-note">
-          A crockford timestamp is a date and a time in UTC in five characters, for example 66X82 for 29 June 2026 08:04 UTC. It changes every 2 minutes.{" "}
-          <a href="https://scuq.github.io/crockford-timestamp/" target="_blank" rel="noopener noreferrer">
-            About the format
-          </a>
-        </p>
-      </fieldset>
-      <Loading when={state()} error={error()}>
-        {(current) => (
-          <>
-            <dl class="settings-facts">
-              <dt>Time of the host</dt>
-              <dd data-field="host-time">{hostTime(current())}</dd>
-              <dt>Network time</dt>
-              <dd>{current().ntp ? (current().synchronized ? "On, synchronized" : "On, not synchronized yet") : "Off"}</dd>
-            </dl>
-            <form class="settings-row" onSubmit={setTimezone}>
-              <label for="settings-timezone">Timezone</label>
-              <input
-                id="settings-timezone"
-                list="settings-timezones"
-                value={current().timezone}
-                autocomplete="off"
-                spellcheck={false}
-                ref={(el) => {
-                  zoneInput = el;
-                }}
-              />
-              <datalist id="settings-timezones">
-                <For each={zones()}>{(zone) => <option value={zone} />}</For>
-              </datalist>
-              <button type="submit">Set timezone</button>
-            </form>
-            <Show when={current().canNtp}>
+      <Section id="datetime-clock" group>
+        <div class="settings-choices">
+          <For each={HOUR_CHOICES}>
+            {(choice) => (
               <label class="settings-choice">
-                <input type="checkbox" checked={current().ntp} onChange={(event) => setNtp(event.currentTarget.checked)} />
-                Get the time from the network
+                <input type="radio" name={`${group}-clock-hours`} value={choice.id} checked={clock().hours === choice.id} onChange={() => changeClock({ hours: choice.id })} />
+                <span>
+                  {choice.label} <span class="settings-muted">({formatClock(example, choice.id)})</span>
+                </span>
               </label>
-            </Show>
-          </>
-        )}
-      </Loading>
+            )}
+          </For>
+        </div>
+        <div class="settings-choices settings-sep">
+          <label class="settings-choice">
+            <input type="checkbox" name="clock-crockford" checked={clock().crockford} onChange={(event) => changeClock({ crockford: event.currentTarget.checked })} />
+            Also show the time as a crockford timestamp
+          </label>
+          <p class="settings-note">
+            A crockford timestamp is a date and a time in UTC in five characters, for example 66X82 for 29 June 2026 08:04 UTC. It changes every 2 minutes.{" "}
+            <a href="https://scuq.github.io/crockford-timestamp/" target="_blank" rel="noopener noreferrer">
+              About the format
+            </a>
+          </p>
+        </div>
+      </Section>
+      <Section id="datetime-host">
+        <Loading when={state()} error={error()}>
+          {(current) => (
+            <>
+              <dl class="settings-facts">
+                <dt>Time of the host</dt>
+                <dd data-field="host-time">{hostTime(current())}</dd>
+                <dt>Network time</dt>
+                <dd>{current().ntp ? (current().synchronized ? "On, synchronized" : "On, not synchronized yet") : "Off"}</dd>
+              </dl>
+              <div class="settings-fields settings-sep">
+                <form class="settings-row" onSubmit={setTimezone}>
+                  <label for="settings-timezone">Timezone</label>
+                  <input
+                    id="settings-timezone"
+                    list={`${group}-timezones`}
+                    value={current().timezone}
+                    autocomplete="off"
+                    spellcheck={false}
+                    ref={(el) => {
+                      zoneInput = el;
+                    }}
+                  />
+                  <datalist id={`${group}-timezones`}>
+                    <For each={zones()}>{(zone) => <option value={zone} />}</For>
+                  </datalist>
+                  <button type="submit">Set timezone</button>
+                </form>
+              </div>
+              <Show when={current().canNtp}>
+                <label class="settings-choice">
+                  <input type="checkbox" checked={current().ntp} onChange={(event) => setNtp(event.currentTarget.checked)} />
+                  Get the time from the network
+                </label>
+              </Show>
+            </>
+          )}
+        </Loading>
+      </Section>
       <OutcomeLine outcome={outcome()} />
     </div>
   );

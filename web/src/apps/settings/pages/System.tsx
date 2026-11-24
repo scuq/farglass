@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js";
 import type { DbusClient } from "../../../dbus";
-import { Loading, type Outcome, OutcomeLine, runAction } from "../common";
+import { Loading, type Outcome, OutcomeLine, runAction, Section } from "../common";
 
 const DEST = "org.freedesktop.hostname1";
 const PATH = "/org/freedesktop/hostname1";
@@ -26,8 +26,7 @@ export function SystemPage(props: { dbus: DbusClient }) {
   let hostInput: HTMLInputElement | undefined;
   let prettyInput: HTMLInputElement | undefined;
 
-  const load = () =>
-    props.dbus.getAllProperties(DEST, PATH, DEST).then(setFacts, () => setError("The hostname service of the host is not available."));
+  const load = () => props.dbus.getAllProperties(DEST, PATH, DEST).then(setFacts, () => setError("The hostname service of the host is not available."));
   void load();
 
   const setHostname = (event: SubmitEvent) => {
@@ -52,41 +51,47 @@ export function SystemPage(props: { dbus: DbusClient }) {
       <Loading when={facts()} error={error()}>
         {(f) => (
           <>
-            <form class="settings-row" onSubmit={setHostname}>
-              <label for="settings-hostname">Hostname</label>
-              <input
-                id="settings-hostname"
-                value={String(f().StaticHostname || f().Hostname || "")}
-                autocomplete="off"
-                spellcheck={false}
-                ref={(el) => {
-                  hostInput = el;
-                }}
-              />
-              <button type="submit">Set hostname</button>
-            </form>
-            <form class="settings-row" onSubmit={setPretty}>
-              <label for="settings-pretty">Display name</label>
-              <input
-                id="settings-pretty"
-                value={String(f().PrettyHostname ?? "")}
-                placeholder="For example: Build server"
-                ref={(el) => {
-                  prettyInput = el;
-                }}
-              />
-              <button type="submit">Set name</button>
-            </form>
-            <dl class="settings-facts">
-              <dt>Operating system</dt>
-              <dd data-field="os">{text(f().OperatingSystemPrettyName)}</dd>
-              <dt>Kernel</dt>
-              <dd>{`${text(f().KernelName)} ${typeof f().KernelRelease === "string" ? f().KernelRelease : ""}`.trim()}</dd>
-              <dt>Hardware</dt>
-              <dd>{[f().HardwareVendor, f().HardwareModel].filter((part) => typeof part === "string" && part !== "").join(" ") || "unknown"}</dd>
-              <dt>Chassis</dt>
-              <dd>{text(f().Chassis)}</dd>
-            </dl>
+            <Section id="system-names">
+              <div class="settings-fields">
+                <form class="settings-row" onSubmit={setHostname}>
+                  <label for="settings-hostname">Hostname</label>
+                  <input
+                    id="settings-hostname"
+                    value={String(f().StaticHostname || f().Hostname || "")}
+                    autocomplete="off"
+                    spellcheck={false}
+                    ref={(el) => {
+                      hostInput = el;
+                    }}
+                  />
+                  <button type="submit">Set hostname</button>
+                </form>
+                <form class="settings-row" onSubmit={setPretty}>
+                  <label for="settings-pretty">Display name</label>
+                  <input
+                    id="settings-pretty"
+                    value={String(f().PrettyHostname ?? "")}
+                    placeholder="For example: Build server"
+                    ref={(el) => {
+                      prettyInput = el;
+                    }}
+                  />
+                  <button type="submit">Set name</button>
+                </form>
+              </div>
+            </Section>
+            <Section id="system-about">
+              <dl class="settings-facts">
+                <dt>Operating system</dt>
+                <dd data-field="os">{text(f().OperatingSystemPrettyName)}</dd>
+                <dt>Kernel</dt>
+                <dd>{`${text(f().KernelName)} ${typeof f().KernelRelease === "string" ? f().KernelRelease : ""}`.trim()}</dd>
+                <dt>Hardware</dt>
+                <dd>{[f().HardwareVendor, f().HardwareModel].filter((part) => typeof part === "string" && part !== "").join(" ") || "unknown"}</dd>
+                <dt>Chassis</dt>
+                <dd>{text(f().Chassis)}</dd>
+              </dl>
+            </Section>
           </>
         )}
       </Loading>

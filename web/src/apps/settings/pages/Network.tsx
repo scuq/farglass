@@ -1,6 +1,6 @@
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import type { DbusClient, Variant } from "../../../dbus";
-import { Loading } from "../common";
+import { Loading, Section } from "../common";
 
 const NM = "org.freedesktop.NetworkManager";
 const NM_PATH = "/org/freedesktop/NetworkManager";
@@ -153,53 +153,54 @@ export function NetworkPage(props: { dbus: DbusClient }) {
   return (
     <div class="settings-page">
       <h2>Network</h2>
-      <Loading when={devices()} error={error()}>
-        {(list) => (
-          <>
-            <p data-field="network-state">{overall()}</p>
-            <ul class="settings-list">
-              <For each={list()}>
-                {(each) => (
-                  <li class="settings-item">
-                    <div class="settings-item-head">
-                      <strong>{each.name}</strong>
-                      <span class="settings-muted">{each.type}</span>
-                      <span class="settings-state" data-level={each.level}>
-                        {each.state}
-                      </span>
-                    </div>
-                    <Show when={carriesThisConnection(each)}>
-                      <p class="settings-note">This connection to farglass uses this device.</p>
-                    </Show>
-                    <dl class="settings-facts">
-                      <Show when={each.connection}>
-                        <dt>Connection</dt>
-                        <dd>{each.connection}</dd>
+      <Section id="network-devices">
+        <Loading when={devices()} error={error()}>
+          {(list) => (
+            <>
+              <p data-field="network-state">{overall()}</p>
+              <ul class="settings-list">
+                <For each={list()}>
+                  {(each) => (
+                    <li class="settings-item">
+                      <div class="settings-item-head">
+                        <strong>{each.name}</strong>
+                        <span class="settings-muted">{each.type}</span>
+                        <span class="settings-state" data-level={each.level}>
+                          {each.state}
+                        </span>
+                      </div>
+                      <Show when={carriesThisConnection(each)}>
+                        <p class="settings-note">This connection to farglass uses this device.</p>
                       </Show>
-                      <Show when={each.addresses.length > 0}>
-                        <dt>Addresses</dt>
-                        <dd>{each.addresses.join(", ")}</dd>
-                      </Show>
-                      <Show when={each.gateway}>
-                        <dt>Gateway</dt>
-                        <dd>{each.gateway}</dd>
-                      </Show>
-                      <Show when={each.hardware}>
-                        <dt>Hardware address</dt>
-                        <dd>{each.hardware}</dd>
-                      </Show>
-                    </dl>
-                  </li>
-                )}
-              </For>
-            </ul>
-            <p class="settings-note">
-              The page shows the network and does not change it: a change can stop the connection of this desktop. Use nmcli in a
-              terminal to change it.
-            </p>
-          </>
-        )}
-      </Loading>
+                      <dl class="settings-facts">
+                        <Show when={each.connection}>
+                          <dt>Connection</dt>
+                          <dd>{each.connection}</dd>
+                        </Show>
+                        <Show when={each.addresses.length > 0}>
+                          <dt>Addresses</dt>
+                          <dd>{each.addresses.join(", ")}</dd>
+                        </Show>
+                        <Show when={each.gateway}>
+                          <dt>Gateway</dt>
+                          <dd>{each.gateway}</dd>
+                        </Show>
+                        <Show when={each.hardware}>
+                          <dt>Hardware address</dt>
+                          <dd>{each.hardware}</dd>
+                        </Show>
+                      </dl>
+                    </li>
+                  )}
+                </For>
+              </ul>
+              <p class="settings-note">
+                The page shows the network and does not change it: a change can stop the connection of this desktop. Use nmcli in a terminal to change it.
+              </p>
+            </>
+          )}
+        </Loading>
+      </Section>
     </div>
   );
 }

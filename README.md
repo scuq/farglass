@@ -756,6 +756,12 @@ The settings app has these pages:
   A table lists each open terminal and Linux app with its CPU, memory, and network, the most CPU first. A click on a window name goes to that window.
 - Power: Restart and Power off, each after a confirm step.
 
+Each page shows its settings in groups with a title.
+The filter above the list of pages finds a setting by a word, for example `timezone` or `hostname`.
+While the filter has text, the window shows the groups of all pages that match.
+Escape clears the filter, a click on a page clears it and opens the page, and Ctrl+F in the Settings window goes to the filter.
+In a narrow window, the filter and the list of pages are at the top.
+
 Each change of the host goes through polkit, thus the host can ask for an administrator password in the shell.
 `npm --prefix spikes/e2e run settings` tests the app on the real system bus and changes only the appearance.
 

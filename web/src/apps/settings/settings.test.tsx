@@ -141,6 +141,48 @@ describe("settings", () => {
     expect(host.state).toContainEqual({ type: "set", key: "settings.page.w1", value: "keyboard" });
   });
 
+  test("the filter shows the matching cards of each page, and a page from the list clears it", async () => {
+    const { element, host } = await mount((call) => {
+      if (call.method === "GetAll") return all({ StaticHostname: "fw01", Timezone: "UTC" });
+      if (call.method === "ListTimezones") return [["UTC"]];
+    });
+    const filter = element.querySelector<HTMLInputElement>(".settings-filter input")!;
+    const type = async (text: string) => {
+      filter.value = text;
+      filter.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      await host.pump();
+    };
+    const cards = () => [...element.querySelectorAll<HTMLElement>("[data-section]")].map((card) => card.dataset.section);
+    expect(cards()).toContain("appearance-theme");
+
+    await type("hostname");
+    expect(cards()).toEqual(["system-names"]);
+    expect(element.querySelector<HTMLInputElement>("#settings-hostname")?.value).toBe("fw01");
+    expect(element.querySelector('[aria-current="page"]')).toBeNull();
+
+    // A word that two pages have shows the cards of both, each below the title of its page.
+    await type("time");
+    expect(cards()).toEqual(["datetime-clock", "datetime-host"]);
+    await type("host");
+    expect([...element.querySelectorAll(".settings-page h2")].map((title) => title.textContent)).toEqual(["Appearance", "Date and time", "System", "Resources"]);
+
+    await type("no such setting");
+    expect(cards()).toEqual([]);
+    expect(element.querySelector(".settings-empty")?.textContent?.trim()).toBe("No settings match");
+
+    await type("clock");
+    filter.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await host.pump();
+    expect(filter.value).toBe("");
+    expect(element.querySelector('[aria-current="page"]')?.textContent).toBe("Appearance");
+
+    await type("clock");
+    element.querySelector<HTMLButtonElement>('[data-page="focus"]')!.click();
+    await host.pump();
+    expect(filter.value).toBe("");
+    expect(cards()).toEqual(["focus-rules"]);
+  });
+
   test("the focus page turns each rule of focus protection off and on in the state store", async () => {
     const { element, host } = await mount(() => undefined, "focus");
     const hold = element.querySelector<HTMLInputElement>('input[name="hold-notifications"]')!;

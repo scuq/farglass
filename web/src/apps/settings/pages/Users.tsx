@@ -1,6 +1,6 @@
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import type { DbusClient } from "../../../dbus";
-import { ConfirmDialog, createConfirm, Loading, type Outcome, OutcomeLine, runAction } from "../common";
+import { ConfirmDialog, createConfirm, Loading, type Outcome, OutcomeLine, runAction, Section } from "../common";
 
 const LOGIN1 = "org.freedesktop.login1";
 const LOGIN1_PATH = "/org/freedesktop/login1";
@@ -28,8 +28,7 @@ export interface UserRow {
 const KINDS: Record<string, string> = { web: "farglass", wayland: "Wayland", x11: "X11", tty: "Text", mir: "Mir", unspecified: "Other" };
 
 /** Reports whether `session` is the web session of `user`, which this tab shows. */
-export const isThisSession = (session: SessionRow, user: string | null) =>
-  session.kind === "web" && session.service === "farglass-session" && session.user === user;
+export const isThisSession = (session: SessionRow, user: string | null) => session.kind === "web" && session.service === "farglass-session" && session.user === user;
 
 /** The users and the sessions of the host, from login1. Ending a session needs a confirm step. */
 export function UsersPage(props: { dbus: DbusClient; user: string | null }) {
@@ -79,10 +78,12 @@ export function UsersPage(props: { dbus: DbusClient; user: string | null }) {
   const stops: (() => void)[] = [];
   let closed = false;
   for (const member of ["SessionNew", "SessionRemoved"]) {
-    props.dbus.subscribe({ sender: LOGIN1, path: LOGIN1_PATH, interface: MANAGER, member }, () => void load()).then(
-      (stop) => (closed ? stop() : stops.push(stop)),
-      () => {},
-    );
+    props.dbus
+      .subscribe({ sender: LOGIN1, path: LOGIN1_PATH, interface: MANAGER, member }, () => void load())
+      .then(
+        (stop) => (closed ? stop() : stops.push(stop)),
+        () => {},
+      );
   }
   onCleanup(() => {
     closed = true;
@@ -106,84 +107,88 @@ export function UsersPage(props: { dbus: DbusClient; user: string | null }) {
       <Loading when={sessions()} error={error()}>
         {(list) => (
           <>
-            <table class="settings-table">
-              <caption>Sessions</caption>
-              <thead>
-                <tr>
-                  <th scope="col">User</th>
-                  <th scope="col">Kind</th>
-                  <th scope="col">State</th>
-                  <th scope="col">Seat or from</th>
-                  <th scope="col">Since</th>
-                  <th scope="col">
-                    <span class="visually-hidden">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                <For each={list()}>
-                  {(row) => (
-                    <tr data-session={row.id}>
-                      <td>
-                        {row.user}
-                        <Show when={isThisSession(row, props.user)}>
-                          <span class="settings-badge">This session</span>
-                        </Show>
-                      </td>
-                      <td>{KINDS[row.kind] ?? row.kind}</td>
-                      <td>
-                        {row.state}
-                        {row.locked ? ", locked" : ""}
-                      </td>
-                      <td>{row.from || row.seat || "none"}</td>
-                      <td>{since(row.since)}</td>
-                      <td>
-                        <button type="button" class="danger" onClick={() => confirm.ask(row)}>
-                          End
-                        </button>
-                      </td>
-                    </tr>
-                  )}
-                </For>
-              </tbody>
-            </table>
-            <table class="settings-table">
-              <caption>Users with a session or lingering processes</caption>
-              <thead>
-                <tr>
-                  <th scope="col">User</th>
-                  <th scope="col">UID</th>
-                  <th scope="col">State</th>
-                </tr>
-              </thead>
-              <tbody>
-                <For each={users()}>
-                  {(row) => (
+            <Section id="users-sessions">
+              <div class="settings-scroll">
+                <table class="settings-table">
+                  <caption class="visually-hidden">Sessions</caption>
+                  <thead>
                     <tr>
-                      <td>{row.name}</td>
-                      <td>{row.uid}</td>
-                      <td>{row.state}</td>
+                      <th scope="col">User</th>
+                      <th scope="col">Kind</th>
+                      <th scope="col">State</th>
+                      <th scope="col" class="settings-col-minor">
+                        Seat or from
+                      </th>
+                      <th scope="col">Since</th>
+                      <th scope="col">
+                        <span class="visually-hidden">Actions</span>
+                      </th>
                     </tr>
-                  )}
-                </For>
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody>
+                    <For each={list()}>
+                      {(row) => (
+                        <tr data-session={row.id}>
+                          <td>
+                            <span class="settings-who">
+                              <span class="settings-name">{row.user}</span>
+                              <Show when={isThisSession(row, props.user)}>
+                                <span class="settings-badge">This session</span>
+                              </Show>
+                            </span>
+                          </td>
+                          <td>{KINDS[row.kind] ?? row.kind}</td>
+                          <td>
+                            {row.state}
+                            {row.locked ? ", locked" : ""}
+                          </td>
+                          <td class="settings-col-minor">{row.from || row.seat || "none"}</td>
+                          <td>{since(row.since)}</td>
+                          <td>
+                            <button type="button" class="danger" onClick={() => confirm.ask(row)}>
+                              End
+                            </button>
+                          </td>
+                        </tr>
+                      )}
+                    </For>
+                  </tbody>
+                </table>
+              </div>
+            </Section>
+            <Section id="users-users">
+              <div class="settings-scroll">
+                <table class="settings-table">
+                  <caption class="visually-hidden">Users with a session or lingering processes</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">User</th>
+                      <th scope="col">UID</th>
+                      <th scope="col">State</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <For each={users()}>
+                      {(row) => (
+                        <tr>
+                          <td>{row.name}</td>
+                          <td>{row.uid}</td>
+                          <td>{row.state}</td>
+                        </tr>
+                      )}
+                    </For>
+                  </tbody>
+                </table>
+              </div>
+            </Section>
           </>
         )}
       </Loading>
       <OutcomeLine outcome={outcome()} />
       <Show when={confirm.pending()}>
         {(session) => (
-          <ConfirmDialog
-            title={`End session ${session().id} of ${session().user}?`}
-            action="End the session"
-            onconfirm={() => terminate(session())}
-            oncancel={confirm.clear}
-          >
-            <Show
-              when={isThisSession(session(), props.user)}
-              fallback={<p>Each program in the session stops, and work that is not saved in it is lost.</p>}
-            >
+          <ConfirmDialog title={`End session ${session().id} of ${session().user}?`} action="End the session" onconfirm={() => terminate(session())} oncancel={confirm.clear}>
+            <Show when={isThisSession(session(), props.user)} fallback={<p>Each program in the session stops, and work that is not saved in it is lost.</p>}>
               <p>This is the session of this desktop. Each tab logs out, and each program of the session stops.</p>
             </Show>
           </ConfirmDialog>

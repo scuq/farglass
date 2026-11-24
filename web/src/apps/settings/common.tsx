@@ -1,6 +1,35 @@
 import type { JSX } from "@solidjs/web";
-import { createSignal, onCleanup, Show } from "solid-js";
+import { createContext, createSignal, onCleanup, Show, useContext } from "solid-js";
 import { DbusError } from "../../dbus";
+import { type SectionId, sectionTitle } from "./sections";
+
+/** The cards that the filter of the settings app shows, or null if the filter is off. */
+export const SectionFilterContext = createContext<() => ReadonlySet<SectionId> | null>(() => null);
+
+/**
+ * A card of a settings page, with its title from the list of cards. With `group`, the card
+ * is a fieldset, for a group of radio buttons or check boxes. The card does not show
+ * while the filter is on and does not match it.
+ */
+export function Section(props: { id: SectionId; group?: boolean; children: JSX.Element }) {
+  const matched = useContext(SectionFilterContext);
+  const title = sectionTitle(props.id);
+  return (
+    <Show when={matched()?.has(props.id) ?? true}>
+      {props.group ? (
+        <fieldset class="settings-card" data-section={props.id}>
+          <legend class="settings-card-title">{title}</legend>
+          {props.children}
+        </fieldset>
+      ) : (
+        <section class="settings-card" data-section={props.id} aria-label={title}>
+          <h3 class="settings-card-title">{title}</h3>
+          {props.children}
+        </section>
+      )}
+    </Show>
+  );
+}
 
 /** Returns a sentence for the user about a failed D-Bus call. */
 export function describeError(error: unknown): string {
@@ -55,13 +84,7 @@ const MODAL = typeof HTMLDialogElement !== "undefined" && "showModal" in HTMLDia
  * A confirm step for an action that cannot be undone. Cancel has the focus first,
  * and Escape cancels. The button of the action names the action.
  */
-export function ConfirmDialog(props: {
-  title: string;
-  children: JSX.Element;
-  action: string;
-  onconfirm: () => void;
-  oncancel: () => void;
-}) {
+export function ConfirmDialog(props: { title: string; children: JSX.Element; action: string; onconfirm: () => void; oncancel: () => void }) {
   let dialog: HTMLDialogElement | undefined;
   let cancel: HTMLButtonElement | undefined;
   queueMicrotask(() => {
@@ -120,7 +143,14 @@ export function createConfirm<T>() {
 /** Shows "Loading" or the error until `when` has a value. `children` gets an accessor of the value, which follows each change. */
 export function Loading<T>(props: { when: T | null | undefined; error: string | null; children: (value: () => T) => JSX.Element }) {
   return (
-    <Show when={props.when} fallback={<p class="settings-loading" role={props.error ? "alert" : "status"}>{props.error ?? "Loading"}</p>}>
+    <Show
+      when={props.when}
+      fallback={
+        <p class="settings-loading" role={props.error ? "alert" : "status"}>
+          {props.error ?? "Loading"}
+        </p>
+      }
+    >
       {(value) => props.children(value)}
     </Show>
   );

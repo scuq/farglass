@@ -500,10 +500,9 @@
 }
 
 /* The settings app: the list of pages has neutral rows. Lavender marks the open page. */
-:root[data-theme="lcars"] .settings-nav {
-  gap: 2px;
+:root[data-theme="lcars"] .settings-side {
   background: none;
-  border-right: 1px solid var(--lcars-border);
+  border-color: var(--lcars-border);
 }
 :root[data-theme="lcars"] .settings-nav button {
   padding: 0.4rem 0.7rem;
@@ -526,17 +525,24 @@
   font-size: 1.1rem;
   font-weight: 600;
 }
-:root[data-theme="lcars"] .settings-page fieldset {
-  padding: 0.5rem 0 0.75rem;
-  border: 0;
-  border-top: 1px solid var(--lcars-border);
-  border-radius: 0;
+/* A card is a raised surface. Its title is the label of the group. */
+:root[data-theme="lcars"] .settings-card {
+  border-radius: 6px;
 }
-:root[data-theme="lcars"] .settings-item {
-  padding: 0.6rem 0;
-  border: 0;
-  border-bottom: 1px solid var(--lcars-border);
-  border-radius: 0;
+:root[data-theme="lcars"] .settings-card-title {
+  letter-spacing: 1px;
+}
+/* In a narrow window, the pages are pills. The open page has a lavender border. */
+@container settings (max-width: 40rem) {
+  :root[data-theme="lcars"] .settings-nav button {
+    padding: 0.2rem 0.7rem;
+    border: 1px solid var(--lcars-border);
+    border-radius: 999px;
+  }
+  :root[data-theme="lcars"] .settings-nav button[aria-current="page"] {
+    border-color: var(--lcars-lavender);
+    box-shadow: none;
+  }
 }
 
 /* The swatches of the accent colors show the LCARS hues. */

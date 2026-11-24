@@ -2,6 +2,7 @@ import { createSignal, For, onCleanup, Show } from "solid-js";
 import { creationOptions, credentialJson, hasPasskeys, passkeyError, requestOptions } from "../../../passkey";
 import type { PasskeyEvent, PasskeyInfo, PasskeyRequest } from "../../../proto";
 import type { AppContext } from "../../types";
+import { Section } from "../common";
 
 const date = (seconds: number) => new Date(seconds * 1000).toLocaleDateString(undefined, { dateStyle: "medium" });
 
@@ -141,95 +142,109 @@ export function PasskeysPage(props: { context: AppContext }) {
     <div class="settings-page settings-passkeys">
       <h2>Passkeys</h2>
       <p>
-        With a passkey, each login asks for it after your password: a stolen password alone does not open your session. A passkey can be
-        your phone, a security key, or this computer.
+        With a passkey, each login asks for it after your password: a stolen password alone does not open your session. A passkey can be your phone, a security key, or this
+        computer.
       </p>
-      <Show when={closed()}>{(text) => <p class="settings-error" role="alert">{text()}</p>}</Show>
+      <Show when={closed()}>
+        {(text) => (
+          <p class="settings-error" role="alert">
+            {text()}
+          </p>
+        )}
+      </Show>
       <Show when={!closed()}>
         <Show when={passkeys()} fallback={<p class="settings-note">Loading</p>}>
           {(list) => (
             <>
-              <Show when={list().length > 0} fallback={<p class="settings-note">You have no passkey. The login asks only for your password.</p>}>
-                <table class="settings-table">
-                  <caption>Your passkeys</caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">Name</th>
-                      <th scope="col">Host name</th>
-                      <th scope="col">Added</th>
-                      <th scope="col">Last login</th>
-                      <th scope="col">
-                        <span class="visually-hidden">Actions</span>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <For each={list()}>
-                      {(passkey) => (
+              <Section id="passkeys-list">
+                <Show when={list().length > 0} fallback={<p class="settings-note">You have no passkey. The login asks only for your password.</p>}>
+                  <div class="settings-scroll">
+                    <table class="settings-table">
+                      <caption class="visually-hidden">Your passkeys</caption>
+                      <thead>
                         <tr>
-                          <td>{passkey.name}</td>
-                          <td>{passkey.host}</td>
-                          <td>{date(passkey.created)}</td>
-                          <td>{passkey.used ? date(passkey.used) : "Never"}</td>
-                          <td>
-                            <button type="button" class="danger" onClick={() => remove(passkey)} aria-label={`Remove ${passkey.name}`}>
-                              Remove
-                            </button>
-                          </td>
+                          <th scope="col">Name</th>
+                          <th scope="col">Host name</th>
+                          <th scope="col">Added</th>
+                          <th scope="col">Last login</th>
+                          <th scope="col">
+                            <span class="visually-hidden">Actions</span>
+                          </th>
                         </tr>
-                      )}
-                    </For>
-                  </tbody>
-                </table>
-                <p class="settings-note">
-                  {codesLeft()} recovery {codesLeft() === 1 ? "code is" : "codes are"} left. A recovery code replaces a lost passkey one time.{" "}
-                  <button type="button" onClick={newCodes}>
-                    Make new recovery codes
-                  </button>
-                </p>
-              </Show>
-
-              <Show
-                when={hasPasskeys()}
-                fallback={<p class="settings-error">This browser cannot add a passkey on this page. A passkey needs HTTPS with a valid certificate, or localhost.</p>}
-              >
-                <form class="settings-form" onSubmit={add}>
-                  <label for="passkey-name">Name of the new passkey</label>
-                  <input
-                    id="passkey-name"
-                    type="text"
-                    maxlength={64}
-                    placeholder="For example: Phone"
-                    value={name()}
-                    onInput={(event) => setName(event.currentTarget.value)}
-                  />
-                  <button type="submit" disabled={busy()}>
-                    Add a passkey
-                  </button>
-                </form>
-                <p class="settings-note">The passkey belongs to {host()}. It works only when you open farglass with this host name.</p>
-              </Show>
+                      </thead>
+                      <tbody>
+                        <For each={list()}>
+                          {(passkey) => (
+                            <tr>
+                              <td>{passkey.name}</td>
+                              <td>{passkey.host}</td>
+                              <td>{date(passkey.created)}</td>
+                              <td>{passkey.used ? date(passkey.used) : "Never"}</td>
+                              <td>
+                                <button type="button" class="danger" onClick={() => remove(passkey)} aria-label={`Remove ${passkey.name}`}>
+                                  Remove
+                                </button>
+                              </td>
+                            </tr>
+                          )}
+                        </For>
+                      </tbody>
+                    </table>
+                  </div>
+                  <p class="settings-note">
+                    {codesLeft()} recovery {codesLeft() === 1 ? "code is" : "codes are"} left. A recovery code replaces a lost passkey one time.{" "}
+                    <button type="button" onClick={newCodes}>
+                      Make new recovery codes
+                    </button>
+                  </p>
+                </Show>
+              </Section>
+              <Section id="passkeys-add">
+                <Show
+                  when={hasPasskeys()}
+                  fallback={<p class="settings-error">This browser cannot add a passkey on this page. A passkey needs HTTPS with a valid certificate, or localhost.</p>}
+                >
+                  <div class="settings-fields">
+                    <form class="settings-row" onSubmit={add}>
+                      <label for="passkey-name">Name of the new passkey</label>
+                      <input id="passkey-name" type="text" maxlength={64} placeholder="For example: Phone" value={name()} onInput={(event) => setName(event.currentTarget.value)} />
+                      <button type="submit" disabled={busy()}>
+                        Add a passkey
+                      </button>
+                    </form>
+                  </div>
+                  <p class="settings-note">The passkey belongs to {host()}. It works only when you open farglass with this host name.</p>
+                </Show>
+              </Section>
             </>
           )}
         </Show>
       </Show>
-      <Show when={error()}>{(text) => <p class="settings-error" role="alert">{text()}</p>}</Show>
+      <Show when={error()}>
+        {(text) => (
+          <p class="settings-error" role="alert">
+            {text()}
+          </p>
+        )}
+      </Show>
       <Show when={askPassword()}>
         <section class="settings-confirm" role="dialog" aria-labelledby="password-title">
           <h3 id="password-title">Confirm that it is you</h3>
           <p>Your first passkey needs your password first.</p>
-          <form class="settings-form" onSubmit={provePassword}>
-            <label for="confirm-password">Your password</label>
-            <input
-              id="confirm-password"
-              type="password"
-              autocomplete="current-password"
-              ref={(element) => {
-                passwordInput = element;
-              }}
-            />
-            <button type="submit">Confirm</button>
-          </form>
+          <div class="settings-fields">
+            <form class="settings-row" onSubmit={provePassword}>
+              <label for="confirm-password">Your password</label>
+              <input
+                id="confirm-password"
+                type="password"
+                autocomplete="current-password"
+                ref={(element) => {
+                  passwordInput = element;
+                }}
+              />
+              <button type="submit">Confirm</button>
+            </form>
+          </div>
           <button type="button" onClick={cancelConfirm}>
             Cancel
           </button>
@@ -248,20 +263,22 @@ export function PasskeysPage(props: { context: AppContext }) {
             <Show when={!step().options && step().elsewhere.length > 0}>
               <p class="settings-note">Your passkeys belong to {step().elsewhere.join(" and ")}. Use a recovery code here.</p>
             </Show>
-            <form class="settings-form" onSubmit={proveWithCode}>
-              <label for="confirm-code">Recovery code</label>
-              <input
-                id="confirm-code"
-                type="text"
-                autocomplete="off"
-                autocapitalize="off"
-                spellcheck={false}
-                ref={(element) => {
-                  codeInput = element;
-                }}
-              />
-              <button type="submit">Confirm with the code</button>
-            </form>
+            <div class="settings-fields">
+              <form class="settings-row" onSubmit={proveWithCode}>
+                <label for="confirm-code">Recovery code</label>
+                <input
+                  id="confirm-code"
+                  type="text"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck={false}
+                  ref={(element) => {
+                    codeInput = element;
+                  }}
+                />
+                <button type="submit">Confirm with the code</button>
+              </form>
+            </div>
             <button type="button" onClick={cancelConfirm}>
               Cancel
             </button>
@@ -274,7 +291,13 @@ export function PasskeysPage(props: { context: AppContext }) {
             <h3 id="codes-title">Your recovery codes</h3>
             <p>Write them down or save them in your password manager now. This page shows them only one time.</p>
             <ol>
-              <For each={list()}>{(code) => <li><code>{code}</code></li>}</For>
+              <For each={list()}>
+                {(code) => (
+                  <li>
+                    <code>{code}</code>
+                  </li>
+                )}
+              </For>
             </ol>
             <button type="button" onClick={() => void navigator.clipboard?.writeText(list().join("\n"))}>
               Copy the codes

@@ -1,8 +1,22 @@
 import { createSignal, createUniqueId, For } from "solid-js";
-import { ACTION_LABELS, type ActionId, type Binding, chordLabel, DEFAULT_KEYBOARD, detectScheme, KEYBOARD_KEY, type KeyboardSettings, parseKeyboardSettings, SCHEMES, schemeOf, withLayout } from "../../../keys/scheme";
+import {
+  ACTION_LABELS,
+  type ActionId,
+  type Binding,
+  chordLabel,
+  DEFAULT_KEYBOARD,
+  detectScheme,
+  KEYBOARD_KEY,
+  type KeyboardSettings,
+  parseKeyboardSettings,
+  SCHEMES,
+  schemeOf,
+  withLayout,
+} from "../../../keys/scheme";
 import { detectLayout, FALLBACK_LAYOUT, LAYOUTS, layoutLabel } from "../../../keys/layout";
 import { TOUR_EVENT } from "../../../tour/Tour";
 import type { AppContext } from "../../types";
+import { Section } from "../common";
 
 const SCHEME_LABELS = { auto: "Same as this computer", pc: "Windows and Linux", mac: "Mac" } as const;
 
@@ -38,53 +52,73 @@ export function KeyboardPage(props: { context: AppContext }) {
   return (
     <div class="settings-page">
       <h2>Keyboard</h2>
-      <fieldset>
-        <legend>Shortcuts</legend>
-        <For each={["auto", "pc", "mac"] as const}>
-          {(id) => (
-            <label class="settings-choice">
-              <input type="radio" name={`${group}-scheme`} value={id} checked={value().scheme === id} onChange={() => change({ scheme: id })} />
-              {id === "auto" ? `${SCHEME_LABELS.auto} (${SCHEME_LABELS[detectScheme()]})` : SCHEME_LABELS[id]}
-            </label>
-          )}
-        </For>
-      </fieldset>
-      <fieldset>
-        <legend>Layout of the Linux apps</legend>
-        <select name="layout" aria-label="Layout of the Linux apps" onChange={(event) => change(withLayout(value(), event.currentTarget.value))}>
-          <option value="auto" selected={value().layout === "auto"}>{autoLabel()}</option>
-          <For each={LAYOUTS}>{(layout) => <option value={layout.id} selected={value().layout === layout.id}>{layout.label}</option>}</For>
-        </select>
-      </fieldset>
-      <p class="settings-note">The Linux apps type the characters of this layout. Chromium and Edge tell farglass the layout of your keyboard. In a different browser, the layout is English (US) until you select the layout of your keyboard. The terminal and the shell always use the layout of this computer.</p>
-      <label class="settings-choice">
-        <input type="checkbox" name="hints" checked={value().hints} onChange={(event) => change({ hints: event.currentTarget.checked })} />
-        Show the shortcuts when I hold {scheme() === "mac" ? "⌃⇧" : "Alt+Shift"}
-      </label>
-      <p>
-        <button type="button" onClick={() => window.dispatchEvent(new Event(TOUR_EVENT))}>
-          Start the tour
-        </button>
-      </p>
-      <table class="settings-keys">
-        <thead>
-          <tr>
-            <th scope="col">Action</th>
-            <th scope="col">Keys</th>
-          </tr>
-        </thead>
-        <tbody>
-          <For each={rows()}>
-            {(row) => (
-              <tr data-action={row.action}>
-                <td>{ACTION_LABELS[row.action]}</td>
-                <td>{row.keys.join(", ") || "–"}</td>
-              </tr>
+      <Section id="keyboard-scheme" group>
+        <div class="settings-choices settings-choices-row">
+          <For each={["auto", "pc", "mac"] as const}>
+            {(id) => (
+              <label class="settings-choice">
+                <input type="radio" name={`${group}-scheme`} value={id} checked={value().scheme === id} onChange={() => change({ scheme: id })} />
+                {id === "auto" ? `${SCHEME_LABELS.auto} (${SCHEME_LABELS[detectScheme()]})` : SCHEME_LABELS[id]}
+              </label>
             )}
           </For>
-        </tbody>
-      </table>
-      <p class="settings-note">The browser keeps Ctrl+T and Ctrl+W, or Cmd+T and Cmd+W, unless the shell is in fullscreen with Keyboard Lock. Each action has a second key that reaches the shell. To use Keyboard Lock in Chromium, select Full screen in the session menu. In a usual tab, the browser asks before Ctrl+W closes farglass.</p>
+        </div>
+        <div class="settings-choices settings-sep">
+          <label class="settings-choice">
+            <input type="checkbox" name="hints" checked={value().hints} onChange={(event) => change({ hints: event.currentTarget.checked })} />
+            Show the shortcuts when I hold {scheme() === "mac" ? "⌃⇧" : "Alt+Shift"}
+          </label>
+        </div>
+        <div class="settings-buttons settings-buttons-start">
+          <button type="button" onClick={() => window.dispatchEvent(new Event(TOUR_EVENT))}>
+            Start the tour
+          </button>
+        </div>
+      </Section>
+      <Section id="keyboard-layout" group>
+        <select class="settings-select" name="layout" aria-label="Layout of the Linux apps" onChange={(event) => change(withLayout(value(), event.currentTarget.value))}>
+          <option value="auto" selected={value().layout === "auto"}>
+            {autoLabel()}
+          </option>
+          <For each={LAYOUTS}>
+            {(layout) => (
+              <option value={layout.id} selected={value().layout === layout.id}>
+                {layout.label}
+              </option>
+            )}
+          </For>
+        </select>
+        <p class="settings-note">
+          The Linux apps type the characters of this layout. Chromium and Edge tell farglass the layout of your keyboard. In a different browser, the layout is English (US) until
+          you select the layout of your keyboard. The terminal and the shell always use the layout of this computer.
+        </p>
+      </Section>
+      <Section id="keyboard-keys">
+        <div class="settings-scroll">
+          <table class="settings-table settings-keys">
+            <thead>
+              <tr>
+                <th scope="col">Action</th>
+                <th scope="col">Keys</th>
+              </tr>
+            </thead>
+            <tbody>
+              <For each={rows()}>
+                {(row) => (
+                  <tr data-action={row.action}>
+                    <td>{ACTION_LABELS[row.action]}</td>
+                    <td>{row.keys.join(", ") || "–"}</td>
+                  </tr>
+                )}
+              </For>
+            </tbody>
+          </table>
+        </div>
+        <p class="settings-note">
+          The browser keeps Ctrl+T and Ctrl+W, or Cmd+T and Cmd+W, unless the shell is in fullscreen with Keyboard Lock. Each action has a second key that reaches the shell. To use
+          Keyboard Lock in Chromium, select Full screen in the session menu. In a usual tab, the browser asks before Ctrl+W closes farglass.
+        </p>
+      </Section>
     </div>
   );
 }

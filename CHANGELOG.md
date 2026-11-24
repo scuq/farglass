@@ -15,8 +15,15 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 - The panel has a system tray. A program that stays in the tray when you close its window, for example Bitwarden or Seafile, shows an icon there. Click the icon to get the window back. Before, such a program had no icon, and you had to start it again to get its window.
 - Right-click an icon in the system tray to open the menu of its program, for example to lock or to quit it. The menu has the check marks and the submenus of the program.
 - Alt+Shift+Space opens and closes the launcher on Windows and Linux. The key works in each browser and needs no F1 key, which many laptops reach only with Fn.
+- The settings have a filter above the list of pages. Type a word, for example `timezone` or `hostname`, to see the settings of all pages that match. Escape clears the filter, and Ctrl+F in the Settings window goes to it.
+
+### Changed
+- Each page of the settings shows its settings in groups with a title.
+- In a narrow Settings window, the filter and the list of pages are at the top, and the tables scroll in their own box. Before, the list of pages kept its width and left little space for the page.
 
 ### Fixed
+- The text fields of a settings page now have the same width. Before, the fields for the hostname and the display name had different widths.
+- The mark This session in the list of sessions stays in one piece. Before, it broke into two lines in a narrow window.
 - A click in a Linux app that does not have the focus now makes the app active before it gets the click. Before, a click in the address bar of a second browser window showed no text cursor, and the window looked inactive until you typed.
 - Clicks in Firefox on the host now reach Firefox. Before, Firefox on Wayland ignored the clicks in its window, for example on a tab or in the address bar.
 

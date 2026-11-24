@@ -57,8 +57,9 @@ try {
   const page = await context.newPage();
   await page.goto(url);
   await page.locator(".wm").waitFor({ timeout: TIMEOUT_MS });
-  await launch(page, "Settings");
+  // The first login opens the Settings window. A second window would cover the first one.
   const win = page.locator('.wm-window[aria-label="Settings"]');
+  await win.waitFor({ timeout: 5000 }).catch(() => launch(page, "Settings"));
   await win.locator(".settings-nav").waitFor({ timeout: TIMEOUT_MS });
   const go = async (label) => {
     await win.locator(".settings-nav").getByRole("button", { name: label, exact: true }).click();
@@ -123,6 +124,79 @@ try {
     check(true, "Cancel closes the confirm step");
   } else {
     console.log("INFO: logind does not permit a restart here, the confirm step is not tested");
+  }
+
+  // 5. The filter shows the matching cards of each page, and Escape clears it.
+  const filter = win.getByLabel("Filter settings");
+  const cards = () => win.locator("[data-section]").evaluateAll((all) => all.map((card) => card.dataset.section));
+  await filter.fill("timezone");
+  await win.locator("#settings-timezone").waitFor({ timeout: TIMEOUT_MS });
+  check((await cards()).join() === "datetime-host", "the filter shows only the card with the timezone");
+  check((await win.locator('[aria-current="page"]').count()) === 0, "no page is the open page while the filter has text");
+  await filter.fill("host");
+  await win.locator('[data-section="system-names"]').waitFor({ timeout: TIMEOUT_MS });
+  if (SHOTS) await win.screenshot({ path: join(SHOTS, "settings-filter.png") });
+  await filter.fill("no such setting");
+  await win.locator(".settings-empty").waitFor({ timeout: TIMEOUT_MS });
+  check((await cards()).length === 0, "a filter with no match shows no card and tells it");
+  await filter.press("Escape");
+  await win.locator('[aria-current="page"]').waitFor({ timeout: TIMEOUT_MS });
+  check((await filter.inputValue()) === "" && (await win.count()) === 1, "Escape clears the filter and the window stays open");
+
+  // 6. The text inputs of a page have the same width, also the buttons.
+  await go("System");
+  await win.locator("#settings-hostname").waitFor({ timeout: TIMEOUT_MS });
+  const widths = async (selector) => win.locator(selector).evaluateAll((all) => all.map((each) => Math.round(each.getBoundingClientRect().width)));
+  const inputs = await widths('[data-section="system-names"] input');
+  const buttons = await widths('[data-section="system-names"] button');
+  check(inputs.length === 2 && inputs[0] === inputs[1], `the inputs for the hostname and the display name have the same width: ${inputs.join(", ")}`);
+  check(buttons[0] === buttons[1], `their buttons have the same width: ${buttons.join(", ")}`);
+  if (SHOTS) await win.screenshot({ path: join(SHOTS, "settings-system.png") });
+  await go("Date and time");
+  await win.locator('[data-field="host-time"]').waitFor({ timeout: TIMEOUT_MS });
+  if (SHOTS) await win.screenshot({ path: join(SHOTS, "settings-datetime.png") });
+  await go("Resources");
+  if (SHOTS) await win.screenshot({ path: join(SHOTS, "settings-resources.png") });
+
+  // 7. A narrow window: the pages go to the top, and the mark of this session stays in one piece.
+  const frame = await win.boundingBox();
+  const grip = await win.locator(".wm-edge-se").boundingBox();
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(frame.x + 420, frame.y + 620, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForFunction(() => document.querySelector('.wm-window[aria-label="Settings"]').getBoundingClientRect().width < 460, null, { timeout: TIMEOUT_MS });
+  const side = await win.locator(".settings-side").boundingBox();
+  const main = await win.locator(".settings-main").boundingBox();
+  check(side.y + side.height <= main.y + 1 && Math.abs(side.width - main.width) < 2, "in a narrow window the filter and the pages are above the page");
+  for (const [label, name] of [["System", "system"], ["Date and time", "datetime"], ["Resources", "resources"], ["Users and sessions", "users"]]) {
+    await go(label);
+    await win.locator("[data-section]").first().waitFor({ timeout: TIMEOUT_MS });
+    const overflow = await win.locator(".settings-main").evaluate((el) => el.scrollWidth - el.clientWidth);
+    check(overflow <= 0, `the page ${label} has no horizontal scroll in a narrow window`);
+    if (SHOTS) await win.screenshot({ path: join(SHOTS, `settings-narrow-${name}.png`) });
+  }
+  await win.locator("tr[data-session]").first().waitFor({ timeout: TIMEOUT_MS });
+  // A session of farglassd in dev_user mode is not a web session of logind, thus it has no mark.
+  if ((await win.locator(".settings-badge").count()) > 0) {
+    const lines = await win.locator(".settings-badge").first().evaluate((el) => el.getClientRects().length);
+    check(lines === 1, "the mark This session is on one line in a narrow window");
+  } else {
+    console.log("INFO: no session has the mark This session here, its line break is not tested");
+  }
+  if (SHOTS) {
+    await go("Appearance");
+    // The page shows the default values until the state store answers.
+    await win.locator('input[value="dark"]:checked').waitFor({ timeout: TIMEOUT_MS });
+    await win.getByLabel("LCARS").check();
+    await page.waitForFunction(() => document.documentElement.dataset.theme === "lcars", null, { timeout: TIMEOUT_MS });
+    await win.getByLabel("Orange").check();
+    await page.waitForFunction(() => document.documentElement.dataset.accent === "orange", null, { timeout: TIMEOUT_MS });
+    for (const [label, name] of [["System", "system"], ["Date and time", "datetime"]]) {
+      await go(label);
+      await win.locator("[data-section] input").first().waitFor({ timeout: TIMEOUT_MS });
+      await win.screenshot({ path: join(SHOTS, `settings-lcars-${name}.png`) });
+    }
   }
 
   // Back to the default appearance for the next tests of this state directory.

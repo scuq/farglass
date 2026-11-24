@@ -1,6 +1,6 @@
 import { createSignal, Show } from "solid-js";
 import type { DbusClient } from "../../../dbus";
-import { ConfirmDialog, createConfirm, type Outcome, OutcomeLine, runAction } from "../common";
+import { ConfirmDialog, createConfirm, type Outcome, OutcomeLine, runAction, Section } from "../common";
 
 const LOGIN1 = "org.freedesktop.login1";
 const LOGIN1_PATH = "/org/freedesktop/login1";
@@ -45,17 +45,19 @@ export function PowerPage(props: { dbus: DbusClient }) {
   return (
     <div class="settings-page">
       <h2>Power</h2>
-      <p>These actions stop each session on the host, also this one.</p>
-      <div class="settings-buttons settings-buttons-start">
-        {(Object.keys(ACTIONS) as Action[]).map((action) => (
-          <button type="button" class="danger" disabled={!available(action)} onClick={() => confirm.ask(action)}>
-            {ACTIONS[action].label}
-          </button>
-        ))}
-      </div>
-      <Show when={can().Reboot === "challenge" || can().PowerOff === "challenge"}>
-        <p class="settings-note">The host asks for an administrator password.</p>
-      </Show>
+      <Section id="power-actions">
+        <p>These actions stop each session on the host, also this one.</p>
+        <div class="settings-buttons settings-buttons-start">
+          {(Object.keys(ACTIONS) as Action[]).map((action) => (
+            <button type="button" class="danger" disabled={!available(action)} onClick={() => confirm.ask(action)}>
+              {ACTIONS[action].label}
+            </button>
+          ))}
+        </div>
+        <Show when={can().Reboot === "challenge" || can().PowerOff === "challenge"}>
+          <p class="settings-note">The host asks for an administrator password.</p>
+        </Show>
+      </Section>
       <OutcomeLine outcome={outcome()} />
       <Show when={confirm.pending()}>
         {(action) => (
