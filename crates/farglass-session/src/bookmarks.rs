@@ -131,9 +131,12 @@ pub fn check(file: &BookmarkFile) -> Result<(), String> {
 #[must_use]
 pub fn render(old: &DocumentMut, file: &BookmarkFile) -> String {
     let mut doc = old.clone();
-    let options = doc
-        .entry("options")
-        .or_insert_with(|| Item::Table(Table::new()));
+    // A new options table goes after the bookmarks: the first comment of the file stays at the top.
+    let options = doc.entry("options").or_insert_with(|| {
+        let mut table = Table::new();
+        table.set_position(Some(isize::MAX));
+        Item::Table(table)
+    });
     if let Some(options) = options.as_table_like_mut() {
         set(options, "launcher", file.launcher.into());
     }
@@ -458,6 +461,21 @@ mod tests {
         };
         let text = render(&old, &file);
         assert!(text.starts_with("# my bookmarks\n"), "{text}");
+        let no_options: DocumentMut = "# by hand\n[[bookmark]]\nname = \"a\"\nurl = \"https://a.example/\"\nbrowser = \"client\"\n"
+            .parse()
+            .unwrap();
+        let mut a = bookmark("a", "https://a.example/");
+        a.browser = "client".into();
+        let keep = BookmarkFile {
+            launcher: true,
+            bookmarks: vec![a],
+        };
+        let fresh = render(&no_options, &keep);
+        assert!(
+            fresh.starts_with("# by hand\n[[bookmark]]"),
+            "a new options table goes after the first comment: {fresh}"
+        );
+        assert_eq!(parse(&fresh).unwrap(), keep);
         assert!(text.contains("# the code\n"), "{text}");
         assert!(text.contains("name = \"gh\" # short"), "{text}");
         assert!(!text.contains("old.example"), "{text}");
