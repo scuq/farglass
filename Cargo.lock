@@ -1165,7 +1165,7 @@ dependencies = [
 
 [[package]]
 name = "farglass-login"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "clap",
  "farglass-proto",
@@ -1185,7 +1185,7 @@ dependencies = [
 
 [[package]]
 name = "farglass-proto"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "bytes",
  "proptest",
@@ -1199,7 +1199,7 @@ dependencies = [
 
 [[package]]
 name = "farglass-session"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "base64 0.23.1",
  "bytes",
@@ -1225,7 +1225,7 @@ dependencies = [
 
 [[package]]
 name = "farglass-surface"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "flate2",
  "jpeg-encoder",
@@ -1244,7 +1244,7 @@ dependencies = [
 
 [[package]]
 name = "farglassctl"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "clap",
  "clap_complete",
@@ -1259,7 +1259,7 @@ dependencies = [
 
 [[package]]
 name = "farglassd"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "arc-swap",
  "axum",

@@ -6,7 +6,7 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ---
 
-## Unreleased
+## v0.1.7 — 24 November 2026 — An ssh-agent for each web session
 
 ### Added
 - Each web session has its own ssh-agent: load a key with `ssh-add`, and ssh and git in the terminals and apps of the desktop use it. The keys go when the session locks. To keep them during a lock, set `ssh_agent_clear_on_lock = false` in the configuration of farglassd. To turn the ssh-agent off, set `ssh_agent = false`.
