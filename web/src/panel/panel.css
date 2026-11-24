@@ -80,6 +80,12 @@
 .panel-clock {
   font-variant-numeric: tabular-nums;
 }
+/* The crockford timestamp (F099): a monospace code, so that each character has the same width. */
+.panel-crockford {
+  font-family: ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
 
 .popover {
   margin: 0;

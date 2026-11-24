@@ -264,6 +264,15 @@
   font-size: 0.85rem;
   letter-spacing: 0.5px;
 }
+/* The crockford timestamp (F099): a small LCARS segment next to the time. */
+:root[data-theme="lcars"] .panel-crockford {
+  padding: 0.1rem 0.5rem;
+  margin-right: 0.4rem;
+  color: var(--lcars-lavender);
+  font-size: 0.8rem;
+  background: var(--lcars-raised);
+  border-radius: 999px;
+}
 
 /* The dock (F098): the Apps block at the corner has the width of the dock, thus they make one column. */
 :root[data-theme="lcars"][data-panel="dock"] .panel button.panel-apps {

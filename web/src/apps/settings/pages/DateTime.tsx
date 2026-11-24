@@ -1,5 +1,7 @@
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import type { DbusClient } from "../../../dbus";
+import { CLOCK_KEY, type ClockSettings, DEFAULT_CLOCK, formatClock, parseClockSettings } from "../../../clock";
+import type { AppContext } from "../../types";
 import { Loading, type Outcome, OutcomeLine, runAction } from "../common";
 
 const DEST = "org.freedesktop.timedate1";
@@ -25,7 +27,23 @@ export function formatHostTime(ms: number, timezone: string): string {
 }
 
 /** The time, the timezone, and the network time of the host, from timedate1. */
-export function DateTimePage(props: { dbus: DbusClient }) {
+/** The hour formats of the clock in the panel (F099). */
+const HOUR_CHOICES: readonly { id: ClockSettings["hours"]; label: string }[] = [
+  { id: "auto", label: "Same as the language of the browser" },
+  { id: "24", label: "24 hours" },
+  { id: "12", label: "12 hours" },
+];
+
+export function DateTimePage(props: { dbus: DbusClient; context: AppContext }) {
+  const [clock, setClock] = createSignal(DEFAULT_CLOCK);
+  props.context.state.watchShared(CLOCK_KEY, (stored) => setClock(parseClockSettings(stored)));
+  const changeClock = (patch: Partial<ClockSettings>) => {
+    const next = { ...clock(), ...patch };
+    setClock(next);
+    props.context.state.setShared(CLOCK_KEY, next);
+  };
+  // An example time for each choice: 14:05, or 2:05 PM.
+  const example = new Date(2026, 5, 29, 14, 5);
   const [state, setState] = createSignal<TimeState | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [zones, setZones] = createSignal<readonly string[]>([]);
@@ -87,6 +105,27 @@ export function DateTimePage(props: { dbus: DbusClient }) {
   return (
     <div class="settings-page">
       <h2>Date and time</h2>
+      <fieldset>
+        <legend>Clock in the panel</legend>
+        <For each={HOUR_CHOICES}>
+          {(choice) => (
+            <label class="settings-choice">
+              <input type="radio" name="clock-hours" value={choice.id} checked={clock().hours === choice.id} onChange={() => changeClock({ hours: choice.id })} />
+              {choice.label} ({formatClock(example, choice.id)})
+            </label>
+          )}
+        </For>
+        <label class="settings-choice">
+          <input type="checkbox" name="clock-crockford" checked={clock().crockford} onChange={(event) => changeClock({ crockford: event.currentTarget.checked })} />
+          Also show the time as a crockford timestamp
+        </label>
+        <p class="settings-note">
+          A crockford timestamp is a date and a time in UTC in five characters, for example 66X82 for 29 June 2026 08:04 UTC. It changes every 2 minutes.{" "}
+          <a href="https://scuq.github.io/crockford-timestamp/" target="_blank" rel="noopener noreferrer">
+            About the format
+          </a>
+        </p>
+      </fieldset>
       <Loading when={state()} error={error()}>
         {(current) => (
           <>

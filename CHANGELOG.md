@@ -11,6 +11,8 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 ### Added
 - The panel shows the keyboard layout of the Linux apps, for example US, DE, or AT. A click on it selects Automatic, a layout that you used before, or opens the full list. With Automatic in Chromium and Edge, a change of the layout on your computer shows in a few seconds.
 - Settings > Appearance > Panel has a dock on the left, as an alternative to the bar at the top. The dock shows one icon for each app, with a dot for each window. A click starts the app, shows its last window, or goes to its next window. Right-click an icon to pin it to the dock. The pins are the same as the pins of the launcher.
+- Settings > Date and time > Clock in the panel selects a 24-hour or a 12-hour clock. The default is the format of the language of your browser.
+- The panel can also show the time as a crockford timestamp: the date and the time in UTC in five characters, for example `66X82`. To show it, select the check box in Settings > Date and time.
 
 ## v0.1.8 — 24 November 2026 — Keyboard layout, leave prompt, and full screen
 

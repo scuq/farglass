@@ -474,6 +474,8 @@ The panel at the top has these parts, from left to right:
 - **Tile** opens the layout picker. Each layout shows a preview with your windows: columns, grid, center, wide, and spotlight. The window with the focus gets the main place. Select a layout with the arrow keys or 1 to 5, and press Enter.
 - The keyboard layout of the Linux apps, for example US, DE, or AT. A click opens a menu: Automatic, the layouts that you used last, and More layouts, which opens Settings > Keyboard.
 - The clock, with the date in its tooltip. It shows the time of the client.
+  Settings > Date and time selects a 24-hour clock, a 12-hour clock, or the format of the language of the browser.
+  The clock can also show the time as a [crockford timestamp](https://github.com/scuq/crockford-timestamp): the date and the time in UTC in five characters, for example `66X82` for 29 June 2026 08:04 UTC. The code changes every 2 minutes.
 - Your username opens the session menu with **Full screen**, **Lock**, and **Log out**.
 
 Settings > Appearance > Panel changes the bar to a dock on the left.
@@ -745,7 +747,7 @@ The settings app has these pages:
   Videos in the host browser play in this browser (video redirection), or on the host.
 - Keyboard: the shortcut scheme, the hints, the list of shortcuts, the tour, and the layout of the Linux apps.
 - Focus: the rules of focus protection, each on or off. See [Focus protection](#focus-protection).
-- Date and time: the time of the host, the timezone, and the network time (timedate1).
+- Date and time: the hour format and the crockford timestamp of the clock in the panel, the time of the host, the timezone, and the network time (timedate1).
 - System: the hostname, the display name, and the facts of the host (hostname1).
 - Network: the devices of NetworkManager with their state and addresses. The page does not change the network, because a change can stop the connection to farglass.
 - Users and sessions: the sessions of logind. End stops a session after a confirm step.

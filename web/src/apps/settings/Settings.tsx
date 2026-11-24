@@ -77,7 +77,7 @@ export default function Settings(props: { context: AppContext }) {
             <FocusPage context={props.context} />
           </Match>
           <Match when={page() === "datetime"}>
-            <DateTimePage dbus={dbus} />
+            <DateTimePage dbus={dbus} context={props.context} />
           </Match>
           <Match when={page() === "system"}>
             <SystemPage dbus={dbus} />

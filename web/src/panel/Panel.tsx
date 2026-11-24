@@ -9,6 +9,7 @@ import type { DesktopController } from "../wm/controller";
 import type { Win } from "../wm/model";
 import { enterLockedFullscreen, exitLockedFullscreen, lockedFullscreen } from "../wm/guard";
 import { APPEARANCE_KEY, parseAppearance } from "../appearance";
+import { CLOCK_KEY, DEFAULT_CLOCK, parseClockSettings } from "../clock";
 import { Clock } from "./Clock";
 import { Dock } from "./Dock";
 import { KeyboardIndicator, type KeyboardState } from "./KeyboardIndicator";
@@ -33,6 +34,9 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
   // The layout of the panel (F098): the bar, or the dock on the left with a slim bar.
   const [dock, setDock] = createSignal(false);
   onCleanup(c.state.watch(APPEARANCE_KEY, (stored) => setDock(parseAppearance(stored).panel === "dock")));
+  // The hour format and the crockford timestamp of the clock (F099).
+  const [clock, setClock] = createSignal(DEFAULT_CLOCK);
+  onCleanup(c.state.watch(CLOCK_KEY, (stored) => setClock(parseClockSettings(stored))));
 
   // A minimized window shows how busy its app is, and the details in its tooltip (F045).
   // The dot is for minimized windows only: an open window shows what its app does. The tooltip is for each window.
@@ -150,7 +154,7 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
         Tile
       </button>
       <Show when={props.keyboard}>{(keyboard) => <KeyboardIndicator controller={c} keyboard={keyboard()} />}</Show>
-      <Clock />
+      <Clock settings={clock} />
       <button
         type="button"
         class="panel-session"

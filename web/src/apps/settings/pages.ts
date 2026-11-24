@@ -6,7 +6,7 @@ export const PAGES = [
   { id: "appearance", label: "Appearance", keywords: ["theme", "dark", "light", "accent", "color", "colour", "text size", "font", "motion", "animation", "video", "redirect", "youtube"] },
   { id: "keyboard", label: "Keyboard", keywords: ["shortcuts", "keys", "hotkeys", "keybindings", "tour", "mac", "windows"] },
   { id: "focus", label: "Focus", keywords: ["notifications", "do not disturb", "interrupt", "windows", "attention"] },
-  { id: "datetime", label: "Date and time", keywords: ["clock", "time", "timezone", "time zone", "ntp", "date"] },
+  { id: "datetime", label: "Date and time", keywords: ["clock", "time", "timezone", "time zone", "ntp", "date", "24-hour", "12-hour", "am", "pm", "crockford", "timestamp"] },
   { id: "system", label: "System", keywords: ["hostname", "host name", "computer name", "kernel", "operating system", "about"] },
   { id: "network", label: "Network", keywords: ["ip", "address", "ethernet", "wifi", "wi-fi", "wireless", "dns", "networkmanager"] },
   { id: "passkeys", label: "Passkeys", keywords: ["passkey", "security key", "webauthn", "fido", "two-factor", "2fa", "second factor", "recovery code", "login", "password"] },
