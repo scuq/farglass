@@ -6,7 +6,7 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ---
 
-## Unreleased
+## v0.2.0 — 24 November 2026 — Bookmarks, system tray, and settings with a filter and graphs
 
 ### Added
 - The Bookmarks app keeps URLs with short names. Each bookmark opens in Firefox, Chromium, Chrome, or Brave on the host, in a profile of that browser, or in a private window. A bookmark can also open in a new tab of the browser that shows farglass.
