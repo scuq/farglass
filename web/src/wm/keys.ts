@@ -99,7 +99,7 @@ function isSuper(key: string): boolean {
   return key === "Meta" || key === "OS" || key === "Super";
 }
 
-/** Reports whether a key press opens the launcher with no Keyboard Lock: Alt+F1, or Ctrl+Shift+Space on a Mac. */
+/** Reports whether a key press opens the launcher with no Keyboard Lock: Alt+Shift+Space or Alt+F1, or Ctrl+Shift+Space on a Mac. */
 export function isLauncherKey(event: KeyEvent, scheme: SchemeId = "pc"): boolean {
   return actionOf(event, scheme, true) === "launcher";
 }

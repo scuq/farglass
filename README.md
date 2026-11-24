@@ -519,7 +519,7 @@ Hold Alt+Shift, or Ctrl+Shift on a Mac, to see the shortcuts on the screen. The 
 
 | Action | Windows and Linux | Mac |
 |---|---|---|
-| Open or close the launcher | Super (tap), or Alt+F1 | Ctrl+Shift+Space |
+| Open or close the launcher | Super (tap), Alt+Shift+Space, or Alt+F1 | Ctrl+Shift+Space |
 | Switch windows. Release Alt or Option to go to the selected one | Alt+Tab, or Alt+` | Option+Tab |
 | Open the overview | Super+Tab, or Alt+Shift+G | Ctrl+Shift+G |
 | Open the layout picker | Super+Z, or Alt+Shift+L | Ctrl+Shift+L |

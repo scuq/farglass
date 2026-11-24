@@ -86,7 +86,7 @@ const b = (chord: Chord, options: Omit<Binding, "chord"> = {}): Binding => ({ ch
 
 /** The pc scheme: Super with Keyboard Lock, and Alt+Shift with a letter on each client. */
 const PC: Readonly<Record<ActionId, readonly Binding[]>> = {
-  launcher: [b(c("MetaLeft", { meta: true }), { lock: true }), b(c("F1", { alt: true }))],
+  launcher: [b(c("MetaLeft", { meta: true }), { lock: true }), b(c("Space", { alt: true, shift: true })), b(c("F1", { alt: true }))],
   switch: [b(c("Tab", { alt: true }), { lock: true }), b(c("Backquote", { alt: true }))],
   "switch-back": [b(c("Tab", { alt: true, shift: true }), { lock: true }), b(c("Backquote", { alt: true, shift: true }))],
   overview: [b(c("Tab", { meta: true }), { lock: true }), b(c("KeyG", { alt: true, shift: true }))],

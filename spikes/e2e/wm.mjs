@@ -172,6 +172,11 @@ try {
   check(aboutChunk(), "the launcher loads the module of the About app and shows its window");
   check(!(await launcher.evaluate((el) => el.matches(":popover-open"))), "Enter opens the app and closes the launcher");
 
+  await page.keyboard.press("Alt+Shift+Space");
+  await launcher.getByRole("combobox").waitFor({ timeout: TIMEOUT_MS });
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(100);
+  check(!(await launcher.evaluate((el) => el.matches(":popover-open"))), "Alt+Shift+Space opens the launcher and Escape closes it");
   await page.keyboard.press("Alt+F1");
   await launcher.getByRole("combobox").waitFor({ timeout: TIMEOUT_MS });
   await page.keyboard.press("Escape");

@@ -52,4 +52,11 @@ describe("keys of the launcher", () => {
     expect(isLauncherKey({ ...base, code: "F1" })).toBe(false);
     expect(isLauncherKey({ ...base, code: "F1", altKey: true, ctrlKey: true })).toBe(false);
   });
+
+  test("Alt+Shift+Space opens the launcher with no Keyboard Lock", () => {
+    const base = { altKey: false, ctrlKey: false, metaKey: false, shiftKey: false };
+    expect(isLauncherKey({ ...base, code: "Space", altKey: true, shiftKey: true })).toBe(true);
+    expect(isLauncherKey({ ...base, code: "Space", shiftKey: true })).toBe(false);
+    expect(isLauncherKey({ ...base, code: "Space", altKey: true })).toBe(false);
+  });
 });

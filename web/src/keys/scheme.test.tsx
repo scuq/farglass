@@ -103,8 +103,8 @@ describe("hints and tour", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     const tour = () => host.querySelector('[aria-label="Keyboard tour"]')!;
     expect(tour().textContent).toContain("Step 1 of 10");
-    expect(tour().querySelector("kbd")?.textContent).toBe("Alt+F1");
-    key("keydown", { key: "F1", code: "F1", altKey: true });
+    expect(tour().querySelector("kbd")?.textContent).toBe("Alt+Shift+Space");
+    key("keydown", { key: " ", code: "Space", altKey: true, shiftKey: true });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(tour().textContent).toContain("Done.");
     await new Promise((resolve) => setTimeout(resolve, 950));
