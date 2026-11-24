@@ -6,7 +6,7 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ---
 
-## Unreleased
+## v0.1.8 — 24 November 2026 — Keyboard layout, leave prompt, and full screen
 
 ### Added
 - Settings > Keyboard has a layout for the Linux apps, for example German or Swiss French. The Linux apps then type the characters that are on your keys. In Chromium and Edge, farglass uses the layout of your keyboard by default. In other browsers, the default is English (US), and you can select a different layout.
