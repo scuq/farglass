@@ -34,6 +34,43 @@ farglass sends as little as possible, and it does work in the browser that a rem
 - A worker decodes the tiles of each window and draws them on an OffscreenCanvas, thus the decode does not block the shell.
 - With WebTransport, each channel has its own stream: a lost packet of one window does not stop the terminal or the sound.
 
+### The tile cache: a mirrored ring
+
+The host and the browser each keep a ring of 2048 tile slots, and they run the same allocator.
+Each tile message takes the next slot on both sides, thus the host knows the content of each slot of the browser with no acknowledgment.
+The host finds an equal tile through its own hash table, and sends only a reference of 7 bytes to the slot.
+No hash goes to the browser.
+The oldest quarter of the ring is the next to be overwritten.
+If the host needs a tile there, a keep message copies it to the next slot on both sides, thus a tile in use stays in the ring.
+A window that shows the same icons, buttons, or text again gets them as references.
+
+### Adaptive frame rate
+
+A Wayland app draws a new frame only after the compositor answers its last frame with a frame callback.
+The compositor thus sets the frame rate of each window:
+
+- After input or a change of the window, the window gets the full rate of about 60 frames each second for 2 s.
+- A window with a video region keeps the full rate.
+- After that, an app that draws all the time, for example a spinner or a clock, gets 10 frames each second (`FARGLASS_IDLE_FPS`).
+- A window that no browser shows, for example after you close the tab, gets no frame callbacks, thus the app does not draw.
+
+A popup and a subsurface follow the rate of their window.
+Before the encoder, the commits of a window wait in one slot.
+A new commit adds its damage to the one that waits, thus a slow encoder or a slow connection sends the newest pixels only.
+
+### Wayland and X11 apps
+
+Each web session runs its own Wayland compositor with no screen, built on Smithay.
+It draws nothing: for each commit, it gives the buffer and the damage of each window to the encoder.
+The shell is the only window manager.
+The compositor asks each app for server-side decorations, and the shell draws the frame and places the window.
+
+X11 apps go through Xwayland, which is off by default.
+If `x11_apps = true`, the compositor starts Xwayland with the session and is its X11 window manager.
+Each X11 window becomes one surface, with the same tiles, scroll moves, video regions, and frame rate as a Wayland window.
+A menu or a tooltip of X11 becomes a popup of its window.
+The size hints of the app limit a resize, and a click outside a menu closes it, as on a local X11 desktop.
+
 ## Compared with VNC and xrdp
 
 VNC and xrdp send the image of a whole desktop that runs on the host.
