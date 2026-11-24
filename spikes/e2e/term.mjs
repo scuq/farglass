@@ -146,6 +146,11 @@ try {
   await until(page, id, /pasted-42/);
   check(true, "Ctrl+Shift+V pastes the clipboard of the browser, and Enter right after it comes after the pasted text");
 
+  // The ssh-agent of the session (F093): the shell has SSH_AUTH_SOCK, and ssh-add reaches an agent with no key.
+  await run(page, id, 'ssh-add -l; echo "agent-status-$?-${SSH_AUTH_SOCK##*-}"');
+  await until(page, id, /agent-status-1-agent/);
+  check(true, "the shell has the ssh-agent of the session, with no key");
+
   // 4. The size of the window gives the size of the terminal.
   await page.locator(`[data-window="${id}"]`).getByRole("button", { name: "Maximize" }).click();
   await page.waitForTimeout(300);

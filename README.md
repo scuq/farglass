@@ -473,6 +473,12 @@ A later write, for example from a remote host over ssh, shows a question in the 
 A write in the scrollback that a reload shows again asks nothing.
 A program cannot read your clipboard.
 
+Each web session has its own ssh-agent, and terminals and apps get `SSH_AUTH_SOCK`.
+Load a key with `ssh-add`.
+The keys stay while the browser connects again, and go when the session locks or ends.
+`ssh_agent_clear_on_lock = false` in `/etc/farglass/farglassd.conf` keeps the keys during a lock, and `ssh_agent = false` turns the ssh-agent off.
+A change applies to the next login of each user.
+
 NOTE: The browser keeps some keys that terminal programs use, for example Ctrl+W, Ctrl+T, and Ctrl+N.
 In fullscreen mode with Keyboard Lock (F017), these keys go to the terminal.
 

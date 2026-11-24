@@ -97,6 +97,10 @@ pub struct Config {
     /// Reports whether the agent of each new session starts Xwayland for X11 apps (F083).
     /// farglassd does not use the value: the agent reads it from the same file.
     pub x11_apps: bool,
+    /// Reports whether the agent of each new session starts an ssh-agent (F093). The agent reads it.
+    pub ssh_agent: bool,
+    /// Reports whether the agent removes the keys of the ssh-agent when the session locks (F093).
+    pub ssh_agent_clear_on_lock: bool,
     /// The TLS configuration.
     pub tls: TlsConfig,
 }
@@ -128,6 +132,8 @@ impl Default for Config {
             dev_user: None,
             allow_user_agents: false,
             x11_apps: false,
+            ssh_agent: true,
+            ssh_agent_clear_on_lock: true,
             tls: TlsConfig::default(),
         }
     }

@@ -262,7 +262,12 @@ where
                 LinkMessage::Detach { connection } => {
                     tracing::info!(connection, "a browser connection detached");
                 }
-                LinkMessage::LockedHint { locked } => session.logind.set_locked_hint(locked),
+                LinkMessage::LockedHint { locked } => {
+                    session.logind.set_locked_hint(locked);
+                    if locked {
+                        crate::ssh_agent::clear_on_lock();
+                    }
+                }
                 LinkMessage::Hello { .. }
                 | LinkMessage::Lock
                 | LinkMessage::Unlock

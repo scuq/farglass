@@ -17,6 +17,7 @@ pub mod logind;
 pub mod notify;
 pub mod polkit;
 pub mod redirect;
+pub mod ssh_agent;
 pub mod state;
 pub mod stats;
 pub mod surface_stream;

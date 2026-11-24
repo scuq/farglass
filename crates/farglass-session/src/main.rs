@@ -144,6 +144,25 @@ async fn agent() {
             None
         }
     };
+    // The ssh-agent of the session (F093), before the compositor: the desktop variables name it.
+    // It starts on the main thread, which lives as long as the agent: it stops with that thread.
+    let _ssh_agent = farglass_session::desktop::ssh_agent_wanted()
+        .then(farglass_session::surfaces::socket_path)
+        .flatten()
+        .and_then(|wayland| {
+            let socket = farglass_session::ssh_agent::socket_for(&wayland);
+            match farglass_session::ssh_agent::SshAgent::start(&socket) {
+                Ok(agent) => {
+                    agent.publish();
+                    tracing::info!(socket = %socket.display(), "the ssh-agent of the session listens");
+                    Some(agent)
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "no ssh-agent for the session");
+                    None
+                }
+            }
+        });
     // The Wayland compositor of the session (F024). It lives as long as the agent.
     let _compositor = farglass_session::surfaces::socket_path().and_then(|socket| {
         match session.surfaces.start(&socket) {

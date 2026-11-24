@@ -36,38 +36,77 @@ pub fn has_x11() -> bool {
 const CONFIG: &str = "/etc/farglass/farglassd.conf";
 
 /// The part of the configuration file that the agent reads. The other options are for farglassd.
-#[derive(Debug, Default, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 #[serde(default)]
 struct HostConfig {
     x11_apps: bool,
+    ssh_agent: bool,
+    ssh_agent_clear_on_lock: bool,
 }
 
-/// Returns the value of `x11_apps` in the text of a configuration file.
+impl Default for HostConfig {
+    fn default() -> Self {
+        Self {
+            x11_apps: false,
+            ssh_agent: true,
+            ssh_agent_clear_on_lock: true,
+        }
+    }
+}
+
+/// Returns the options of the agent in the text of a configuration file.
 ///
 /// # Errors
 ///
-/// A text with the cause if the text is not valid TOML or `x11_apps` is not a boolean.
-fn x11_apps_in(text: &str) -> Result<bool, String> {
-    toml::from_str::<HostConfig>(text)
-        .map(|config| config.x11_apps)
-        .map_err(|error| error.to_string())
+/// A text with the cause if the text is not valid TOML or an option has the wrong type.
+fn host_config_in(text: &str) -> Result<HostConfig, String> {
+    toml::from_str::<HostConfig>(text).map_err(|error| error.to_string())
 }
 
-/// Returns `x11_apps` of the configuration file. A missing file gives the default, off.
-/// A file that does not load or is not valid also turns X11 apps off, with a warning.
-fn x11_apps_configured() -> bool {
-    let path = std::env::var_os("FARGLASSD_CONFIG").map_or_else(|| CONFIG.into(), PathBuf::from);
-    match std::fs::read_to_string(&path) {
-        Ok(text) => x11_apps_in(&text).unwrap_or_else(|error| {
-            tracing::warn!(path = %path.display(), %error, "the configuration file is not valid, X11 apps are off");
-            false
-        }),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
-        Err(error) => {
-            tracing::warn!(path = %path.display(), %error, "the configuration file did not load, X11 apps are off");
-            false
+/// Returns the options of the agent in the configuration file, read one time. A missing file
+/// gives the defaults. A file that does not load or is not valid turns X11 apps off and keeps the
+/// other defaults, with a warning.
+fn host_config() -> &'static HostConfig {
+    static CONFIG_OF_HOST: std::sync::OnceLock<HostConfig> = std::sync::OnceLock::new();
+    CONFIG_OF_HOST.get_or_init(|| {
+        let path =
+            std::env::var_os("FARGLASSD_CONFIG").map_or_else(|| CONFIG.into(), PathBuf::from);
+        match std::fs::read_to_string(&path) {
+            Ok(text) => host_config_in(&text).unwrap_or_else(|error| {
+                tracing::warn!(path = %path.display(), %error, "the configuration file is not valid, X11 apps are off");
+                HostConfig::default()
+            }),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => HostConfig::default(),
+            Err(error) => {
+                tracing::warn!(path = %path.display(), %error, "the configuration file did not load, X11 apps are off");
+                HostConfig::default()
+            }
         }
+    })
+}
+
+/// Returns `x11_apps` of the configuration file, off by default.
+fn x11_apps_configured() -> bool {
+    host_config().x11_apps
+}
+
+/// Returns `true` if the agent must start an ssh-agent for the session (F093).
+///
+/// `ssh_agent` in the configuration file of the host decides, and is on by default.
+/// `FARGLASS_SSH_AGENT=1` or `0` in the environment of the agent overrides it, for tests.
+#[must_use]
+pub fn ssh_agent_wanted() -> bool {
+    match std::env::var("FARGLASS_SSH_AGENT").as_deref() {
+        Ok("1") => true,
+        Ok("0") => false,
+        _ => host_config().ssh_agent,
     }
+}
+
+/// Returns `ssh_agent_clear_on_lock` of the configuration file, on by default (F093).
+#[must_use]
+pub fn ssh_agent_clear_on_lock() -> bool {
+    host_config().ssh_agent_clear_on_lock
 }
 
 /// Returns `true` if the agent must start Xwayland (F083).
@@ -95,13 +134,16 @@ pub fn x11_wanted() -> bool {
 }
 
 /// Returns the variables of the desktop for the Wayland socket `socket`,
-/// with `DISPLAY` if the session has an X11 display.
+/// with `DISPLAY` if the session has an X11 display, and `SSH_AUTH_SOCK` if it has an ssh-agent.
 /// The sound of PulseAudio and PipeWire clients goes to the sink of the browser (F038).
 #[must_use]
 pub fn variables(socket: &Path) -> Vec<(String, String)> {
     let mut variables = base_variables(socket);
     if let Some(number) = X11_DISPLAY.get() {
         variables.push(("DISPLAY".to_owned(), format!(":{number}")));
+    }
+    if let Some(agent) = crate::ssh_agent::socket() {
+        variables.push(("SSH_AUTH_SOCK".to_owned(), agent.display().to_string()));
     }
     variables
 }
@@ -187,6 +229,7 @@ mod tests {
 
     #[test]
     fn x11_apps_are_off_unless_the_file_turns_them_on() {
+        let x11_apps_in = |text: &str| host_config_in(text).map(|config| config.x11_apps);
         assert_eq!(x11_apps_in(""), Ok(false));
         assert_eq!(
             x11_apps_in("#x11_apps = true\nidle_lock_minutes = 5\n"),
@@ -199,6 +242,16 @@ mod tests {
         assert!(x11_apps_in("x11_apps = \"yes\"\n").is_err());
         assert!(x11_apps_in("x11_apps = \n").is_err());
         let packaged = include_str!("../../../packaging/farglassd.conf");
-        assert_eq!(x11_apps_in(packaged), Ok(false));
+        assert_eq!(host_config_in(packaged), Ok(HostConfig::default()));
+    }
+
+    #[test]
+    fn the_ssh_agent_is_on_and_clears_on_lock_unless_the_file_turns_it_off() {
+        assert_eq!(host_config_in(""), Ok(HostConfig::default()));
+        assert!(HostConfig::default().ssh_agent && HostConfig::default().ssh_agent_clear_on_lock);
+        let config =
+            host_config_in("ssh_agent = false\nssh_agent_clear_on_lock = false\n").unwrap();
+        assert!(!config.ssh_agent && !config.ssh_agent_clear_on_lock);
+        assert!(host_config_in("ssh_agent = 1\n").is_err());
     }
 }
