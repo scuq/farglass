@@ -16,7 +16,7 @@ use smithay::delegate_seat;
 use smithay::delegate_shm;
 use smithay::delegate_xdg_decoration;
 use smithay::delegate_xdg_shell;
-use smithay::input::keyboard::{FilterResult, Keycode};
+use smithay::input::keyboard::{FilterResult, Keycode, XkbConfig};
 use smithay::input::pointer::{
     AxisFrame, ButtonEvent, CursorImageStatus, CursorImageSurfaceData, MotionEvent,
 };
@@ -247,6 +247,14 @@ pub enum Command {
         dx: f64,
         /// The vertical distance.
         dy: f64,
+    },
+    /// Sets the XKB keymap of the keyboard: a layout, for example `de`, and a variant, or empty.
+    /// The apps get the new keymap at once. An unknown layout keeps the keymap.
+    Keymap {
+        /// The layout.
+        layout: String,
+        /// The variant.
+        variant: String,
     },
     /// A key of the keyboard: a Linux key code, for example `KEY_A` (30), in the window `id`.
     /// If the window does not have the focus, it gets it first: a key goes where the user typed it.
@@ -884,6 +892,21 @@ impl State {
                     }
                     pointer.axis(self, frame);
                     pointer.frame(self);
+                }
+            }
+            Command::Keymap { layout, variant } => {
+                if let Some(keyboard) = self.seat.get_keyboard() {
+                    let config = XkbConfig {
+                        layout: &layout,
+                        variant: &variant,
+                        ..XkbConfig::default()
+                    };
+                    match keyboard.set_xkb_config(self, config) {
+                        Ok(()) => tracing::info!(layout, variant, "the keyboard has a new layout"),
+                        Err(error) => {
+                            tracing::warn!(layout, variant, %error, "the keyboard layout is not known");
+                        }
+                    }
                 }
             }
             Command::Key { id, code, pressed } => {

@@ -419,6 +419,13 @@ impl Surfaces {
             SurfaceRequest::Activate { id } => Command::Activate { id },
             SurfaceRequest::Close { id } => Command::Close { id },
             SurfaceRequest::PopupDismiss { id } => Command::PopupDismiss { id },
+            SurfaceRequest::Keymap { layout, variant } => {
+                if !xkb_name(&layout) || !(variant.is_empty() || xkb_name(&variant)) {
+                    tracing::warn!(layout, variant, "the shell sent a keyboard layout that is not valid");
+                    return;
+                }
+                Command::Keymap { layout, variant }
+            }
         };
         self.command(command);
     }
@@ -610,6 +617,14 @@ impl Surfaces {
     }
 }
 
+/// Reports whether `name` can be an XKB layout or variant: 1 to 32 lowercase letters, digits, `_`, or `-`.
+fn xkb_name(name: &str) -> bool {
+    (1..=32).contains(&name.len())
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -684,6 +699,36 @@ mod tests {
                 },
                 Command::Close { id: 3 },
                 Command::Activate { id: None }
+            ]
+        );
+    }
+
+    #[test]
+    fn a_valid_keymap_goes_to_the_compositor() {
+        let surfaces = Surfaces::new();
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let sink = commands.clone();
+        surfaces.set_commands(move |command| sink.lock().unwrap().push(command));
+        let keymap = |layout: &str, variant: &str| SurfaceRequest::Keymap {
+            layout: layout.into(),
+            variant: variant.into(),
+        };
+        surfaces.request(keymap("ch", "fr"));
+        surfaces.request(keymap("de", ""));
+        surfaces.request(keymap("", ""));
+        surfaces.request(keymap("de,us", ""));
+        surfaces.request(keymap("de", "../x"));
+        assert_eq!(
+            *commands.lock().unwrap(),
+            [
+                Command::Keymap {
+                    layout: "ch".into(),
+                    variant: "fr".into()
+                },
+                Command::Keymap {
+                    layout: "de".into(),
+                    variant: String::new()
+                },
             ]
         );
     }

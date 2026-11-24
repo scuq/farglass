@@ -1,11 +1,12 @@
 import { createSignal, createUniqueId, For } from "solid-js";
 import { ACTION_LABELS, type ActionId, type Binding, chordLabel, DEFAULT_KEYBOARD, detectScheme, KEYBOARD_KEY, type KeyboardSettings, parseKeyboardSettings, SCHEMES, schemeOf } from "../../../keys/scheme";
+import { detectLayout, LAYOUTS, layoutLabel } from "../../../keys/layout";
 import { TOUR_EVENT } from "../../../tour/Tour";
 import type { AppContext } from "../../types";
 
 const SCHEME_LABELS = { auto: "Same as this computer", pc: "Windows and Linux", mac: "Mac" } as const;
 
-/** The keybinding scheme, the hints, the list of shortcuts, and the tour (F044). */
+/** The keybinding scheme, the hints, the list of shortcuts, and the tour (F044), and the layout (F094). */
 export function KeyboardPage(props: { context: AppContext }) {
   // Each window of Settings has its own radio groups: two windows must not share a group.
   const group = createUniqueId();
@@ -37,6 +38,14 @@ export function KeyboardPage(props: { context: AppContext }) {
           )}
         </For>
       </fieldset>
+      <fieldset>
+        <legend>Layout of the Linux apps</legend>
+        <select name="layout" aria-label="Layout of the Linux apps" onChange={(event) => change({ layout: event.currentTarget.value })}>
+          <option value="auto" selected={value().layout === "auto"}>Same as the browser language ({layoutLabel(detectLayout())})</option>
+          <For each={LAYOUTS}>{(layout) => <option value={layout.id} selected={value().layout === layout.id}>{layout.label}</option>}</For>
+        </select>
+      </fieldset>
+      <p class="settings-note">Select the layout of your keyboard. The Linux apps then type the characters that are on your keys. The terminal and the shell use the layout of this computer.</p>
       <label class="settings-choice">
         <input type="checkbox" name="hints" checked={value().hints} onChange={(event) => change({ hints: event.currentTarget.checked })} />
         Show the shortcuts when I hold {scheme() === "mac" ? "⌃⇧" : "Alt+Shift"}

@@ -4,6 +4,8 @@ import { Notifications } from "../notify/Notifications";
 import { startSound } from "../audio/player";
 import { startHostApps } from "../launcher/hostApps";
 import { startStats } from "../stats";
+import { KEYBOARD_KEY, layoutOf, parseKeyboardSettings } from "../keys/scheme";
+import { xkbOf } from "../keys/layout";
 import { startSurfaceManager, stopSurfaceManager } from "../surface/manager";
 import { parseVideoMode, VIDEO_KEY } from "../surface/redirect";
 import { KeyHints } from "../keys/KeyHints";
@@ -30,6 +32,17 @@ export function Desktop(props: { connection: Connection; user: string; onlogout:
   const surfaces = startSurfaceManager(props.connection, controller);
   // Where the videos of the host browser play, from the settings (F040).
   onCleanup(controller.state.watch(VIDEO_KEY, (value) => surfaces.redirect.setMode(parseVideoMode(value))));
+  // The keyboard layout of the Linux apps, from the settings or the browser languages (F094).
+  let keymap = "";
+  onCleanup(
+    controller.state.watch(KEYBOARD_KEY, (value) => {
+      const layout = layoutOf(parseKeyboardSettings(value));
+      if (layout !== keymap) {
+        keymap = layout;
+        surfaces.request({ type: "keymap", ...xkbOf(layout) });
+      }
+    }),
+  );
   onCleanup(() => stopSurfaceManager(props.connection));
   // The desktop entries of the host for the launcher, and the icons of their windows (F031).
   onCleanup(startHostApps(props.connection));

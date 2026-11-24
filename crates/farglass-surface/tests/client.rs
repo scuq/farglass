@@ -36,6 +36,8 @@ struct App {
     popup_done: bool,
     pointer: Vec<String>,
     keys: Vec<(u32, bool)>,
+    /// The text of each keymap that the keyboard sent.
+    keymaps: Vec<String>,
     keyboard_focus: bool,
     /// The serial of the last keyboard enter, for a selection.
     enter_serial: u32,
@@ -150,6 +152,11 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for App {
                 app.enter_serial = serial;
             }
             wl_keyboard::Event::Leave { .. } => app.keyboard_focus = false,
+            wl_keyboard::Event::Keymap { fd, size, .. } => {
+                let mut text = vec![0; size as usize];
+                File::from(fd).read_exact(&mut text).unwrap();
+                app.keymaps.push(String::from_utf8_lossy(&text).into_owned());
+            }
             wl_keyboard::Event::Key { key, state, .. } => app.keys.push((
                 key,
                 matches!(state, WEnum::Value(wl_keyboard::KeyState::Pressed)),
@@ -615,6 +622,28 @@ fn pointer_and_keyboard_input_reach_the_window() {
         client.app.keys,
         [(30, true), (30, false)],
         "the key code of A goes to the window with the focus"
+    );
+
+    // A new layout gives the app a new keymap (F094); an unknown layout keeps it.
+    compositor.send(Command::Keymap {
+        layout: "ch".into(),
+        variant: "fr".into(),
+    });
+    compositor.send(Command::Keymap {
+        layout: "zz".into(),
+        variant: String::new(),
+    });
+    let end = std::time::Instant::now() + WAIT;
+    while client.app.keymaps.len() < 2 {
+        client.roundtrip();
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(std::time::Instant::now() < end, "no new keymap");
+    }
+    client.roundtrip();
+    assert_eq!(client.app.keymaps.len(), 2, "an unknown layout sends no keymap");
+    assert!(
+        client.app.keymaps[1].contains("French (Switzerland)"),
+        "the keymap has the Swiss French symbols"
     );
 }
 

@@ -432,7 +432,15 @@ id: number, } | { "type": "popup-dismiss",
 /**
  * The popup.
  */
-id: number, };
+id: number, } | { "type": "keymap", 
+/**
+ * The layout.
+ */
+layout: string, 
+/**
+ * The variant, or empty.
+ */
+variant: string, };
 
 /**
  * A message of the shell on a surface channel.

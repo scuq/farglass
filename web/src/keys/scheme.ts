@@ -10,6 +10,7 @@
  */
 
 import { IS_MAC } from "../surface/keys";
+import { detectLayout, isLayoutId } from "./layout";
 
 /** An action that a key starts. */
 export type ActionId =
@@ -266,9 +267,11 @@ export interface KeyboardSettings {
   readonly scheme: "auto" | SchemeId;
   /** Holding the modifiers shows the hints. */
   readonly hints: boolean;
+  /** The keyboard layout of the Linux apps (F094), or "auto" for the layout of the browser languages. */
+  readonly layout: "auto" | string;
 }
 
-export const DEFAULT_KEYBOARD: KeyboardSettings = { scheme: "auto", hints: true };
+export const DEFAULT_KEYBOARD: KeyboardSettings = { scheme: "auto", hints: true, layout: "auto" };
 
 /** Returns valid settings from a value of the state store. */
 export function parseKeyboardSettings(value: unknown): KeyboardSettings {
@@ -276,7 +279,13 @@ export function parseKeyboardSettings(value: unknown): KeyboardSettings {
   return {
     scheme: record.scheme === "pc" || record.scheme === "mac" ? record.scheme : "auto",
     hints: typeof record.hints === "boolean" ? record.hints : true,
+    layout: isLayoutId(record.layout) ? record.layout : "auto",
   };
+}
+
+/** Returns the keyboard layout of the settings. */
+export function layoutOf(settings: KeyboardSettings): string {
+  return settings.layout === "auto" ? detectLayout() : settings.layout;
 }
 
 /** Returns the scheme of the settings. */

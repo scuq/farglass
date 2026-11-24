@@ -835,6 +835,14 @@ pub enum SurfaceRequest {
         /// The popup.
         id: u32,
     },
+    /// Sets the keyboard layout of the apps (F094): an XKB layout, for example `de`, and a variant, for example `nodeadkeys`, or empty.
+    Keymap {
+        /// The layout.
+        layout: String,
+        /// The variant, or empty.
+        #[serde(default)]
+        variant: String,
+    },
 }
 
 /// A message of the agent on a notify channel.
