@@ -18,6 +18,40 @@ Each user logs in with the PAM stack of the host and gets a real logind session.
 - Themes: LCARS in the colors of the farglass icon (the default), light, and dark.
 - Administration: `farglassctl` installs, updates, and removes farglass from signed release tarballs, and manages users, sessions, and the PIN.
 
+## How farglass stays fast
+
+farglass sends as little as possible, and it does work in the browser that a remote desktop does on the host:
+
+- The browser draws the shell: the window manager, the panel, the launcher, and the terminal. A move, a resize, or a workspace change of a window needs no round trip to the host.
+- The terminal sends text, not pixels. xterm.js draws it with WebGL in the browser.
+- Each Linux app window is a separate stream. The headless Wayland compositor knows the damage of each commit, thus the encoder looks only at the changed 64 x 64 tiles.
+- A tile that did not change goes as nothing. A tile of one color goes as a fill. A tile that the browser showed before goes as a reference to a mirrored cache of 2048 tiles. Text and interface tiles go as LZ4, which is exact. Photo tiles go as JPEG first, and become exact when they stop changing.
+- A scroll goes as a copy of the moved rows. The agent finds the offset from hashes of the rows, and only the new strip goes as tiles.
+- Only a region that changes in each frame goes as H.264, and the browser decodes it with WebCodecs. The rest of the window stays exact.
+- A video in the host Chromium plays from its own stream in your browser, decoded by your computer. The host encodes nothing for it.
+- The host sends at most two frames that the browser did not acknowledge. On a slow connection, the commits merge, and the browser gets the newest pixels, not a queue of old ones.
+- An idle animation gets 10 frames each second, and a window that no browser shows gets none.
+- A worker decodes the tiles of each window and draws them on an OffscreenCanvas, thus the decode does not block the shell.
+- With WebTransport, each channel has its own stream: a lost packet of one window does not stop the terminal or the sound.
+
+## Compared with VNC and xrdp
+
+VNC and xrdp send the image of a whole desktop that runs on the host.
+farglass sends the parts of a desktop, and the browser puts them together.
+
+| | VNC | xrdp | farglass |
+|---|---|---|---|
+| Client | A VNC viewer, or noVNC in a browser | An RDP client, or a gateway for a browser | A browser, with no plugin and no gateway |
+| What goes over the network | Rectangles of the screen image | Bitmaps of the screen image, through RDP | Text of terminals, tiles of each app window, video, and sound as separate channels |
+| Window manager and panel | On the host, sent as pixels | On the host, sent as pixels | In the browser, drawn locally |
+| Window move and resize | The host draws each step | The host draws each step | Local in the browser, and the app gets the new size at the end |
+| Video in a web page | Encoded again from the screen | Encoded again from the screen | Plays from its original stream in the client browser |
+| Display server for the apps | An X server, or the screen of a desktop | Xorg with xorgxrdp | A Wayland compositor with no screen, and Xwayland if you turn it on |
+| Login | A VNC password, or the login of the desktop | PAM, through the RDP login screen | PAM, passkeys, and a logind session for each user |
+
+farglass has no measurement against VNC or xrdp.
+The values above that farglass measured are in [Linux apps](#linux-apps) and [End-to-end tests](#end-to-end-tests).
+
 ## Quick start
 
 To install farglass, you need a host with one of these distributions, on amd64 or arm64, and root access:
