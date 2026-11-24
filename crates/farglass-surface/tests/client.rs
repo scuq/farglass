@@ -155,7 +155,8 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for App {
             wl_keyboard::Event::Keymap { fd, size, .. } => {
                 let mut text = vec![0; size as usize];
                 File::from(fd).read_exact(&mut text).unwrap();
-                app.keymaps.push(String::from_utf8_lossy(&text).into_owned());
+                app.keymaps
+                    .push(String::from_utf8_lossy(&text).into_owned());
             }
             wl_keyboard::Event::Key { key, state, .. } => app.keys.push((
                 key,
@@ -640,7 +641,11 @@ fn pointer_and_keyboard_input_reach_the_window() {
         assert!(std::time::Instant::now() < end, "no new keymap");
     }
     client.roundtrip();
-    assert_eq!(client.app.keymaps.len(), 2, "an unknown layout sends no keymap");
+    assert_eq!(
+        client.app.keymaps.len(),
+        2,
+        "an unknown layout sends no keymap"
+    );
     assert!(
         client.app.keymaps[1].contains("French (Switzerland)"),
         "the keymap has the Swiss French symbols"

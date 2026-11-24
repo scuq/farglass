@@ -421,7 +421,11 @@ impl Surfaces {
             SurfaceRequest::PopupDismiss { id } => Command::PopupDismiss { id },
             SurfaceRequest::Keymap { layout, variant } => {
                 if !xkb_name(&layout) || !(variant.is_empty() || xkb_name(&variant)) {
-                    tracing::warn!(layout, variant, "the shell sent a keyboard layout that is not valid");
+                    tracing::warn!(
+                        layout,
+                        variant,
+                        "the shell sent a keyboard layout that is not valid"
+                    );
                     return;
                 }
                 Command::Keymap { layout, variant }
