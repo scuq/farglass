@@ -6,7 +6,7 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ---
 
-## Unreleased
+## v0.1.9 — 24 November 2026 — Dock, keyboard layout indicator, and clock options
 
 ### Added
 - The panel shows the keyboard layout of the Linux apps, for example US, DE, or AT. A click on it selects Automatic, a layout that you used before, or opens the full list. With Automatic in Chromium and Edge, a change of the layout on your computer shows in a few seconds.
