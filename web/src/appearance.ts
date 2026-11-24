@@ -15,15 +15,18 @@ export const ACCENTS = ["blue", "green", "purple", "orange"] as const;
 export const TEXT_SIZES = [90, 100, 110, 125] as const;
 /** The motion of the effects. "system" follows prefers-reduced-motion of the client (F046). */
 export const MOTIONS = ["system", "full", "reduced"] as const;
+/** The layouts of the panel: the bar at the top, or a dock on the left with a slim bar (F098). */
+export const PANELS = ["bar", "dock"] as const;
 
 export interface Appearance {
   readonly theme: (typeof THEMES)[number];
   readonly accent: (typeof ACCENTS)[number];
   readonly textSize: (typeof TEXT_SIZES)[number];
   readonly motion: (typeof MOTIONS)[number];
+  readonly panel: (typeof PANELS)[number];
 }
 
-export const DEFAULT_APPEARANCE: Appearance = { theme: "lcars", accent: "orange", textSize: 100, motion: "system" };
+export const DEFAULT_APPEARANCE: Appearance = { theme: "lcars", accent: "orange", textSize: 100, motion: "system", panel: "bar" };
 
 const oneOf = <T>(list: readonly T[], value: unknown, fallback: T): T => (list.includes(value as T) ? (value as T) : fallback);
 
@@ -35,6 +38,7 @@ export function parseAppearance(value: unknown): Appearance {
     accent: oneOf(ACCENTS, record.accent, DEFAULT_APPEARANCE.accent),
     textSize: oneOf(TEXT_SIZES, record.textSize, DEFAULT_APPEARANCE.textSize),
     motion: oneOf(MOTIONS, record.motion, DEFAULT_APPEARANCE.motion),
+    panel: oneOf(PANELS, record.panel, DEFAULT_APPEARANCE.panel),
   };
 }
 
@@ -46,6 +50,7 @@ export function applyAppearance(appearance: Appearance, root: HTMLElement = docu
     root.dataset.theme = appearance.theme;
   }
   root.dataset.accent = appearance.accent;
+  root.dataset.panel = appearance.panel;
   root.style.fontSize = appearance.textSize === 100 ? "" : `${appearance.textSize}%`;
   motionChoice = appearance.motion;
   applyMotion(root);

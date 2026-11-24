@@ -162,6 +162,15 @@ export function xkbOf(id: string): { layout: string; variant: string } {
   return match ? { layout: match[1] ?? FALLBACK_LAYOUT, variant: match[2] ?? "" } : { layout: FALLBACK_LAYOUT, variant: "" };
 }
 
+/**
+ * Returns the short code of a layout id for the panel (F097): the XKB layout in
+ * uppercase, and the first two letters of a variant. `de` gives `DE`, `ch(fr)` gives `CH-FR`.
+ */
+export function layoutCode(id: string): string {
+  const { layout, variant } = xkbOf(id);
+  return variant ? `${layout.toUpperCase()}-${variant.slice(0, 2).toUpperCase()}` : layout.toUpperCase();
+}
+
 /** Returns the label of a layout id, or the id if the list does not have it. */
 export function layoutLabel(id: string): string {
   return LAYOUTS.find((layout) => layout.id === id)?.label ?? id;

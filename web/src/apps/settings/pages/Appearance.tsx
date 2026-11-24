@@ -8,6 +8,12 @@ const MOTION_LABELS: Record<Appearance["motion"], string> = { system: "Same as t
 const ACCENT_LABELS: Record<Appearance["accent"], string> = { blue: "Blue", green: "Green", purple: "Purple", orange: "Orange" };
 
 /** The appearance of the shell. The value is in the state store, thus each tab and each login gets it. */
+/** The layouts of the panel (F098). */
+const PANEL_CHOICES: readonly { id: Appearance["panel"]; label: string }[] = [
+  { id: "bar", label: "Top bar" },
+  { id: "dock", label: "Dock on the left" },
+];
+
 export function AppearancePage(props: { context: AppContext }) {
   // Each window of Settings has its own radio groups: two windows must not share a group.
   const group = createUniqueId();
@@ -73,6 +79,18 @@ export function AppearancePage(props: { context: AppContext }) {
           )}
         </For>
       </fieldset>
+      <fieldset>
+        <legend>Panel</legend>
+        <For each={PANEL_CHOICES}>
+          {(choice) => (
+            <label class="settings-choice">
+              <input type="radio" name={`${group}-panel`} value={choice.id} checked={value().panel === choice.id} onChange={() => change({ panel: choice.id })} />
+              {choice.label}
+            </label>
+          )}
+        </For>
+      </fieldset>
+
       <fieldset>
         <legend>Videos in the host browser</legend>
         <label class="settings-choice">

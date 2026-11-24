@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { detectLayout, isLayoutId, LAYOUTS, layoutFromMap, resolveLayout, xkbOf } from "./layout";
+import { afterEach, describe, expect, it, test, vi } from "vitest";
+import { detectLayout, isLayoutId, LAYOUTS, layoutCode, layoutFromMap, resolveLayout, xkbOf } from "./layout";
 
 const US: Record<string, string> = {
   KeyQ: "q",
@@ -91,4 +91,11 @@ describe("layout ids", () => {
     expect(isLayoutId(3)).toBe(false);
     expect(LAYOUTS.every((layout) => isLayoutId(layout.id))).toBe(true);
   });
+});
+
+test("the panel shows a short code for each layout (F097)", () => {
+  expect(layoutCode("de")).toBe("DE");
+  expect(layoutCode("at")).toBe("AT");
+  expect(layoutCode("ch(fr)")).toBe("CH-FR");
+  expect(layoutCode("us(dvorak)")).toBe("US-DV");
 });

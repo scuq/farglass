@@ -269,9 +269,20 @@ export interface KeyboardSettings {
   readonly hints: boolean;
   /** The keyboard layout of the Linux apps (F094), or "auto" for the layout of the keyboard of the client (US if the browser cannot tell it). */
   readonly layout: "auto" | string;
+  /** The layouts that the user selected last, the newest first, for the menu of the panel (F097). */
+  readonly recent: readonly string[];
 }
 
-export const DEFAULT_KEYBOARD: KeyboardSettings = { scheme: "auto", hints: true, layout: "auto" };
+export const DEFAULT_KEYBOARD: KeyboardSettings = { scheme: "auto", hints: true, layout: "auto", recent: [] };
+
+/** The number of layouts in the menu of the panel, apart from Automatic. */
+export const RECENT_LAYOUTS = 4;
+
+/** Returns the settings with the layout `layout`. A selected layout goes to the front of the recent layouts. */
+export function withLayout(settings: KeyboardSettings, layout: "auto" | string): KeyboardSettings {
+  const recent = layout === "auto" ? settings.recent : [layout, ...settings.recent.filter((each) => each !== layout)].slice(0, RECENT_LAYOUTS);
+  return { ...settings, layout, recent };
+}
 
 /** Returns valid settings from a value of the state store. */
 export function parseKeyboardSettings(value: unknown): KeyboardSettings {
@@ -280,6 +291,7 @@ export function parseKeyboardSettings(value: unknown): KeyboardSettings {
     scheme: record.scheme === "pc" || record.scheme === "mac" ? record.scheme : "auto",
     hints: typeof record.hints === "boolean" ? record.hints : true,
     layout: isLayoutId(record.layout) ? record.layout : "auto",
+    recent: Array.isArray(record.recent) ? [...new Set(record.recent.filter(isLayoutId))].slice(0, RECENT_LAYOUTS) : [],
   };
 }
 

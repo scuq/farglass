@@ -1,11 +1,11 @@
-import { onCleanup, Show } from "solid-js";
+import { createSignal, onCleanup, Show } from "solid-js";
 import { APPEARANCE_KEY, applyAppearance, parseAppearance } from "../appearance";
 import { Notifications } from "../notify/Notifications";
 import { startSound } from "../audio/player";
 import { startHostApps } from "../launcher/hostApps";
 import { startStats } from "../stats";
 import { resolveLayout, xkbOf } from "../keys/layout";
-import { KEYBOARD_KEY, parseKeyboardSettings } from "../keys/scheme";
+import { DEFAULT_KEYBOARD, KEYBOARD_KEY, parseKeyboardSettings, withLayout } from "../keys/scheme";
 import { startSurfaceManager, stopSurfaceManager } from "../surface/manager";
 import { parseVideoMode, VIDEO_KEY } from "../surface/redirect";
 import { KeyHints } from "../keys/KeyHints";
@@ -37,24 +37,33 @@ export function Desktop(props: { connection: Connection; user: string; onlogout:
   // Where the videos of the host browser play, from the settings (F040).
   onCleanup(controller.state.watch(VIDEO_KEY, (value) => surfaces.redirect.setMode(parseVideoMode(value))));
   // The keyboard layout of the Linux apps, from the settings or the keyboard of the client (F094, F095).
+  // The panel shows the layout and switches it (F097).
   let setting: string | null = null;
   let keymap = "";
   let asked = 0;
+  const [keyboard, setKeyboard] = createSignal(DEFAULT_KEYBOARD);
+  const [layout, setLayout] = createSignal<string | null>(null);
   const sendKeymap = async () => {
     if (setting === null) {
       return;
     }
     const ask = ++asked;
-    const layout = await resolveLayout(setting);
+    const next = await resolveLayout(setting);
     // A newer change of the setting or of the focus wins.
-    if (ask === asked && layout !== keymap) {
-      keymap = layout;
-      surfaces.request({ type: "keymap", ...xkbOf(layout) });
+    if (ask !== asked) {
+      return;
+    }
+    setLayout(next);
+    if (next !== keymap) {
+      keymap = next;
+      surfaces.request({ type: "keymap", ...xkbOf(next) });
     }
   };
   onCleanup(
     controller.state.watch(KEYBOARD_KEY, (value) => {
-      setting = parseKeyboardSettings(value).layout;
+      const settings = parseKeyboardSettings(value);
+      setKeyboard(settings);
+      setting = settings.layout;
       void sendKeymap();
     }),
   );
@@ -62,6 +71,12 @@ export function Desktop(props: { connection: Connection; user: string; onlogout:
   const onFocus = () => void sendKeymap();
   window.addEventListener("focus", onFocus);
   onCleanup(() => window.removeEventListener("focus", onFocus));
+  // The browser tells no change of the layout: with Automatic, ask again while the window has the focus.
+  const poll = setInterval(() => {
+    if (setting === "auto" && document.hasFocus()) void sendKeymap();
+  }, 3000);
+  onCleanup(() => clearInterval(poll));
+  const selectLayout = (next: "auto" | string) => controller.state.set(KEYBOARD_KEY, withLayout(keyboard(), next), { local: true });
   onCleanup(() => stopSurfaceManager(props.connection));
   // The desktop entries of the host for the launcher, and the icons of their windows (F031).
   onCleanup(startHostApps(props.connection));
@@ -77,7 +92,7 @@ export function Desktop(props: { connection: Connection; user: string; onlogout:
   onCleanup(controller.state.watch(APPEARANCE_KEY, (value) => applyAppearance(parseAppearance(value))));
   return (
     <div class="wm">
-      <Panel controller={controller} user={props.user} onlogout={props.onlogout} onlock={() => props.connection.lock()} />
+      <Panel controller={controller} user={props.user} onlogout={props.onlogout} onlock={() => props.connection.lock()} keyboard={{ settings: keyboard, layout, select: selectLayout }} />
       <Surface controller={controller} />
       <Notifications
         connection={props.connection}

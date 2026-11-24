@@ -1,5 +1,5 @@
 import { createSignal, createUniqueId, For } from "solid-js";
-import { ACTION_LABELS, type ActionId, type Binding, chordLabel, DEFAULT_KEYBOARD, detectScheme, KEYBOARD_KEY, type KeyboardSettings, parseKeyboardSettings, SCHEMES, schemeOf } from "../../../keys/scheme";
+import { ACTION_LABELS, type ActionId, type Binding, chordLabel, DEFAULT_KEYBOARD, detectScheme, KEYBOARD_KEY, type KeyboardSettings, parseKeyboardSettings, SCHEMES, schemeOf, withLayout } from "../../../keys/scheme";
 import { detectLayout, FALLBACK_LAYOUT, LAYOUTS, layoutLabel } from "../../../keys/layout";
 import { TOUR_EVENT } from "../../../tour/Tour";
 import type { AppContext } from "../../types";
@@ -51,7 +51,7 @@ export function KeyboardPage(props: { context: AppContext }) {
       </fieldset>
       <fieldset>
         <legend>Layout of the Linux apps</legend>
-        <select name="layout" aria-label="Layout of the Linux apps" onChange={(event) => change({ layout: event.currentTarget.value })}>
+        <select name="layout" aria-label="Layout of the Linux apps" onChange={(event) => change(withLayout(value(), event.currentTarget.value))}>
           <option value="auto" selected={value().layout === "auto"}>{autoLabel()}</option>
           <For each={LAYOUTS}>{(layout) => <option value={layout.id} selected={value().layout === layout.id}>{layout.label}</option>}</For>
         </select>

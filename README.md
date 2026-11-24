@@ -472,8 +472,18 @@ The panel at the top has these parts, from left to right:
   The agent reads them from the systemd scope of the app or the terminal, every 2 s, and only while a tab is open.
 - **Overview** shows all workspaces with their windows. Each window has a letter: press it to go to that window, also on a different workspace. Escape closes the overview.
 - **Tile** opens the layout picker. Each layout shows a preview with your windows: columns, grid, center, wide, and spotlight. The window with the focus gets the main place. Select a layout with the arrow keys or 1 to 5, and press Enter.
+- The keyboard layout of the Linux apps, for example US, DE, or AT. A click opens a menu: Automatic, the layouts that you used last, and More layouts, which opens Settings > Keyboard.
 - The clock, with the date in its tooltip. It shows the time of the client.
-- Your username opens the session menu with **Log out**. **Lock** comes with the lock screen in a later version.
+- Your username opens the session menu with **Full screen**, **Lock**, and **Log out**.
+
+Settings > Appearance > Panel changes the bar to a dock on the left.
+The dock shows one icon for each pinned app and for each other app with a window on the workspace.
+A dot at the left of an icon is a window of that app, with four dots at most.
+A click on an app with no window starts it.
+A click on an app with windows shows its last used window, and each next click shows its next window.
+Right-click an icon to pin it, to open a new window, or to close its windows.
+The dock and the launcher use the same pins.
+The bar at the top keeps Apps, the workspaces, Overview, Tile, the keyboard layout, the clock, and the session menu.
 
 
 A right click opens the menu of the shell:
@@ -731,8 +741,9 @@ The settings app has these pages:
 - Appearance: the theme (LCARS, the setting of your computer, light, or dark), the accent color, the text size, and the motion. Each tab and each login of the user gets them.
   LCARS is the default theme, with the accent color orange.
   The motion follows the reduced motion setting of your computer, or Full, or Reduced. Reduced has no movement, no pulse, and no blinking cursor in the terminal. A change applies at once, with no reload.
+  The panel is the bar at the top, or a dock on the left.
   Videos in the host browser play in this browser (video redirection), or on the host.
-- Keyboard: the shortcut scheme, the hints, the list of shortcuts, and the tour.
+- Keyboard: the shortcut scheme, the hints, the list of shortcuts, the tour, and the layout of the Linux apps.
 - Focus: the rules of focus protection, each on or off. See [Focus protection](#focus-protection).
 - Date and time: the time of the host, the timezone, and the network time (timedate1).
 - System: the hostname, the display name, and the facts of the host (hostname1).

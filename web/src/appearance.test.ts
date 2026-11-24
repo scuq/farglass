@@ -17,7 +17,7 @@ test("the appearance goes to the root element, and the system theme removes the 
   const root = document.documentElement;
   let changes = 0;
   document.addEventListener("farglass-theme", () => (changes += 1));
-  applyAppearance({ theme: "dark", accent: "green", textSize: 125, motion: "system" });
+  applyAppearance({ theme: "dark", accent: "green", textSize: 125, motion: "system", panel: "bar" });
   expect([root.dataset.theme, root.dataset.accent, root.style.fontSize]).toEqual(["dark", "green", "125%"]);
   expect(isDarkTheme()).toBe(true);
   applyAppearance({ ...DEFAULT_APPEARANCE, theme: "system" });
@@ -61,4 +61,14 @@ test("the LCARS theme is the default, and it is a dark theme", () => {
   expect([root.dataset.theme, root.dataset.accent]).toEqual(["lcars", "orange"]);
   expect(isLcarsTheme()).toBe(true);
   expect(isDarkTheme()).toBe(true);
+});
+
+test("the dock layout of the panel is a choice, and the bar is the default (F098)", () => {
+  expect(parseAppearance({}).panel).toBe("bar");
+  expect(parseAppearance({ panel: "dock" }).panel).toBe("dock");
+  expect(parseAppearance({ panel: "bottom" }).panel).toBe("bar");
+  applyAppearance({ ...DEFAULT_APPEARANCE, panel: "dock" });
+  expect(document.documentElement.dataset.panel).toBe("dock");
+  applyAppearance(DEFAULT_APPEARANCE);
+  expect(document.documentElement.dataset.panel).toBe("bar");
 });

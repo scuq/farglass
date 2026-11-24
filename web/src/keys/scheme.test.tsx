@@ -4,7 +4,7 @@ import { encodeJsonFrame, FrameType, parseJson, readyFrame } from "../proto";
 import { fakeConnection } from "../proto/testing";
 import { Desktop } from "../wm/Desktop";
 import { emptyDesktop, openWindow } from "../wm/model";
-import { type ActionId, actionOf, type Binding, chordLabel, hintOf, RESERVED, SCHEMES, type SchemeId, sameChord } from "./scheme";
+import { type ActionId, actionOf, type Binding, chordLabel, hintOf, RESERVED, SCHEMES, type SchemeId, parseKeyboardSettings, sameChord, withLayout } from "./scheme";
 
 let dispose: (() => void) | undefined;
 afterEach(() => {
@@ -114,4 +114,15 @@ describe("hints and tour", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(host.querySelector('[aria-label="Keyboard tour"]')).toBeNull();
   });
+});
+
+test("a selected layout goes to the front of the recent layouts, four at most (F097)", () => {
+  let settings = parseKeyboardSettings({ layout: "auto", recent: ["de", 7, "de", "bad layout"] });
+  expect(settings.recent).toEqual(["de"]);
+  for (const layout of ["at", "ch(fr)", "us", "gb", "at"]) settings = withLayout(settings, layout);
+  expect(settings.layout).toBe("at");
+  expect(settings.recent).toEqual(["at", "gb", "us", "ch(fr)"]);
+  settings = withLayout(settings, "auto");
+  expect(settings.layout).toBe("auto");
+  expect(settings.recent).toEqual(["at", "gb", "us", "ch(fr)"]);
 });

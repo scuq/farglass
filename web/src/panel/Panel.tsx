@@ -8,7 +8,10 @@ import { describeUsage, isBusy, statsClient } from "../stats";
 import type { DesktopController } from "../wm/controller";
 import type { Win } from "../wm/model";
 import { enterLockedFullscreen, exitLockedFullscreen, lockedFullscreen } from "../wm/guard";
+import { APPEARANCE_KEY, parseAppearance } from "../appearance";
 import { Clock } from "./Clock";
+import { Dock } from "./Dock";
+import { KeyboardIndicator, type KeyboardState } from "./KeyboardIndicator";
 import { Launcher } from "./Launcher";
 import { Popover } from "./Popover";
 import "./panel.css";
@@ -17,7 +20,7 @@ import "./panel.css";
  * The panel at the top: the launcher, the workspaces, the open windows of the
  * workspace, the clock, and the session menu.
  */
-export function Panel(props: { controller: DesktopController; user: string; onlogout: () => void; onlock: () => void }) {
+export function Panel(props: { controller: DesktopController; user: string; onlogout: () => void; onlock: () => void; keyboard?: KeyboardState }) {
   const c = props.controller;
   const [sessionOpen, setSessionOpen] = createSignal(false);
   // The pins and the use of the apps in the launcher (F076). The panel keeps them: the launcher has them at once when it opens.
@@ -27,6 +30,9 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
     setLauncherState(next);
     c.state.set(LAUNCHER_KEY, next);
   };
+  // The layout of the panel (F098): the bar, or the dock on the left with a slim bar.
+  const [dock, setDock] = createSignal(false);
+  onCleanup(c.state.watch(APPEARANCE_KEY, (stored) => setDock(parseAppearance(stored).panel === "dock")));
 
   // A minimized window shows how busy its app is, and the details in its tooltip (F045).
   // The dot is for minimized windows only: an open window shows what its app does. The tooltip is for each window.
@@ -49,6 +55,7 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
       .toSorted((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }));
 
   return (
+    <>
     <header class="panel">
       <button
         type="button"
@@ -93,8 +100,9 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
         </For>
       </nav>
 
+      {/* With the dock, the list is empty: it stays as the space between the left and the right side of the bar. */}
       <nav class="panel-tasks" aria-label="Windows">
-        <For each={tasks()} keyed={(win: Win) => win.id}>
+        <For each={dock() ? [] : tasks()} keyed={(win: Win) => win.id}>
           {(win) => {
             const id = untrack(() => win().id);
             let removeMenu: (() => void) | undefined;
@@ -141,6 +149,7 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
       <button type="button" class="panel-tile" aria-haspopup="dialog" onClick={() => c.setLayoutsOpen(!c.layoutsOpen())} title={`Select a layout for the windows of the workspace (${c.hint("layouts")})`}>
         Tile
       </button>
+      <Show when={props.keyboard}>{(keyboard) => <KeyboardIndicator controller={c} keyboard={keyboard()} />}</Show>
       <Clock />
       <button
         type="button"
@@ -188,5 +197,9 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
         </div>
       </Popover>
     </header>
+    <Show when={dock()}>
+      <Dock controller={c} launcher={launcherState()} onlauncher={saveLauncherState} />
+    </Show>
+    </>
   );
 }

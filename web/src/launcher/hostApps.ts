@@ -83,6 +83,12 @@ export class HostApps {
     return this.#apps[0]().find((app) => app.names.includes(name));
   }
 
+  /** Returns the app of the surface window `windowId`, or undefined if no desktop entry has its app id. */
+  appForWindow(windowId: string): HostApp | undefined {
+    const info = surfaceManagerFor(this.#connection)?.surfaces().get(surfaceOf(windowId));
+    return this.appFor(info?.appId ?? null);
+  }
+
   /** Returns the icon of the app of the surface window `windowId`. */
   iconForWindow(windowId: string): string | undefined {
     const info = surfaceManagerFor(this.#connection)?.surfaces().get(surfaceOf(windowId));
@@ -158,6 +164,17 @@ export function windowIcon(win: { readonly id: string; readonly app: string }): 
     if (icon) return icon;
   }
   return APPS[win.app]?.icon ?? logo;
+}
+
+/**
+ * Returns the app of a window, as the id of its entry in the launcher (F098):
+ * the shell app, or `host:` and the desktop file id. A Linux window with no
+ * desktop entry gets a key of its own, `window:` and its id.
+ */
+export function entryOfWindow(win: { readonly id: string; readonly app: string }): string {
+  if (win.app !== "linux") return win.app;
+  const app = active?.appForWindow(win.id);
+  return app ? `host:${app.id}` : `window:${win.id}`;
 }
 
 /**
