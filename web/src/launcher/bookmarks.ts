@@ -28,18 +28,42 @@ type Waiter = { resolve: () => void; reject: (message: string) => void };
 export class Bookmarks {
   readonly #channel: Channel;
   readonly #state = createSignal<BookmarksState | null>(null);
+  /** Why the channel stopped, for example an agent of an older version that does not know it. */
+  readonly #closed = createSignal<string | null>(null);
   #saves: Waiter[] = [];
   readonly #opens = new Map<string, Waiter[]>();
 
   constructor(connection: Connection) {
-    this.#channel = connection.openChannel({ kind: "bookmarks" }, { oncontrol: (message) => this.#event(message as BookmarksEvent) });
+    this.#channel = connection.openChannel(
+      { kind: "bookmarks" },
+      {
+        oncontrol: (message) => this.#event(message as BookmarksEvent),
+        onclose: (close) => {
+          const message =
+            close.reason === "not-supported"
+              ? "The agent of this session is older than the shell and has no bookmarks. Restart farglass-session, or log out and log in again."
+              : `The bookmarks are not available: ${close.message ?? close.reason}.`;
+          this.#closed[1](message);
+          this.#rejectAll(message);
+        },
+      },
+    );
+  }
+
+  /** Why the bookmarks are not available, or null while the channel is open. */
+  closed(): string | null {
+    return this.#closed[0]();
+  }
+
+  #rejectAll(message: string): void {
+    for (const waiter of [...this.#saves, ...[...this.#opens.values()].flat()]) waiter.reject(message);
+    this.#saves = [];
+    this.#opens.clear();
   }
 
   close(): void {
     this.#channel.close();
-    for (const waiter of [...this.#saves, ...[...this.#opens.values()].flat()]) waiter.reject("The connection closed.");
-    this.#saves = [];
-    this.#opens.clear();
+    this.#rejectAll("The connection closed.");
   }
 
   /** The file, or null until the agent sent it. */

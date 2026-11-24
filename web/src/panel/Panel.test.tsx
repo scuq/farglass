@@ -1,6 +1,6 @@
 import { render } from "@solidjs/web";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { dataFrame, encodeJsonFrame, FrameType, parseJson, readyFrame } from "../proto";
+import { closeFrame, dataFrame, encodeJsonFrame, FrameType, parseJson, readyFrame } from "../proto";
 import { fakeConnection } from "../proto/testing";
 import { Desktop } from "../wm/Desktop";
 import { emptyDesktop, minimizeWindow, openWindow } from "../wm/model";
@@ -264,6 +264,18 @@ describe("bookmarks in the launcher", () => {
 });
 
 describe("bookmarks app", () => {
+  test("an agent that refuses the channel gives a message, not Loading forever", async () => {
+    const { host, server, channelOf } = await mountDesktop();
+    server.push(closeFrame(channelOf("bookmarks"), { reason: "not-supported", message: "The agent does not know this channel kind." }));
+    await settle();
+    byText(host, "button", "Apps").click();
+    await settle();
+    byText(host, "#launcher [role=option]", "Bookmarks").click();
+    await vi.waitFor(() => expect(host.querySelector(".bookmarks [role=alert]")).not.toBeNull());
+    expect(host.querySelector(".bookmarks [role=alert]")?.textContent).toContain("older than the shell");
+    expect(host.querySelector(".bookmarks-empty[role=status]")).toBeNull();
+  });
+
   test("the app lists the bookmarks with their problems and saves a new one", async () => {
     const { host, server, channelOf } = await mountDesktop();
     const marks = channelOf("bookmarks");

@@ -185,7 +185,18 @@ export default function BookmarksApp(props: { context: AppContext }) {
           </div>
         </form>
       </Show>
-      <Show when={state()} fallback={<p class="bookmarks-empty" role="status">Loading</p>}>
+      <Show
+        when={state()}
+        fallback={
+          <Show when={client.closed()} fallback={<p class="bookmarks-empty" role="status">Loading</p>}>
+            {(message) => (
+              <p class="bookmarks-error" role="alert">
+                {message()}
+              </p>
+            )}
+          </Show>
+        }
+      >
         <ul class="bookmarks-list" aria-label="Bookmarks" aria-busy={opening() ? "true" : undefined}>
           <For each={file().bookmarks} fallback={<li class="bookmarks-empty">No bookmarks yet. Select Add, or edit the file {state()?.path}.</li>}>
             {(bookmark, index) => (
