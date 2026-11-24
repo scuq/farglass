@@ -406,7 +406,7 @@ Firefox and Safari work, with these limits:
 | Connection | WebTransport, else WebSocket | WebTransport, else WebSocket | WebSocket |
 | Video region of a Linux app (H.264) and sound (Opus) | WebCodecs | WebCodecs | WebCodecs |
 | Passkeys | Yes | Yes | Yes |
-| Keyboard Lock | Not used yet | Not available | Not available |
+| Keyboard Lock | In full screen | Not available | Not available |
 | Window Management (more screens) | Not used yet | Not available | Not available |
 
 With no WebTransport, the shell uses the WebSocket at once, with no wait.
@@ -415,6 +415,8 @@ A browser with no `AudioDecoder` plays no sound of the apps.
 
 With no Keyboard Lock, the browser keeps its own shortcuts, for example Ctrl+T, Ctrl+W, Ctrl+N, Ctrl+Tab, and Cmd+Q on a Mac.
 The shortcuts of the shell never use these keys: see Settings > Keyboard.
+In a usual tab, the browser asks before Ctrl+W or a reload closes the desktop.
+To use Keyboard Lock in Chromium, select Full screen in the session menu.
 To give such a key to a Linux app, use the menu of the app.
 With no Window Management, the desktop uses the window of the browser only.
 Firefox and Safari can show a Paste button before the shell reads the clipboard for a paste into a Linux app.

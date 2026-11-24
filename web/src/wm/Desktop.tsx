@@ -14,6 +14,7 @@ import { Tour, TOUR_EVENT } from "../tour/Tour";
 import { PolkitDialog } from "../polkit/PolkitDialog";
 import type { Connection } from "../proto";
 import { trackActivity } from "./activity";
+import { guardUnload, startLockGuard } from "./guard";
 import { createDesktopController } from "./controller";
 import { Surface } from "./Surface";
 import "./wm.css";
@@ -26,6 +27,9 @@ import "./wm.css";
  */
 export function Desktop(props: { connection: Connection; user: string; onlogout: () => void }) {
   const controller = createDesktopController(props.connection);
+  // The browser asks before Ctrl+W or a reload closes the desktop, and fullscreen locks the keyboard (F096).
+  onCleanup(guardUnload());
+  onCleanup(startLockGuard());
   // The idle lock of farglassd needs the activity of the user.
   onCleanup(trackActivity(() => props.connection.activity()));
   // The windows of the Wayland apps of the session.

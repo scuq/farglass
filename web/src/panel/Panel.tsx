@@ -7,6 +7,7 @@ import { EMPTY_LAUNCHER, LAUNCHER_KEY, type LauncherState, parseLauncherState } 
 import { describeUsage, isBusy, statsClient } from "../stats";
 import type { DesktopController } from "../wm/controller";
 import type { Win } from "../wm/model";
+import { enterLockedFullscreen, exitLockedFullscreen, lockedFullscreen } from "../wm/guard";
 import { Clock } from "./Clock";
 import { Launcher } from "./Launcher";
 import { Popover } from "./Popover";
@@ -154,6 +155,16 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
       </button>
       <Popover id="session-menu" class="panel-session-menu" label="Session" open={sessionOpen()} onClose={() => setSessionOpen(false)}>
         <div role="menu" aria-label="Session">
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setSessionOpen(false);
+              void (lockedFullscreen() ? exitLockedFullscreen() : enterLockedFullscreen()).catch(() => {});
+            }}
+          >
+            {lockedFullscreen() ? "Leave full screen" : "Full screen"}
+          </button>
           <button
             type="button"
             role="menuitem"

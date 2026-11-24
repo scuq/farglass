@@ -10,6 +10,8 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ### Added
 - Settings > Keyboard has a layout for the Linux apps, for example German or Swiss French. The Linux apps then type the characters that are on your keys. In Chromium and Edge, farglass uses the layout of your keyboard by default. In other browsers, the default is English (US), and you can select a different layout.
+- The browser asks before it closes or reloads the tab of the desktop, for example after Ctrl+W or Cmd+W.
+- The session menu has Full screen. In Chromium and Edge, Keyboard Lock then gives Ctrl+W, Ctrl+T, Ctrl+N, Alt+Tab, and the Super key to farglass, not to the browser or the operating system. To leave full screen, select Leave full screen or hold Esc.
 
 ## v0.1.7 — 24 November 2026 — An ssh-agent for each web session
 

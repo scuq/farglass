@@ -84,7 +84,7 @@ export function KeyboardPage(props: { context: AppContext }) {
           </For>
         </tbody>
       </table>
-      <p class="settings-note">The browser keeps Ctrl+T and Ctrl+W, or Cmd+T and Cmd+W, unless the shell is in fullscreen with Keyboard Lock. Each action has a second key that reaches the shell.</p>
+      <p class="settings-note">The browser keeps Ctrl+T and Ctrl+W, or Cmd+T and Cmd+W, unless the shell is in fullscreen with Keyboard Lock. Each action has a second key that reaches the shell. To use Keyboard Lock in Chromium, select Full screen in the session menu. In a usual tab, the browser asks before Ctrl+W closes farglass.</p>
     </div>
   );
 }
