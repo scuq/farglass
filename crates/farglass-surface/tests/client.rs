@@ -13,7 +13,7 @@ use wayland_client::WEnum;
 use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::{
     wl_buffer, wl_compositor, wl_data_device, wl_data_device_manager, wl_data_offer,
-    wl_data_source, wl_keyboard, wl_pointer, wl_registry, wl_seat, wl_shm, wl_shm_pool,
+    wl_data_source, wl_keyboard, wl_pointer, wl_region, wl_registry, wl_seat, wl_shm, wl_shm_pool,
     wl_subcompositor, wl_subsurface, wl_surface,
 };
 use wayland_client::{
@@ -39,6 +39,8 @@ struct App {
     /// The text of each keymap that the keyboard sent.
     keymaps: Vec<String>,
     keyboard_focus: bool,
+    /// For each press of a button: the keyboard focus and the activated state at the press.
+    press_focus: Vec<(bool, bool)>,
     /// The serial of the last keyboard enter, for a selection.
     enter_serial: u32,
     /// The text that the data source of the client writes for a paste.
@@ -125,10 +127,11 @@ impl Dispatch<wl_pointer::WlPointer, ()> for App {
                 ..
             } => app.pointer.push(format!("motion {surface_x} {surface_y}")),
             wl_pointer::Event::Button { button, state, .. } => {
-                app.pointer.push(format!(
-                    "button {button:#x} {}",
-                    matches!(state, WEnum::Value(wl_pointer::ButtonState::Pressed))
-                ));
+                let pressed = matches!(state, WEnum::Value(wl_pointer::ButtonState::Pressed));
+                if pressed {
+                    app.press_focus.push((app.keyboard_focus, app.activated));
+                }
+                app.pointer.push(format!("button {button:#x} {pressed}"));
             }
             wl_pointer::Event::Axis { value, .. } => app.pointer.push(format!("axis {value}")),
             wl_pointer::Event::Leave { .. } => app.pointer.push("leave".to_owned()),
@@ -263,6 +266,7 @@ delegate_noop!(App: ignore wl_shm_pool::WlShmPool);
 delegate_noop!(App: ignore wl_subcompositor::WlSubcompositor);
 delegate_noop!(App: ignore wl_subsurface::WlSubsurface);
 delegate_noop!(App: ignore wl_buffer::WlBuffer);
+delegate_noop!(App: ignore wl_region::WlRegion);
 delegate_noop!(App: ignore xdg_positioner::XdgPositioner);
 delegate_noop!(App: ignore wl_seat::WlSeat);
 delegate_noop!(App: ignore wl_data_device_manager::WlDataDeviceManager);
@@ -584,7 +588,7 @@ fn pointer_and_keyboard_input_reach_the_window() {
         pressed: false,
     });
     compositor.send(Command::PointerAxis { dx: 0.0, dy: 15.0 });
-    // No activate: the key names its window, which gets the keyboard focus first.
+    // No activate: the press gives the window the focus, and the key names its window.
     compositor.send(Command::Key {
         id: Some(id),
         code: 30,
@@ -619,6 +623,11 @@ fn pointer_and_keyboard_input_reach_the_window() {
         ]
     );
     assert!(client.app.keyboard_focus);
+    assert_eq!(
+        client.app.press_focus,
+        [(true, true)],
+        "a press gives the window the keyboard and the activated state before the button"
+    );
     assert_eq!(
         client.app.keys,
         [(30, true), (30, false)],
@@ -799,6 +808,61 @@ fn a_subsurface_shows_as_a_popup_at_its_place() {
         |e| matches!(e, Event::Commit(c) if c.id == child_id),
     ));
     assert_eq!((commit.width, commit.height), (30, 20));
+
+    // A press on the subsurface gives its window the focus before the button, as a browser
+    // that draws its page in a subsurface needs it.
+    let _pointer = client.seat.get_pointer(&client.qh, ());
+    let _keyboard = client.seat.get_keyboard(&client.qh, ());
+    client.roundtrip();
+    compositor.send(Command::PointerMotion {
+        id: child_id,
+        x: 5.0,
+        y: 5.0,
+    });
+    compositor.send(Command::PointerButton {
+        button: 0x110,
+        pressed: true,
+    });
+    let end = std::time::Instant::now() + WAIT;
+    while client.app.press_focus.is_empty() {
+        client.roundtrip();
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(
+            std::time::Instant::now() < end,
+            "no press on the subsurface"
+        );
+    }
+    assert_eq!(
+        client.app.press_focus,
+        [(true, true)],
+        "a press on a subsurface gives its window the focus first"
+    );
+
+    // With an empty input region, the subsurface gives the pointer to its parent, at the place on
+    // the parent. Firefox draws its window in such a subsurface.
+    compositor.send(Command::PointerButton {
+        button: 0x110,
+        pressed: false,
+    });
+    let region = client.compositor.create_region(&client.qh, ());
+    child.set_input_region(Some(&region));
+    child.commit();
+    client.roundtrip();
+    compositor.send(Command::PointerMotion {
+        id: child_id,
+        x: 7.0,
+        y: 3.0,
+    });
+    let end = std::time::Instant::now() + WAIT;
+    while !client.app.pointer.contains(&"enter 47 63".to_owned()) {
+        client.roundtrip();
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(
+            std::time::Instant::now() < end,
+            "the pointer did not go to the parent: {:?}",
+            client.app.pointer
+        );
+    }
 
     // A new place goes to the shell, and the end of the subsurface closes the popup.
     subsurface.set_position(50, 70);

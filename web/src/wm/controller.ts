@@ -258,6 +258,8 @@ export function createDesktopController(connection: Connection): DesktopControll
     focus(id) {
       if (focusedId() !== id || windowById(desktop(), id)?.minimized) {
         apply((state) => focusWindow(state, id));
+        // The app learns of the focus too: a Linux app gives its window the keyboard and the active state.
+        runHooks(id, "focus");
       }
     },
     activate(id) {

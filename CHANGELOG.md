@@ -13,6 +13,10 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 - The bookmarks are in the file `~/.config/farglass/bookmarks.toml`. Copy the file to use the same bookmarks on a different host. A change by hand shows in the app, and a save from the app keeps the comments of the file.
 - To find the bookmarks by their short names in the launcher, select Show in launcher search in the Bookmarks app. This option is off by default.
 
+### Fixed
+- A click in a Linux app that does not have the focus now makes the app active before it gets the click. Before, a click in the address bar of a second browser window showed no text cursor, and the window looked inactive until you typed.
+- Clicks in Firefox on the host now reach Firefox. Before, Firefox on Wayland ignored the clicks in its window, for example on a tab or in the address bar.
+
 ## v0.1.9 — 24 November 2026 — Dock, keyboard layout indicator, and clock options
 
 ### Added

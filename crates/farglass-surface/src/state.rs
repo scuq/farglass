@@ -615,6 +615,65 @@ impl State {
         .filter(|id| *id != 0)
     }
 
+    /// Returns the surface that gets the pointer at `(x, y)` on the surface `id`, with its id and the
+    /// place on it. Outside its input region, a subsurface gives the pointer to its parent. Firefox
+    /// needs this: it draws its window in a subsurface with an empty input region.
+    fn pointer_target(
+        &self,
+        mut id: u32,
+        mut x: f64,
+        mut y: f64,
+    ) -> Option<(u32, WlSurface, f64, f64)> {
+        // The limit stops a loop of parents.
+        for _ in 0..16 {
+            let Some((surface, parent, _)) = self.subsurfaces.get(&id) else {
+                break;
+            };
+            let (inside, location) = with_states(surface, |states| {
+                let point = (x.floor() as i32, y.floor() as i32);
+                let inside = states
+                    .cached_state
+                    .get::<SurfaceAttributes>()
+                    .current()
+                    .input_region
+                    .as_ref()
+                    .is_none_or(|region| region.contains(point));
+                let location = states
+                    .cached_state
+                    .get::<smithay::wayland::compositor::SubsurfaceCachedState>()
+                    .current()
+                    .location;
+                (inside, location)
+            });
+            if inside {
+                return Some((id, surface.clone(), x, y));
+            }
+            x += f64::from(location.x);
+            y += f64::from(location.y);
+            id = *parent;
+        }
+        let surface = self
+            .toplevels
+            .get(&id)
+            .map(|t| t.wl_surface().clone())
+            .or_else(|| self.popups.get(&id).map(|p| p.wl_surface().clone()))
+            .or_else(|| self.x11.surface(id))?;
+        Some((id, surface, x, y))
+    }
+
+    /// Returns the window that a press on the surface `id` gives the focus to: the window itself,
+    /// or the window of a subsurface. A press in a popup does not change the focus.
+    fn window_of_press(&self, mut id: u32) -> Option<u32> {
+        // A subsurface can be the child of a subsurface. The limit stops a loop of parents.
+        for _ in 0..16 {
+            match self.subsurfaces.get(&id) {
+                Some((_, parent, _)) => id = *parent,
+                None => break,
+            }
+        }
+        (self.toplevels.contains_key(&id) || self.x11.windows.contains_key(&id)).then_some(id)
+    }
+
     /// Gives the focus to a window, or to no window: the activated state and the keyboard.
     fn activate(&mut self, id: Option<u32>) {
         self.focused = id;
@@ -829,16 +888,11 @@ impl State {
                 }
             }
             Command::PointerMotion { id, x, y } => {
-                self.pointer_on = Some(id);
+                let target = self.pointer_target(id, x, y);
+                self.pointer_on = Some(target.as_ref().map_or(id, |(on, ..)| *on));
                 self.touch(Some(id));
-                let surface = self
-                    .toplevels
-                    .get(&id)
-                    .map(|t| t.wl_surface().clone())
-                    .or_else(|| self.popups.get(&id).map(|p| p.wl_surface().clone()))
-                    .or_else(|| self.subsurfaces.get(&id).map(|(s, _, _)| s.clone()))
-                    .or_else(|| self.x11.surface(id));
-                if let (Some(pointer), Some(surface)) = (self.seat.get_pointer(), surface) {
+                let surface = target.map(|(_, surface, x, y)| (surface, x, y));
+                if let (Some(pointer), Some((surface, x, y))) = (self.seat.get_pointer(), surface) {
                     // The location is local to the surface: the focus has the origin (0, 0).
                     let event = MotionEvent {
                         location: (x, y).into(),
@@ -864,6 +918,14 @@ impl State {
             }
             Command::PointerButton { button, pressed } => {
                 self.touch(self.pointer_on);
+                // A press gives the window the focus first: the app gets the press as the active window,
+                // for example a click in the address bar of a browser shows the text cursor.
+                if pressed
+                    && let Some(id) = self.pointer_on.and_then(|on| self.window_of_press(on))
+                    && self.focused != Some(id)
+                {
+                    self.activate(Some(id));
+                }
                 if let Some(pointer) = self.seat.get_pointer() {
                     let state = if pressed {
                         ButtonState::Pressed
