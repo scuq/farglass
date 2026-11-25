@@ -1128,7 +1128,7 @@ problems: Array<NetcheckProblem>,
  */
 proxy?: string, 
 /**
- * The own IP address of the host, from the first line of `~/.outgoingip`, if the file exists (F112).
+ * The own IP address of the host, from the first line of `~/.egressip`, if the file exists (F112).
  */
 outgoing_ip?: string, 
 /**

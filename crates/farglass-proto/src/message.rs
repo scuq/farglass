@@ -1037,7 +1037,7 @@ pub enum NetcheckEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         proxy: Option<String>,
-        /// The own IP address of the host, from the first line of `~/.outgoingip`, if the file exists (F112).
+        /// The own IP address of the host, from the first line of `~/.egressip`, if the file exists (F112).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         outgoing_ip: Option<String>,

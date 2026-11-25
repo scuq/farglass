@@ -405,7 +405,7 @@ pub struct Netcheck {
     path: PathBuf,
     admin_path: PathBuf,
     proxy: Option<Proxy>,
-    /// The file with the own IP address of the host: `~/.outgoingip`.
+    /// The file with the own IP address of the host: `~/.egressip`.
     outgoing_ip: PathBuf,
     /// The CA certificates of the system, read at the first HTTPS check.
     tls: OnceLock<Result<Arc<rustls::ClientConfig>, String>>,
@@ -422,13 +422,13 @@ struct FileChecks {
 
 impl Netcheck {
     /// Returns the checks of the file of the user `path` and of the file of the administrator `admin_path`.
-    /// The HTTPS checks also go through `proxy`. The own IP address comes from `~/.outgoingip`.
+    /// The HTTPS checks also go through `proxy`. The own IP address comes from `~/.egressip`.
     #[must_use]
     pub fn new(path: PathBuf, admin_path: PathBuf, proxy: Option<Proxy>) -> Arc<Self> {
         Self::with_outgoing_ip(
             path,
             admin_path,
-            crate::terminal::home_dir().join(".outgoingip"),
+            crate::terminal::home_dir().join(".egressip"),
             proxy,
         )
     }
@@ -1240,7 +1240,7 @@ mod tests {
     #[test]
     fn the_own_ip_address_is_the_first_line_of_the_file_or_none() {
         let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join(".outgoingip");
+        let file = dir.path().join(".egressip");
         let netcheck = Netcheck::with_outgoing_ip(
             dir.path().join("user.toml"),
             dir.path().join("admin.toml"),

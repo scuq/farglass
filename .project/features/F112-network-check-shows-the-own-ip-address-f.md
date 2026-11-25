@@ -1,6 +1,6 @@
 ---
 id: F112
-title: Network check shows the own IP address from ~/.outgoingip
+title: Network check shows the own IP address from ~/.egressip
 status: done
 phase:
 tags: [network]
@@ -9,9 +9,9 @@ files: [crates/farglass-proto/src/message.rs, web/src/proto/generated/messages.t
 ---
 
 ## Goal
-The Network check app shows the own IP address of the host at the top, from the file ~/.outgoingip.
+The Network check app shows the own IP address of the host at the top, from the file ~/.egressip.
 
 ## Requirements
 
 ## Acceptance
-NetcheckEvent::Loaded has an optional outgoing_ip: the first line of ~/.outgoingip, trimmed, at most 100 characters, read at each load (thus Check again reads it again). No file, a file that cannot be read, or an empty first line gives none. The summary at the top shows Own IP address first when it is set, and nothing with no file. Tests: a unit test for no file, a value, and an empty file; a vitest test for no address and an address.
+NetcheckEvent::Loaded has an optional outgoing_ip: the first line of ~/.egressip, trimmed, at most 100 characters, read at each load (thus Check again reads it again). No file, a file that cannot be read, or an empty first line gives none. The summary at the top shows Own IP address first when it is set, and nothing with no file. Tests: a unit test for no file, a value, and an empty file; a vitest test for no address and an address.

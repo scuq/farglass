@@ -42,7 +42,7 @@ export interface NetcheckState {
   readonly items: readonly NetcheckItem[];
   readonly problems: readonly NetcheckProblem[];
   readonly proxy?: string | undefined;
-  /** The own IP address of the host, from `~/.outgoingip`, if the file exists. */
+  /** The own IP address of the host, from `~/.egressip`, if the file exists. */
   readonly outgoingIp?: string | undefined;
   /** Why the file of the user is not valid TOML. The agent does not save over it. */
   readonly error?: string | undefined;

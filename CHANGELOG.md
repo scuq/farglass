@@ -15,7 +15,7 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 - An administrator can give checks to all users in `/etc/farglass/netchecks.toml`. The app shows them read-only.
 - All checks run when the app opens. Select Check again to run them again, or Check on a row to run one check.
 - Settings > Network has the button Check connections, which opens the Network check app.
-- If your home folder has the file `.outgoingip`, the Network check app shows its first line at the top as the own IP address.
+- If your home folder has the file `.egressip`, the Network check app shows its first line at the top as the own IP address.
 
 ## v0.2.1 — 25 November 2026 — Terminal tabs, split panes, settings, and bookmarks
 
