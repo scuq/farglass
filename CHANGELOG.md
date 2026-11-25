@@ -6,7 +6,7 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ---
 
-## Unreleased
+## v0.2.1 — 25 November 2026 — Terminal tabs, split panes, settings, and bookmarks
 
 ### Added
 - Settings > Terminal sets the color profile, the font, the font size, and the scrollback of the terminal. The color profiles are Solarized dark, Solarized light, Gruvbox dark, Dracula, Nord, and Tango light. The default follows the desktop theme.
