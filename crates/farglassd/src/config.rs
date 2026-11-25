@@ -101,6 +101,8 @@ pub struct Config {
     pub ssh_agent: bool,
     /// Reports whether the agent removes the keys of the ssh-agent when the session locks (F093).
     pub ssh_agent_clear_on_lock: bool,
+    /// Reports whether the apps of each session can use the microphone of the client (F114). The agent reads it.
+    pub microphone: bool,
     /// The TLS configuration.
     pub tls: TlsConfig,
 }
@@ -134,6 +136,7 @@ impl Default for Config {
             x11_apps: false,
             ssh_agent: true,
             ssh_agent_clear_on_lock: true,
+            microphone: true,
             tls: TlsConfig::default(),
         }
     }

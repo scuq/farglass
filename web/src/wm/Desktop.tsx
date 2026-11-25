@@ -1,6 +1,7 @@
 import { createSignal, onCleanup, Show } from "solid-js";
 import { APPEARANCE_KEY, applyAppearance, parseAppearance } from "../appearance";
 import { Notifications } from "../notify/Notifications";
+import { startMicrophone } from "../audio/mic";
 import { startSound } from "../audio/player";
 import { startBookmarks } from "../launcher/bookmarks";
 import { startHostApps } from "../launcher/hostApps";
@@ -95,6 +96,8 @@ export function Desktop(props: { connection: Connection; user: string; onlogout:
   onCleanup(startStats(props.connection));
   // The sound of the apps (F038).
   onCleanup(startSound(props.connection));
+  // The microphone of this computer for the apps (F114). It stays off until the user turns it on.
+  onCleanup(startMicrophone(props.connection));
   // The appearance from the settings app, also when a different tab changes it.
   onCleanup(controller.state.watch(APPEARANCE_KEY, (value) => applyAppearance(parseAppearance(value))));
   return (

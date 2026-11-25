@@ -86,6 +86,7 @@ Controls:
 - An OSC 52 clipboard write goes through only 3 s after a key or a click in that terminal. A later write asks the user (F055).
 - The launcher starts only entries of the desktop files, each in a systemd scope.
 - The state store accepts at most 8 MiB, with keys of at most 256 bytes. The clipboard has a size limit.
+- The microphone stays off until the user clicks the Mic button, and the browser asks the user first. The agent accepts at most 50 packets each second after a burst of 3 s, and logs each start and stop in the security log. `microphone = false` turns it off for all users (F114).
 - The D-Bus channel permits a list of bus names. It is not a security boundary while the terminal exists (ADR-044).
 
 ### Video redirection

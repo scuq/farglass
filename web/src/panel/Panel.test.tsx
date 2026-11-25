@@ -147,6 +147,169 @@ describe("sound of the apps", () => {
   });
 });
 
+describe("microphone for the apps", () => {
+  function stubMicrophone(getUserMedia: () => Promise<unknown>) {
+    const encoded: { timestamp: number; numberOfFrames: number }[] = [];
+    const nodes: { port: { onmessage: ((message: { data: Float32Array }) => void) | null } }[] = [];
+    const encoders: { output: (chunk: unknown) => void; config?: unknown; state: string }[] = [];
+    class FakeContext {
+      audioWorklet = { addModule: async () => {} };
+      createMediaStreamSource() {
+        return { connect: (to: unknown) => to };
+      }
+      close = async () => {};
+    }
+    class FakeNode {
+      port = { onmessage: null };
+      constructor() {
+        nodes.push(this);
+      }
+    }
+    class FakeEncoder {
+      state = "unconfigured";
+      constructor(readonly init: { output: (chunk: unknown) => void }) {
+        encoders.push(this as never);
+      }
+      get output() {
+        return this.init.output;
+      }
+      configure(config: unknown) {
+        (this as { config?: unknown }).config = config;
+        this.state = "configured";
+      }
+      encode(data: { timestamp: number; numberOfFrames: number }) {
+        encoded.push(data);
+      }
+      close() {
+        this.state = "closed";
+      }
+    }
+    class FakeData {
+      constructor(readonly init: { timestamp: number; numberOfFrames: number }) {}
+      get timestamp() {
+        return this.init.timestamp;
+      }
+      get numberOfFrames() {
+        return this.init.numberOfFrames;
+      }
+      close() {}
+    }
+    vi.stubGlobal("AudioContext", FakeContext);
+    vi.stubGlobal("AudioWorkletNode", FakeNode);
+    vi.stubGlobal("AudioEncoder", FakeEncoder);
+    vi.stubGlobal("AudioData", FakeData);
+    const media = vi.fn(getUserMedia);
+    vi.stubGlobal("navigator", { ...navigator, mediaDevices: { getUserMedia: media } });
+    return { encoded, nodes, encoders, media };
+  }
+
+  const ready = { type: "ready", codec: "opus", sample_rate: 48000, channels: 1, frame_samples: 960 };
+
+  test("the button turns the microphone on and off, and sends numbered Opus packets", async () => {
+    const stopped: string[] = [];
+    const track = { stop: () => stopped.push("track"), addEventListener: () => {} };
+    const { encoded, nodes, encoders, media } = stubMicrophone(async () => ({ getTracks: () => [track] }));
+    try {
+      const { host, server, channelOf } = await mountDesktop();
+      const mic = channelOf("mic");
+      server.push(readyFrame(mic));
+      expect(host.querySelector(".panel-mic")).toBeNull();
+      server.push(encodeJsonFrame(mic, FrameType.Control, ready));
+      await settle();
+      const button = host.querySelector<HTMLButtonElement>(".panel-mic")!;
+      expect(button.textContent).toBe("Mic off");
+      expect(button.getAttribute("aria-pressed")).toBe("false");
+      server.take();
+      button.click();
+      await settle();
+      await settle();
+      expect(media).toHaveBeenCalledWith({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+      expect(button.textContent).toBe("Mic on");
+      expect(button.dataset.state).toBe("on");
+      expect(encoders[0]!.config).toEqual({ codec: "opus", sampleRate: 48000, numberOfChannels: 1, bitrate: 32000, opus: { frameDuration: 20000, usedtx: true } });
+      const sent = () => server.take().filter((f) => f.channel === mic);
+      expect(sent().map((f) => parseJson(f))).toEqual([{ type: "start" }]);
+      // Two blocks of 20 ms from the worklet, and two packets from the encoder.
+      nodes[0]!.port.onmessage!({ data: new Float32Array(960) });
+      nodes[0]!.port.onmessage!({ data: new Float32Array(960) });
+      expect(encoded.map((data) => data.timestamp)).toEqual([0, 20_000]);
+      const chunk = { byteLength: 2, copyTo: (to: Uint8Array) => to.set([0xfc, 0xff]) };
+      encoders[0]!.output(chunk);
+      encoders[0]!.output(chunk);
+      const packets = sent();
+      expect(packets.map((f) => f.type)).toEqual([FrameType.Data, FrameType.Data]);
+      expect([...packets[1]!.payload]).toEqual([1, 0, 0, 0, 0xfc, 0xff]);
+      button.click();
+      await settle();
+      expect(sent().map((f) => parseJson(f))).toEqual([{ type: "stop" }]);
+      expect(stopped).toEqual(["track"]);
+      expect(button.textContent).toBe("Mic off");
+      expect(encoders[0]!.state).toBe("closed");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("a refusal of the browser shows, a different connection takes the microphone, and a close releases it", async () => {
+    let refuse = true;
+    const stopped: string[] = [];
+    const { media } = stubMicrophone(async () => {
+      if (refuse) throw new DOMException("Permission denied", "NotAllowedError");
+      return { getTracks: () => [{ stop: () => stopped.push("track"), addEventListener: () => {} }] };
+    });
+    try {
+      const { host, server, channelOf } = await mountDesktop();
+      const mic = channelOf("mic");
+      server.push(readyFrame(mic));
+      server.push(encodeJsonFrame(mic, FrameType.Control, ready));
+      await settle();
+      const button = host.querySelector<HTMLButtonElement>(".panel-mic")!;
+      button.click();
+      await settle();
+      expect(button.textContent).toBe("Mic blocked");
+      expect(button.title).toContain("site settings");
+      refuse = false;
+      button.click();
+      await settle();
+      await settle();
+      expect(media).toHaveBeenCalledTimes(2);
+      expect(button.textContent).toBe("Mic on");
+      server.push(encodeJsonFrame(mic, FrameType.Control, { type: "taken" }));
+      await settle();
+      expect(button.textContent).toBe("Mic off");
+      expect(stopped).toEqual(["track"]);
+      button.click();
+      await settle();
+      await settle();
+      expect(button.textContent).toBe("Mic on");
+      // The agent closes the channel, for example at a lock: the device goes back, and the button goes.
+      server.push(closeFrame(mic, { reason: "cancelled" }));
+      await settle();
+      expect(stopped).toEqual(["track", "track"]);
+      expect(host.querySelector(".panel-mic")).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("a session with no microphone source, and a browser with no AudioEncoder, show no button", async () => {
+    const { host, server, channelOf } = await mountDesktop();
+    const mic = channelOf("mic");
+    server.push(readyFrame(mic));
+    server.push(encodeJsonFrame(mic, FrameType.Control, ready));
+    await settle();
+    expect(host.querySelector(".panel-mic")).toBeNull();
+    stubMicrophone(async () => ({ getTracks: () => [] }));
+    try {
+      server.push(encodeJsonFrame(mic, FrameType.Control, { type: "unavailable", message: "The session has no microphone source." }));
+      await settle();
+      expect(host.querySelector(".panel-mic")).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe("apps of the host", () => {
   test("the launcher lists the desktop entries with their icons, and a click starts the app", async () => {
     URL.createObjectURL = vi.fn(() => "blob:calculator-icon");

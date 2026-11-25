@@ -22,6 +22,16 @@
       }
     },
     {
+      "name": "open a mic channel",
+      "frame": "01000000010e00007b226b696e64223a226d6963227d",
+      "channel": 1,
+      "type": 1,
+      "payload": "7b226b696e64223a226d6963227d",
+      "json": {
+        "kind": "mic"
+      }
+    },
+    {
       "name": "ready",
       "frame": "01000000020200007b7d",
       "channel": 1,

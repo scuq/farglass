@@ -42,7 +42,7 @@ jpeg-encoder = "0.7.1"
 openh264 = "0.9.10"
 opus1 = "0.3.0"
 base64 = "0.23.1"
-pipewire = "0.10.1"
+pipewire = { version = "0.10.1", features = ["v0_3_49"] }
 rcgen = { version = "0.14.10", default-features = false, features = ["aws_lc_rs", "pem"] }
 rustls = "0.23.46"
 serde = { version = "1.0.229", features = ["derive"] }

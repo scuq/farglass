@@ -270,6 +270,33 @@ impl Drop for SinkHandle {
     }
 }
 
+/// Returns the PipeWire format of a stream: 32-bit float samples at `rate` Hz, with one
+/// channel for each entry of `positions`, for example `SPA_AUDIO_CHANNEL_MONO`.
+pub(crate) fn format_pod(rate: u32, positions: &[u32]) -> Result<Vec<u8>, String> {
+    use pipewire::spa;
+    let mut info = spa::param::audio::AudioInfoRaw::new();
+    info.set_format(spa::param::audio::AudioFormat::F32LE);
+    info.set_rate(rate);
+    info.set_channels(u32::try_from(positions.len()).unwrap_or(1));
+    let mut position = [0; spa::param::audio::MAX_CHANNELS];
+    for (slot, value) in position.iter_mut().zip(positions) {
+        *slot = *value;
+    }
+    info.set_position(position);
+    let object = spa::pod::Object {
+        type_: spa::sys::SPA_TYPE_OBJECT_Format,
+        id: spa::sys::SPA_PARAM_EnumFormat,
+        properties: info.into(),
+    };
+    Ok(spa::pod::serialize::PodSerializer::serialize(
+        std::io::Cursor::new(Vec::new()),
+        &spa::pod::Value::Object(object),
+    )
+    .map_err(|e| format!("{e:?}"))?
+    .0
+    .into_inner())
+}
+
 /// The PipeWire side: a stream that is a sink node.
 mod sink {
     use std::sync::Arc;
@@ -279,7 +306,7 @@ mod sink {
     use pw::spa;
     use spa::pod::Pod;
 
-    use super::{Audio, CHANNELS, SAMPLE_RATE, SINK_NAME};
+    use super::{Audio, SAMPLE_RATE, SINK_NAME};
 
     /// Runs the sink until a message comes on `quit`. Tells `ready` when the sink is there.
     pub(super) fn run(
@@ -332,26 +359,13 @@ mod sink {
             .register()
             .map_err(error)?;
 
-        let mut info = spa::param::audio::AudioInfoRaw::new();
-        info.set_format(spa::param::audio::AudioFormat::F32LE);
-        info.set_rate(SAMPLE_RATE);
-        info.set_channels(u32::try_from(CHANNELS).unwrap_or(2));
-        let mut position = [0; spa::param::audio::MAX_CHANNELS];
-        position[0] = spa::sys::SPA_AUDIO_CHANNEL_FL;
-        position[1] = spa::sys::SPA_AUDIO_CHANNEL_FR;
-        info.set_position(position);
-        let object = spa::pod::Object {
-            type_: spa::sys::SPA_TYPE_OBJECT_Format,
-            id: spa::sys::SPA_PARAM_EnumFormat,
-            properties: info.into(),
-        };
-        let values: Vec<u8> = spa::pod::serialize::PodSerializer::serialize(
-            std::io::Cursor::new(Vec::new()),
-            &spa::pod::Value::Object(object),
-        )
-        .map_err(|e| format!("{e:?}"))?
-        .0
-        .into_inner();
+        let values = super::format_pod(
+            SAMPLE_RATE,
+            &[
+                spa::sys::SPA_AUDIO_CHANNEL_FL,
+                spa::sys::SPA_AUDIO_CHANNEL_FR,
+            ],
+        )?;
         let mut params = [Pod::from_bytes(&values).ok_or("the audio format is not valid")?];
         stream
             .connect(

@@ -402,6 +402,37 @@ The shell sends these messages. The coordinates are logical pixels of the surfac
 
 A press outside the open popups of a window closes them, and the press goes no further.
 
+## Mic channel
+
+A channel `{"kind":"mic"}` gives the microphone of the client to the apps of the session (F114).
+The shell keeps it open while the desktop shows.
+The agent sends one of these messages at once:
+
+| Message | Meaning |
+|---|---|
+| `{"type":"ready","codec":"opus","sample_rate":48000,"channels":1,"frame_samples":960}` | The session has the source `farglass-mic`. The packets must have this format. |
+| `{"type":"unavailable","message":"…"}` | The session has no microphone source, for example with no PipeWire server. |
+
+If `microphone = false` is in the configuration file, the agent refuses the channel with `access-denied`.
+
+The shell sends these messages:
+
+| Message | Meaning |
+|---|---|
+| `{"type":"start"}` | The microphone is on. This channel holds the microphone now. Data frames follow. |
+| `{"type":"stop"}` | The microphone is off. |
+
+After a start, each data frame holds one packet: the packet number as u32, little-endian, then one Opus packet of 20 ms.
+One channel of the user holds the microphone at a time.
+When a different channel sends a start, the agent sends `{"type":"taken"}` to the channel before it.
+The agent then ignores the packets of that channel until its next start.
+
+The agent closes the channel in these cases:
+
+- A data frame before a start, or after a stop: `protocol-error`.
+- A data frame with less than 4 bytes, or with an Opus packet of more than 1275 bytes: `protocol-error`.
+- More packets than 50 each second, after a burst of 150 packets: `resource-limit`.
+
 ## WebTransport
 
 farglassd serves WebTransport on HTTP/3 at `/wt`, on the UDP port with the number of the TCP port.

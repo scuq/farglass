@@ -1,6 +1,7 @@
 import { createSignal, For, onCleanup, Show, untrack } from "solid-js";
 import { setContextMenu } from "../menu/menu";
 import { windowMenu } from "../wm/menus";
+import { microphone, type MicState } from "../audio/mic";
 import { soundPlayer } from "../audio/player";
 import { isShellIcon, windowIcon } from "../launcher/hostApps";
 import { EMPTY_LAUNCHER, LAUNCHER_KEY, type LauncherState, parseLauncherState } from "../launcher/usage";
@@ -17,6 +18,13 @@ import { Launcher } from "./Launcher";
 import { Popover } from "./Popover";
 import { Tray } from "./Tray";
 import "./panel.css";
+
+/** The text and the tooltip of the microphone button for each state (F114). */
+const MIC_BUTTON: Record<MicState, { label: string; title: string }> = {
+  off: { label: "Mic off", title: "Let the apps of the host use the microphone of this computer" },
+  on: { label: "Mic on", title: "The apps of the host get the sound of this microphone. Click to turn it off." },
+  refused: { label: "Mic blocked", title: "The browser refused the microphone. Allow it in the site settings of the browser, then click again." },
+};
 
 /**
  * The panel at the top: the launcher, the workspaces, the open windows of the
@@ -146,6 +154,18 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
           onClick={() => soundPlayer()?.setMuted(!soundPlayer()?.muted())}
         >
           {soundPlayer()?.muted() ? "Sound off" : "Sound"}
+        </button>
+      </Show>
+      <Show when={microphone()?.available()}>
+        <button
+          type="button"
+          class="panel-mic"
+          aria-pressed={String(microphone()?.state() === "on") as "true" | "false"}
+          data-state={microphone()?.state()}
+          title={MIC_BUTTON[microphone()?.state() ?? "off"].title}
+          onClick={() => void microphone()?.toggle()}
+        >
+          {MIC_BUTTON[microphone()?.state() ?? "off"].label}
         </button>
       </Show>
       <button type="button" class="panel-overview" aria-pressed={String(c.overviewOpen()) as "true" | "false"} onClick={() => c.setOverviewOpen(!c.overviewOpen())} title={`Show all workspaces and windows (${c.hint("overview")})`}>

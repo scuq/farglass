@@ -164,6 +164,16 @@ async fn agent() {
             None
         }
     };
+    // The microphone source of the session (F114), unless the administrator turned it off.
+    let _mic = farglass_session::desktop::microphone_allowed()
+        .then(|| match session.mic.start_source() {
+            Ok(source) => Some(source),
+            Err(error) => {
+                tracing::warn!(%error, "no microphone source, the apps cannot use the microphone of the browser");
+                None
+            }
+        })
+        .flatten();
     // The ssh-agent of the session (F093), before the compositor: the desktop variables name it.
     // It starts on the main thread, which lives as long as the agent: it stops with that thread.
     let _ssh_agent = farglass_session::desktop::ssh_agent_wanted()

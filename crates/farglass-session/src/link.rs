@@ -11,9 +11,9 @@ use farglass_proto::codec::{CodecError, FrameCodec};
 use farglass_proto::message::{
     AppsEvent, AppsRequest, AudioEvent, BookmarksEvent, BookmarksRequest, Bus, ClipboardMessage,
     ClipboardMime, Close, CloseReason, DbusEvent, DbusRequest, LinkMessage, MAX_CLIPBOARD_LEN,
-    NetcheckEvent, NetcheckRequest, NotifyReply, Open, PolkitReply, PtyEvent, PtyRequest, Ready,
-    RedirectRequest, StateEvent, StateRequest, SurfaceAck, SurfaceInput, SurfaceRequest,
-    TrayRequest,
+    MicEvent, MicRequest, NetcheckEvent, NetcheckRequest, NotifyReply, Open, PolkitReply, PtyEvent,
+    PtyRequest, Ready, RedirectRequest, StateEvent, StateRequest, SurfaceAck, SurfaceInput,
+    SurfaceRequest, TrayRequest,
 };
 use farglass_proto::{ChannelId, Frame, FrameError, FrameType, PROTOCOL_VERSION, Side};
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -27,6 +27,7 @@ use crate::bookmarks::Bookmarks;
 use crate::dbus::{self, Buses, DbusOptions, Filter, Subscriptions};
 use crate::launch::{LaunchOptions, Launcher};
 use crate::logind::Logind;
+use crate::mic::{self, Mic};
 use crate::netcheck::{self, Netcheck};
 use crate::notify::{self, Notifications};
 use crate::polkit::{HELPER, Polkit, ViewerGuard};
@@ -93,6 +94,8 @@ pub struct Session {
     pub tray: Arc<Tray>,
     /// The sound of the apps.
     pub audio: Arc<Audio>,
+    /// The microphone of the client for the apps (F114).
+    pub mic: Arc<Mic>,
     /// The video players of the host browsers.
     pub redirect: Arc<Redirect>,
     /// The use of the host by the windows and by farglass.
@@ -135,6 +138,7 @@ impl Default for Session {
                 netcheck::Proxy::from_env(),
             ),
             audio: Audio::new(),
+            mic: Mic::new(),
             redirect,
         }
     }
@@ -508,6 +512,27 @@ where
                         }
                     }
                     Kind::Redirect { .. } => None,
+                    Kind::Mic { mic: Some(mic) } if frame.frame_type() == FrameType::Control => {
+                        match frame.parse::<MicRequest>() {
+                            Ok(MicRequest::Start) => {
+                                mic.start();
+                                None
+                            }
+                            Ok(MicRequest::Stop) => {
+                                mic.stop();
+                                None
+                            }
+                            Err(error) => Some((
+                                CloseReason::ProtocolError,
+                                format!("The microphone request is not valid: {error}"),
+                            )),
+                        }
+                    }
+                    Kind::Mic { mic: Some(mic) } => mic
+                        .packet(frame.payload())
+                        .err()
+                        .map(|error| (error.reason(), error.to_string())),
+                    Kind::Mic { mic: None } => None,
                     Kind::Clipboard { incoming, .. } => match clipboard_frame(incoming, &frame) {
                         Ok(Some(clip)) => {
                             session.surfaces.set_clipboard(clip);
@@ -1025,6 +1050,11 @@ enum Kind {
         /// Dropping the channel ends its subscriptions.
         subscriptions: Subscriptions,
     },
+    /// Gives the microphone of the client to the apps. Dropping the channel stops the microphone.
+    Mic {
+        /// `None` if the session has no microphone source.
+        mic: Option<mic::MicGuard>,
+    },
     /// The agent refused or closed the channel.
     Closed,
 }
@@ -1133,6 +1163,35 @@ fn open(
                 })
             });
             accept(Kind::Audio { _viewer: guard })
+        }
+        Ok(Open::Mic) if !crate::desktop::microphone_allowed() => refuse(
+            CloseReason::AccessDenied,
+            "The administrator turned the microphone off.".to_owned(),
+        ),
+        Ok(Open::Mic) => {
+            let event = if session.mic.available() {
+                MicEvent::Ready {
+                    codec: "opus".to_owned(),
+                    sample_rate: mic::SAMPLE_RATE,
+                    channels: mic::CHANNELS,
+                    frame_samples: u32::try_from(mic::FRAME).unwrap_or(960),
+                }
+            } else {
+                MicEvent::Unavailable {
+                    message: "The session has no microphone source.".to_owned(),
+                }
+            };
+            let available = matches!(event, MicEvent::Ready { .. });
+            let _ = events.send(Frame::json(channel, FrameType::Control, &event)?);
+            let guard = available.then(|| {
+                let events = events.clone();
+                session.mic.add_channel(move || {
+                    if let Ok(frame) = Frame::json(channel, FrameType::Control, &MicEvent::Taken) {
+                        let _ = events.send(frame);
+                    }
+                })
+            });
+            accept(Kind::Mic { mic: guard })
         }
         Ok(Open::Redirect) => {
             let events = events.clone();

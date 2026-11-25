@@ -168,6 +168,12 @@ pub enum Open {
     /// The agent sends [`AudioEvent`] control messages and, after [`AudioEvent::Format`],
     /// one data frame for each packet: the packet number as u32, little-endian, then one Opus packet.
     Audio,
+    /// The microphone of the client for the apps of the session (F114).
+    ///
+    /// The agent sends [`MicEvent`] control messages: [`MicEvent::Ready`] with the format at once.
+    /// The shell sends [`MicRequest`]. After [`MicRequest::Start`], each data frame holds
+    /// one packet: the packet number as u32, little-endian, then one Opus packet.
+    Mic,
     /// The video players of the host browser, for video redirection (F040).
     ///
     /// The agent sends [`RedirectEvent`] control messages. An [`RedirectEvent::Append`]
@@ -742,6 +748,40 @@ pub enum AudioEvent {
         /// The cause.
         message: String,
     },
+}
+
+/// A control message of the agent on a mic channel (F114).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum MicEvent {
+    /// The session has a microphone source. The packets must have this format.
+    Ready {
+        /// The codec, `opus`.
+        codec: String,
+        /// The sample rate in Hz.
+        sample_rate: u32,
+        /// The channels.
+        channels: u8,
+        /// The samples of each channel in one packet.
+        frame_samples: u32,
+    },
+    /// The session has no microphone source, for example with no PipeWire server.
+    Unavailable {
+        /// The cause.
+        message: String,
+    },
+    /// A different connection of the user started the microphone. The agent ignores the packets of this channel until its next start.
+    Taken,
+}
+
+/// A control message of the shell on a mic channel (F114).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum MicRequest {
+    /// The microphone is on: data frames follow. This channel holds the microphone now.
+    Start,
+    /// The microphone is off.
+    Stop,
 }
 
 /// An app of the host: a desktop entry that the launcher shows.

@@ -171,6 +171,10 @@
   border: 0;
   border-radius: 0;
 }
+:root[data-theme="lcars"] .panel button.panel-mic[data-state="on"] {
+  color: var(--on-focus);
+  background: var(--focus);
+}
 :root[data-theme="lcars"] .panel button.panel-apps {
   margin-right: 0.5rem;
   padding: 0 1.25rem 0 1rem;

@@ -39,6 +39,11 @@
 .panel button[aria-pressed="true"] {
   outline: 2px solid var(--focus);
 }
+/* A microphone that sends its sound to the host must be visible at a glance (F114). */
+.panel button.panel-mic[data-state="on"] {
+  color: var(--bg);
+  background: var(--focus);
+}
 /* A window that opened in the background: the user did not look at it yet (F041). */
 .wm-task[data-attention="true"] {
   box-shadow: inset 0 -3px 0 var(--focus);

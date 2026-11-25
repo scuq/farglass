@@ -26,6 +26,7 @@
     "netcheck": "node netcheck.mjs",
     "video": "node video.mjs",
     "sound": "node sound.mjs",
+    "mic": "node mic.mjs",
     "redirect": "node redirect.mjs",
     "popups": "node popups.mjs",
     "border": "node border.mjs",

@@ -8,6 +8,9 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ## Unreleased
 
+### Added
+- The apps of the host can use the microphone of your computer, for example for a video conference. Click Mic off in the panel to turn it on. To turn the microphone off for all users, set `microphone = false` in `/etc/farglass/farglassd.conf`.
+
 ### Fixed
 - A GTK window with no header bar of its own no longer shows two title bars. Before, GTK drew a title bar inside the frame of farglass.
 

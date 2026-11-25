@@ -42,6 +42,7 @@ struct HostConfig {
     x11_apps: bool,
     ssh_agent: bool,
     ssh_agent_clear_on_lock: bool,
+    microphone: bool,
 }
 
 impl Default for HostConfig {
@@ -50,6 +51,7 @@ impl Default for HostConfig {
             x11_apps: false,
             ssh_agent: true,
             ssh_agent_clear_on_lock: true,
+            microphone: true,
         }
     }
 }
@@ -109,6 +111,14 @@ pub fn ssh_agent_clear_on_lock() -> bool {
     host_config().ssh_agent_clear_on_lock
 }
 
+/// Returns `true` if the apps of the session can use the microphone of the client (F114).
+///
+/// `microphone` in the configuration file of the host decides, and is on by default.
+#[must_use]
+pub fn microphone_allowed() -> bool {
+    host_config().microphone
+}
+
 /// Returns `true` if the agent must start Xwayland (F083).
 ///
 /// `x11_apps` in the configuration file of the host decides, and is off by default.
@@ -136,6 +146,7 @@ pub fn x11_wanted() -> bool {
 /// Returns the variables of the desktop for the Wayland socket `socket`,
 /// with `DISPLAY` if the session has an X11 display, and `SSH_AUTH_SOCK` if it has an ssh-agent.
 /// The sound of PulseAudio and PipeWire clients goes to the sink of the browser (F038).
+/// PulseAudio clients record from the microphone source of the browser (F114).
 #[must_use]
 pub fn variables(socket: &Path) -> Vec<(String, String)> {
     let mut variables = base_variables(socket);
@@ -154,6 +165,10 @@ fn base_variables(socket: &Path) -> Vec<(String, String)> {
         ("XDG_SESSION_TYPE".to_owned(), "wayland".to_owned()),
         ("XDG_CURRENT_DESKTOP".to_owned(), DESKTOP.to_owned()),
         ("PULSE_SINK".to_owned(), crate::audio::SINK_NAME.to_owned()),
+        (
+            "PULSE_SOURCE".to_owned(),
+            crate::mic::SOURCE_NAME.to_owned(),
+        ),
         (
             "PIPEWIRE_NODE".to_owned(),
             crate::audio::SINK_NAME.to_owned(),
@@ -253,5 +268,12 @@ mod tests {
             host_config_in("ssh_agent = false\nssh_agent_clear_on_lock = false\n").unwrap();
         assert!(!config.ssh_agent && !config.ssh_agent_clear_on_lock);
         assert!(host_config_in("ssh_agent = 1\n").is_err());
+    }
+
+    #[test]
+    fn the_microphone_is_on_unless_the_file_turns_it_off() {
+        assert!(HostConfig::default().microphone);
+        assert!(!host_config_in("microphone = false\n").unwrap().microphone);
+        assert!(host_config_in("microphone = \"no\"\n").is_err());
     }
 }

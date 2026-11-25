@@ -151,6 +151,10 @@ To show X11 apps, for example Java Swing apps, Wine, or SecureCRT, set `x11_apps
 The users must log out and log in again.
 The section [X11 apps](#x11-apps) gives the risk.
 
+The apps of the host can use the microphone of the browser after the user turns it on in the panel.
+To turn the microphone off for all users, set `microphone = false` in the same file.
+The users must log out and log in again.
+
 To see the state, to find a fault, and to install a newer release:
 
 ```sh
@@ -409,6 +413,7 @@ Firefox and Safari work, with these limits:
 |---|---|---|---|
 | Connection | WebTransport, else WebSocket | WebTransport, else WebSocket | WebSocket |
 | Video region of a Linux app (H.264) and sound (Opus) | WebCodecs | WebCodecs | WebCodecs |
+| Microphone for the apps of the host (Opus) | WebCodecs | WebCodecs | WebCodecs |
 | Passkeys | Yes | Yes | Yes |
 | Keyboard Lock | In full screen | Not available | Not available |
 | Window Management (more screens) | Not used yet | Not available | Not available |
@@ -416,6 +421,7 @@ Firefox and Safari work, with these limits:
 With no WebTransport, the shell uses the WebSocket at once, with no wait.
 A browser that cannot decode H.264 tells the agent, and the agent sends tiles only.
 A browser with no `AudioDecoder` plays no sound of the apps.
+A browser with no `AudioEncoder` shows no Mic button.
 
 With no Keyboard Lock, the browser keeps its own shortcuts, for example Ctrl+T, Ctrl+W, Ctrl+N, Ctrl+Tab, and Cmd+Q on a Mac.
 The shortcuts of the shell never use these keys: see Settings > Keyboard.
@@ -651,6 +657,21 @@ The browser decodes the packets with WebCodecs and plays them in an AudioWorklet
 The browser starts the sound only after a press or a key in the page.
 The Sound button in the panel turns the sound off and on.
 `npm --prefix spikes/e2e run sound` plays a tone from `spikes/e2e/fixtures/animation.py --tone`, and the browser must play it.
+
+The apps of the host can use the microphone of your computer, for example for a video conference.
+The agent adds the audio source `farglass-mic` to the PipeWire server of the user.
+The apps of the web session get `PULSE_SOURCE=farglass-mic`, thus PulseAudio clients record from it.
+The microphone stays off after each login and each new tab.
+Click Mic off in the panel to turn it on, and the browser asks you first.
+The browser records with its echo cancellation, its noise suppression, and its automatic gain.
+It encodes the sound as Opus at 48 kHz in mono, 20 ms in each packet, at 32 kbit/s.
+The agent decodes the packets into a jitter buffer: the sound starts after 40 ms, and the delay stays below 120 ms.
+With the microphone off, the source gives silence.
+Mic on in the panel shows that the apps get the sound. Click it to turn the microphone off.
+Mic blocked shows that the browser refused the microphone: allow it in the site settings of the browser, then click again.
+If you turn the microphone on in a second tab, the first tab turns it off.
+A lock, a logout, and a lost connection turn the microphone off.
+`npm --prefix spikes/e2e run mic` records the fake microphone of Chromium from `farglass-mic`.
 
 A video of a web page in the host browser plays in your browser, with the decoder of your computer (video redirection).
 The extension in `extension/redirect` copies what the page gives to Media Source Extensions and the state of the video.

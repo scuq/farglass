@@ -11,13 +11,14 @@ use crate::login::{LocalSession, LoginEvent, LoginReply};
 use crate::message::{
     AppsEvent, AppsRequest, AudioEvent, Bookmark, BookmarkBrowser, BookmarkFile, BookmarkProblem,
     BookmarksEvent, BookmarksRequest, Bus, ClipboardMessage, ClipboardMime, Close, CloseReason,
-    ConnectionMessage, DbusEvent, DbusRequest, HostApp, HostUsage, MAX_CLIPBOARD_LEN,
-    NetcheckCheck, NetcheckEvent, NetcheckGroup, NetcheckItem, NetcheckKind, NetcheckProblem,
-    NetcheckRequest, NetcheckState, Notification, NotifyAction, NotifyEvent, NotifyReply, Open,
-    PasskeyEvent, PasskeyInfo, PasskeyRequest, PolkitEvent, PolkitReply, PtyEvent, PtyRequest,
-    PtyStart, Ready, RedirectEvent, RedirectRect, RedirectRequest, StateEvent, StateRequest,
-    StatsEvent, SurfaceAck, SurfaceEvent, SurfaceInput, SurfaceRect, SurfaceRequest, TrayEvent,
-    TrayItem, TrayMenuItem, TrayRequest, TrayStatus, TrayToggle, Urgency, Usage, WindowUsage,
+    ConnectionMessage, DbusEvent, DbusRequest, HostApp, HostUsage, MAX_CLIPBOARD_LEN, MicEvent,
+    MicRequest, NetcheckCheck, NetcheckEvent, NetcheckGroup, NetcheckItem, NetcheckKind,
+    NetcheckProblem, NetcheckRequest, NetcheckState, Notification, NotifyAction, NotifyEvent,
+    NotifyReply, Open, PasskeyEvent, PasskeyInfo, PasskeyRequest, PolkitEvent, PolkitReply,
+    PtyEvent, PtyRequest, PtyStart, Ready, RedirectEvent, RedirectRect, RedirectRequest,
+    StateEvent, StateRequest, StatsEvent, SurfaceAck, SurfaceEvent, SurfaceInput, SurfaceRect,
+    SurfaceRequest, TrayEvent, TrayItem, TrayMenuItem, TrayRequest, TrayStatus, TrayToggle,
+    Urgency, Usage, WindowUsage,
 };
 use crate::{
     ChannelId, FrameError, FrameType, HEADER_LEN, MAX_PAYLOAD_LEN, PROTOCOL_VERSION,
@@ -117,6 +118,8 @@ fn messages() -> String {
     declare::<PasskeyRequest>(&cfg, &mut out);
     declare::<PasskeyEvent>(&cfg, &mut out);
     declare::<AudioEvent>(&cfg, &mut out);
+    declare::<MicEvent>(&cfg, &mut out);
+    declare::<MicRequest>(&cfg, &mut out);
     declare::<RedirectRect>(&cfg, &mut out);
     declare::<RedirectEvent>(&cfg, &mut out);
     declare::<RedirectRequest>(&cfg, &mut out);
