@@ -103,6 +103,8 @@ pub struct Config {
     pub ssh_agent_clear_on_lock: bool,
     /// Reports whether the apps of each session can use the microphone of the client (F114). The agent reads it.
     pub microphone: bool,
+    /// Reports whether the apps of each session can use the camera of the client (F116). The agent reads it.
+    pub camera: bool,
     /// The TLS configuration.
     pub tls: TlsConfig,
 }
@@ -137,6 +139,7 @@ impl Default for Config {
             ssh_agent: true,
             ssh_agent_clear_on_lock: true,
             microphone: true,
+            camera: true,
             tls: TlsConfig::default(),
         }
     }

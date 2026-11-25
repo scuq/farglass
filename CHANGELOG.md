@@ -10,6 +10,7 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ### Added
 - The apps of the host can use the microphone of your computer, for example for a video conference. Click Mic off in the panel to turn it on. To turn the microphone off for all users, set `microphone = false` in `/etc/farglass/farglassd.conf`.
+- The apps of the host can use the camera of your computer, for example for a video conference. Click Cam off in the panel to arm the camera. The browser opens the camera only while an app of the host uses it. In Firefox on the host, set `media.webrtc.camera.allow-pipewire` to true in `about:config`. To turn the camera off for all users, set `camera = false` in `/etc/farglass/farglassd.conf`.
 
 ### Fixed
 - A GTK window with no header bar of its own no longer shows two title bars. Before, GTK drew a title bar inside the frame of farglass.

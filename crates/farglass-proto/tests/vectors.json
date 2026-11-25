@@ -32,6 +32,16 @@
       }
     },
     {
+      "name": "open a camera channel",
+      "frame": "01000000011100007b226b696e64223a2263616d657261227d",
+      "channel": 1,
+      "type": 1,
+      "payload": "7b226b696e64223a2263616d657261227d",
+      "json": {
+        "kind": "camera"
+      }
+    },
+    {
       "name": "ready",
       "frame": "01000000020200007b7d",
       "channel": 1,

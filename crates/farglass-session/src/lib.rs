@@ -11,6 +11,7 @@ pub mod audio;
 pub mod bookmarks;
 pub mod broker;
 pub mod browsers;
+pub mod camera;
 pub mod dbus;
 pub mod desktop;
 pub mod launch;

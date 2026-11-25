@@ -1,10 +1,10 @@
 ---
 id: ADR-056
 title: The camera of a session is a PipeWire node, and the agent shows it to the camera portal
-status: accepted
+status: superseded
 date: 2026-11-25
 tags: [camera, pipewire]
-superseded_by:
+superseded_by: ADR-057
 files: []
 ---
 

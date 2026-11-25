@@ -310,6 +310,202 @@ describe("microphone for the apps", () => {
   });
 });
 
+describe("camera for the apps", () => {
+  function stubCamera(getUserMedia: () => Promise<unknown>, supported = true) {
+    const encoded: { frame: { init: { visibleRect: DOMRectInit } }; options: { keyFrame: boolean } }[] = [];
+    const encoders: { output: (chunk: unknown) => void; config?: unknown; state: string }[] = [];
+    const callbacks: ((now: number) => void)[] = [];
+    class FakeEncoder {
+      state = "unconfigured";
+      encodeQueueSize = 0;
+      static isConfigSupported = async () => ({ supported });
+      constructor(readonly init: { output: (chunk: unknown) => void }) {
+        encoders.push(this as never);
+      }
+      get output() {
+        return this.init.output;
+      }
+      configure(config: unknown) {
+        (this as { config?: unknown }).config = config;
+        this.state = "configured";
+      }
+      encode(frame: never, options: { keyFrame: boolean }) {
+        encoded.push({ frame, options });
+      }
+      close() {
+        this.state = "closed";
+      }
+    }
+    class FakeFrame {
+      constructor(
+        readonly source: unknown,
+        readonly init: { visibleRect: DOMRectInit },
+      ) {}
+      close() {}
+    }
+    vi.stubGlobal("VideoEncoder", FakeEncoder);
+    vi.stubGlobal("VideoFrame", FakeFrame);
+    const proto = HTMLVideoElement.prototype as unknown as Record<string, unknown>;
+    const saved = { play: proto.play, rvfc: proto.requestVideoFrameCallback };
+    proto.play = async () => {};
+    proto.requestVideoFrameCallback = (callback: (now: number) => void) => callbacks.push(callback);
+    Object.defineProperty(HTMLVideoElement.prototype, "videoWidth", { configurable: true, get: () => 640 });
+    Object.defineProperty(HTMLVideoElement.prototype, "videoHeight", { configurable: true, get: () => 480 });
+    const media = vi.fn(getUserMedia);
+    vi.stubGlobal("navigator", { ...navigator, mediaDevices: { getUserMedia: media } });
+    const restore = () => {
+      proto.play = saved.play;
+      if (saved.rvfc === undefined) delete proto.requestVideoFrameCallback;
+      else proto.requestVideoFrameCallback = saved.rvfc;
+      delete (HTMLVideoElement.prototype as { videoWidth?: number }).videoWidth;
+      delete (HTMLVideoElement.prototype as { videoHeight?: number }).videoHeight;
+      vi.unstubAllGlobals();
+    };
+    return { encoded, encoders, callbacks, media, restore };
+  }
+
+  const ready = { type: "ready", codec: "h264", width: 1280, height: 720, frame_rate: 30 };
+
+  test("the button arms the camera, a reading host app starts the capture, and the pictures go as H.264", async () => {
+    const stopped: string[] = [];
+    const track = { stop: () => stopped.push("track"), addEventListener: () => {} };
+    const { encoded, encoders, callbacks, media, restore } = stubCamera(async () => ({ getTracks: () => [track] }));
+    try {
+      const { host, server, channelOf } = await mountDesktop();
+      const cam = channelOf("camera");
+      server.push(readyFrame(cam));
+      expect(host.querySelector(".panel-camera")).toBeNull();
+      server.push(encodeJsonFrame(cam, FrameType.Control, ready));
+      await settle();
+      const button = host.querySelector<HTMLButtonElement>(".panel-camera")!;
+      expect(button.textContent).toBe("Cam off");
+      server.take();
+      const sent = () => server.take().filter((f) => f.channel === cam);
+      button.click();
+      await settle();
+      expect(sent().map((f) => parseJson(f))).toEqual([{ type: "arm" }]);
+      expect(button.textContent).toBe("Cam ready");
+      expect(button.getAttribute("aria-pressed")).toBe("true");
+      expect(media).not.toHaveBeenCalled();
+      // An app of the host opens the camera.
+      server.push(encodeJsonFrame(cam, FrameType.Control, { type: "reading" }));
+      await settle();
+      await settle();
+      expect(media).toHaveBeenCalledWith({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } } });
+      expect(encoders[0]!.config).toEqual({ codec: "avc1.42001f", width: 1280, height: 720, bitrate: 1_500_000, framerate: 30, latencyMode: "realtime", avc: { format: "annexb" } });
+      expect(sent().map((f) => parseJson(f))).toEqual([{ type: "format", codec: "h264", width: 1280, height: 720 }]);
+      expect(button.textContent).toBe("Cam on");
+      expect(button.dataset.state).toBe("on");
+      // A picture of 640x480 loses its top and bottom for 16:9. The first one is a key frame.
+      callbacks.shift()!(1000);
+      callbacks.shift()!(1010);
+      callbacks.shift()!(1040);
+      expect(encoded.map((e) => e.options.keyFrame)).toEqual([true, false]);
+      expect(encoded[0]!.frame.init.visibleRect).toEqual({ x: 0, y: 60, width: 640, height: 360 });
+      server.push(encodeJsonFrame(cam, FrameType.Control, { type: "key-frame" }));
+      await settle();
+      callbacks.shift()!(1080);
+      expect(encoded.map((e) => e.options.keyFrame)).toEqual([true, false, true]);
+      const chunk = (type: string) => ({ type, byteLength: 3, copyTo: (to: Uint8Array) => to.set([0, 0, 1]) });
+      encoders[0]!.output(chunk("key"));
+      encoders[0]!.output(chunk("delta"));
+      const pictures = sent();
+      expect(pictures.map((f) => f.type)).toEqual([FrameType.Data, FrameType.Data]);
+      expect([...pictures[0]!.payload]).toEqual([1, 0, 0, 1]);
+      expect([...pictures[1]!.payload]).toEqual([0, 0, 0, 1]);
+      // The app of the host closes the camera: the device goes back, and the camera stays armed.
+      server.push(encodeJsonFrame(cam, FrameType.Control, { type: "idle" }));
+      await settle();
+      expect(stopped).toEqual(["track"]);
+      expect(encoders[0]!.state).toBe("closed");
+      expect(button.textContent).toBe("Cam ready");
+      button.click();
+      await settle();
+      expect(sent().map((f) => parseJson(f))).toEqual([{ type: "disarm" }]);
+      expect(button.textContent).toBe("Cam off");
+    } finally {
+      restore();
+    }
+  });
+
+  test("a refusal of the browser shows, a different connection takes the camera, and a close releases it", async () => {
+    let refuse = true;
+    const stopped: string[] = [];
+    const { media, restore } = stubCamera(async () => {
+      if (refuse) throw new DOMException("Permission denied", "NotAllowedError");
+      return { getTracks: () => [{ stop: () => stopped.push("track"), addEventListener: () => {} }] };
+    });
+    try {
+      const { host, server, channelOf } = await mountDesktop();
+      const cam = channelOf("camera");
+      server.push(readyFrame(cam));
+      server.push(encodeJsonFrame(cam, FrameType.Control, ready));
+      await settle();
+      const button = host.querySelector<HTMLButtonElement>(".panel-camera")!;
+      button.click();
+      await settle();
+      server.take();
+      server.push(encodeJsonFrame(cam, FrameType.Control, { type: "reading" }));
+      await settle();
+      expect(button.textContent).toBe("Cam blocked");
+      expect(button.title).toContain("site settings");
+      expect(server.take().filter((f) => f.channel === cam).map((f) => parseJson(f))).toEqual([{ type: "disarm" }]);
+      refuse = false;
+      button.click();
+      await settle();
+      server.push(encodeJsonFrame(cam, FrameType.Control, { type: "reading" }));
+      await settle();
+      await settle();
+      expect(media).toHaveBeenCalledTimes(2);
+      expect(button.textContent).toBe("Cam on");
+      server.push(encodeJsonFrame(cam, FrameType.Control, { type: "taken" }));
+      await settle();
+      expect(button.textContent).toBe("Cam off");
+      expect(stopped).toEqual(["track"]);
+      button.click();
+      await settle();
+      server.push(encodeJsonFrame(cam, FrameType.Control, { type: "reading" }));
+      await settle();
+      await settle();
+      expect(button.textContent).toBe("Cam on");
+      // The agent closes the channel, for example at a lock: the device goes back, and the button goes.
+      server.push(closeFrame(cam, { reason: "cancelled" }));
+      await settle();
+      expect(stopped).toEqual(["track", "track"]);
+      expect(host.querySelector(".panel-camera")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  test("a block of the host shows its cause, and no camera node or no VideoEncoder show no button", async () => {
+    const { host, server, channelOf } = await mountDesktop();
+    const cam = channelOf("camera");
+    server.push(readyFrame(cam));
+    server.push(encodeJsonFrame(cam, FrameType.Control, ready));
+    await settle();
+    expect(host.querySelector(".panel-camera")).toBeNull();
+    const { restore } = stubCamera(async () => ({ getTracks: () => [] }));
+    try {
+      server.push(encodeJsonFrame(cam, FrameType.Control, { type: "unavailable", message: "The session has no camera node." }));
+      await settle();
+      expect(host.querySelector(".panel-camera")).toBeNull();
+      server.push(encodeJsonFrame(cam, FrameType.Control, { type: "blocked", message: "The camera switch of the privacy settings of the host is off." }));
+      await settle();
+      const button = host.querySelector<HTMLButtonElement>(".panel-camera")!;
+      expect(button.textContent).toBe("Cam disabled");
+      expect(button.title).toContain("privacy settings");
+      expect(button.getAttribute("aria-disabled")).toBe("true");
+      server.take();
+      button.click();
+      await settle();
+      expect(server.take().filter((f) => f.channel === cam)).toEqual([]);
+    } finally {
+      restore();
+    }
+  });
+});
+
 describe("apps of the host", () => {
   test("the launcher lists the desktop entries with their icons, and a click starts the app", async () => {
     URL.createObjectURL = vi.fn(() => "blob:calculator-icon");

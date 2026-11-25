@@ -27,6 +27,7 @@
     "video": "node video.mjs",
     "sound": "node sound.mjs",
     "mic": "node mic.mjs",
+    "camera": "node camera.mjs",
     "redirect": "node redirect.mjs",
     "popups": "node popups.mjs",
     "border": "node border.mjs",

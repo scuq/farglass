@@ -1,11 +1,11 @@
 ---
 id: F116
 title: Camera from the client to host apps
-status: planned
+status: done
 phase: P08
 tags: [camera, protocol]
 decisions: [ADR-014, ADR-017, ADR-036]
-files: [crates/farglass-session/src/camera.rs, crates/farglass-session/src/link.rs, crates/farglass-session/src/desktop.rs, crates/farglass-session/src/launch.rs, crates/farglass-proto/src/message.rs, web/src/camera/, web/src/panel/Panel.tsx, packaging/farglassd.conf, spikes/e2e/camera.mjs, README.md, CHANGELOG.md]
+files: [crates/farglass-session/src/camera.rs, crates/farglass-session/tests/camera.rs, crates/farglass-session/src/link.rs, crates/farglass-session/src/lib.rs, crates/farglass-session/src/main.rs, crates/farglass-session/src/desktop.rs, crates/farglass-session/src/launch.rs, crates/farglass-session/Cargo.toml, crates/farglass-proto/src/message.rs, crates/farglass-proto/src/typescript.rs, crates/farglass-proto/tests/vectors.json, crates/farglassd/src/config.rs, web/src/camera/, web/src/proto/, web/src/panel/, web/src/wm/Desktop.tsx, web/src/theme/lcars.css, packaging/farglassd.conf, spikes/e2e/camera.mjs, spikes/e2e/package.json, docs/protocol.md, docs/threats.md, README.md, CHANGELOG.md]
 ---
 
 ## Goal
@@ -26,6 +26,7 @@ A host app shows the camera of the client.
 - A key camera in packaging/farglassd.conf, default true, as for the microphone. Update the README quick start and the changelog in the same edit.
 - The launcher starts Chromium with --enable-features=WebRtcPipeWireCamera. The README tells Firefox users to set media.webrtc.camera.allow-pipewire.
 - The e2e test answers the Access dialog of the portal, or uses a private portal as spikes/camera/portal.sh does.
-- Measure the decode cost on amd64 and write it into the README.
+- The amd64 decode cost moves to F117: the host of this work is arm64.
 
 ## Acceptance
+A host app shows the camera of the client. The agent adds the PipeWire node farglass-camera (I420 1280x720 at 30 pictures each second, ADR-057) and gives only that node to the camera-portal connections of host apps (ADR-056). The shell arms the camera from the panel (Cam off, Cam ready, Cam on, Cam blocked, Cam disabled) and captures only while a host app reads the node. It sends H.264 from the WebCodecs VideoEncoder and drops late pictures. The agent decodes with openh264, limits size and rate, logs arm, start, stop, and disarm, and honors camera = false and the privacy switch of the host. The launcher adds --enable-features=WebRtcPipeWireCamera to Chromium. Tests: camera unit tests, the channel and real PipeWire tests in tests/camera.rs, the panel and WebTransport tests, and npm --prefix spikes/e2e run camera: the fake camera of the client Chromium reaches a host Chromium through the camera portal as its only camera at 1280x720 and 30 pictures each second. The amd64 decode cost moves to F117.

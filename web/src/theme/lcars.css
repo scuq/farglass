@@ -171,7 +171,8 @@
   border: 0;
   border-radius: 0;
 }
-:root[data-theme="lcars"] .panel button.panel-mic[data-state="on"] {
+:root[data-theme="lcars"] .panel button.panel-mic[data-state="on"],
+:root[data-theme="lcars"] .panel button.panel-camera[data-state="on"] {
   color: var(--on-focus);
   background: var(--focus);
 }

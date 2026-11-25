@@ -174,6 +174,16 @@ async fn agent() {
             }
         })
         .flatten();
+    // The camera node of the session (F116), unless the administrator turned it off.
+    let _camera = farglass_session::desktop::camera_allowed()
+        .then(|| match session.camera.start_node() {
+            Ok(node) => Some(node),
+            Err(error) => {
+                tracing::warn!(%error, "no camera node, the apps cannot use the camera of the browser");
+                None
+            }
+        })
+        .flatten();
     // The ssh-agent of the session (F093), before the compositor: the desktop variables name it.
     // It starts on the main thread, which lives as long as the agent: it stops with that thread.
     let _ssh_agent = farglass_session::desktop::ssh_agent_wanted()

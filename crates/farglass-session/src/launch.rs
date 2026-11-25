@@ -645,6 +645,39 @@ fn with_redirect_extension(mut args: Vec<String>, extension: &Path) -> Vec<Strin
     args
 }
 
+/// The Chromium feature that reads cameras from PipeWire through the camera portal (ADR-056).
+const CAMERA_FEATURE: &str = "WebRtcPipeWireCamera";
+
+/// Turns on the PipeWire camera of a Chromium browser, so it finds the camera of the client (F116).
+///
+/// The feature goes into the `--enable-features` option of the command line, or into a new one after the program.
+fn with_camera_feature(mut args: Vec<String>) -> Vec<String> {
+    let Some(at) = args.iter().position(|arg| {
+        Path::new(arg)
+            .file_name()
+            .is_some_and(|name| CHROMIUM_BROWSERS.iter().any(|b| name == *b))
+    }) else {
+        return args;
+    };
+    // Chromium reads the last --enable-features only: the feature joins that one.
+    if let Some(features) = args[at + 1..]
+        .iter_mut()
+        .rev()
+        .find(|arg| arg.starts_with("--enable-features="))
+    {
+        if !features["--enable-features=".len()..]
+            .split(',')
+            .any(|feature| feature == CAMERA_FEATURE)
+        {
+            features.push(',');
+            features.push_str(CAMERA_FEATURE);
+        }
+    } else {
+        args.insert(at + 1, format!("--enable-features={CAMERA_FEATURE}"));
+    }
+    args
+}
+
 /// Returns the name of a systemd unit with the text `text`: each byte that a unit name cannot have is `\xNN`, as `systemd-escape` does.
 fn unit_text(text: &str) -> String {
     text.bytes()
@@ -756,7 +789,10 @@ impl Launcher {
         let app = self
             .app(id)
             .ok_or_else(|| LaunchError::Unknown(id.to_owned()))?;
-        let args = with_redirect_extension(exec_args_with(&app, files)?, &redirect_extension());
+        let mut args = with_redirect_extension(exec_args_with(&app, files)?, &redirect_extension());
+        if crate::desktop::camera_allowed() {
+            args = with_camera_feature(args);
+        }
         let mut command = if self.options.scope {
             let unit = format!(
                 "app-farglass-{}-{}.scope",
@@ -1026,6 +1062,32 @@ mod tests {
             program_name(&args("env -u A B=1 /usr/bin/gnome-calculator")).as_deref(),
             Some("gnome-calculator")
         );
+    }
+
+    #[test]
+    fn a_chromium_browser_gets_the_pipewire_camera() {
+        let args = |line: &str| line.split(' ').map(str::to_owned).collect::<Vec<_>>();
+        assert_eq!(
+            with_camera_feature(args("/usr/bin/chromium %U")),
+            [
+                "/usr/bin/chromium",
+                "--enable-features=WebRtcPipeWireCamera",
+                "%U"
+            ]
+        );
+        assert_eq!(
+            with_camera_feature(args("chromium --enable-features=A --enable-features=B,C")),
+            [
+                "chromium",
+                "--enable-features=A",
+                "--enable-features=B,C,WebRtcPipeWireCamera"
+            ]
+        );
+        assert_eq!(
+            with_camera_feature(args("chromium --enable-features=WebRtcPipeWireCamera")),
+            ["chromium", "--enable-features=WebRtcPipeWireCamera"]
+        );
+        assert_eq!(with_camera_feature(args("firefox %u")), ["firefox", "%u"]);
     }
 
     #[test]

@@ -174,6 +174,12 @@ pub enum Open {
     /// The shell sends [`MicRequest`]. After [`MicRequest::Start`], each data frame holds
     /// one packet: the packet number as u32, little-endian, then one Opus packet.
     Mic,
+    /// The camera of the client for the apps of the session (F116).
+    ///
+    /// The agent sends [`CameraEvent`] control messages: [`CameraEvent::Ready`] with the format at once.
+    /// The shell sends [`CameraRequest`]. After [`CameraRequest::Format`], each data frame holds
+    /// one encoded picture: a flags byte (bit 0 is a key frame), then one H.264 access unit in Annex B form.
+    Camera,
     /// The video players of the host browser, for video redirection (F040).
     ///
     /// The agent sends [`RedirectEvent`] control messages. An [`RedirectEvent::Append`]
@@ -782,6 +788,60 @@ pub enum MicRequest {
     Start,
     /// The microphone is off.
     Stop,
+}
+
+/// A control message of the agent on a camera channel (F116).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum CameraEvent {
+    /// The session has the camera node. The pictures must have this format.
+    Ready {
+        /// The codec, `h264`.
+        codec: String,
+        /// The width in pixels.
+        width: u32,
+        /// The height in pixels.
+        height: u32,
+        /// The largest number of pictures each second.
+        frame_rate: u32,
+    },
+    /// The session has no camera node, for example with no PipeWire server.
+    Unavailable {
+        /// The cause.
+        message: String,
+    },
+    /// A setting of the host refuses the camera to all apps, for example the camera switch of the privacy settings.
+    Blocked {
+        /// The cause, and the setting that changes it.
+        message: String,
+    },
+    /// A host app reads the camera node. If this channel holds the camera, the shell captures now.
+    Reading,
+    /// No host app reads the camera node. The shell stops the capture and keeps the camera armed.
+    Idle,
+    /// The next picture must be a key frame, for example after a picture that did not decode.
+    KeyFrame,
+    /// A different connection of the user armed the camera. The agent ignores the pictures of this channel until it arms again.
+    Taken,
+}
+
+/// A control message of the shell on a camera channel (F116).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum CameraRequest {
+    /// The user armed the camera. This channel holds the camera now. The capture waits for [`CameraEvent::Reading`].
+    Arm,
+    /// The user turned the camera off.
+    Disarm,
+    /// A new stream of pictures starts. Its first data frame is a key frame.
+    Format {
+        /// The codec, `h264`.
+        codec: String,
+        /// The width in pixels.
+        width: u32,
+        /// The height in pixels.
+        height: u32,
+    },
 }
 
 /// An app of the host: a desktop entry that the launcher shows.

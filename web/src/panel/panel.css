@@ -39,8 +39,9 @@
 .panel button[aria-pressed="true"] {
   outline: 2px solid var(--focus);
 }
-/* A microphone that sends its sound to the host must be visible at a glance (F114). */
-.panel button.panel-mic[data-state="on"] {
+/* A microphone or a camera that sends to the host must be visible at a glance (F114, F116). */
+.panel button.panel-mic[data-state="on"],
+.panel button.panel-camera[data-state="on"] {
   color: var(--bg);
   background: var(--focus);
 }

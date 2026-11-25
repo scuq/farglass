@@ -57,6 +57,8 @@ export class WebTransportTransport implements Transport {
   readonly #session: WebTransport;
   /** The writer of each channel, in the order of the frames: each frame waits for the one before it. */
   readonly #queues = new Map<number, Promise<WritableStreamDefaultWriter<Uint8Array> | null>>();
+  /** The bytes of each channel that wait for the stream. */
+  readonly #pending = new Map<number, number>();
   #closed = false;
   onmessage: ((message: ArrayBuffer) => void) | null = null;
   onclose: ((reason: string) => void) | null = null;
@@ -76,11 +78,17 @@ export class WebTransportTransport implements Transport {
     const channel = new DataView(message.buffer, message.byteOffset, message.byteLength).getUint32(0, true);
     const type = message[4];
     const before = this.#queues.get(channel) ?? this.#open();
+    this.#pending.set(channel, (this.#pending.get(channel) ?? 0) + message.byteLength);
     const after = before.then(async (writer) => {
       if (!writer) {
         return null;
       }
-      await writer.write(message);
+      try {
+        await writer.write(message);
+      } finally {
+        const left = this.#pending.get(channel);
+        if (left !== undefined) this.#pending.set(channel, left - message.byteLength);
+      }
       if (type === FrameType.Close) {
         await writer.close();
         return null;
@@ -90,9 +98,14 @@ export class WebTransportTransport implements Transport {
     after.catch((error: unknown) => this.#fail(error));
     if (type === FrameType.Close) {
       this.#queues.delete(channel);
+      this.#pending.delete(channel);
     } else {
       this.#queues.set(channel, after.catch(() => null));
     }
+  }
+
+  buffered(channel: number): number {
+    return this.#pending.get(channel) ?? 0;
   }
 
   close(): void {

@@ -75,6 +75,19 @@ describe("WebTransport transport", () => {
     expect(received.sort()).toEqual([0, 3]);
   });
 
+  test("the bytes of a channel that wait for its stream count until the stream takes them", async () => {
+    const session = new FakeSession();
+    const transport = new WebTransportTransport(session as unknown as WebTransport);
+    const open = openFrame(5, { kind: "camera" });
+    const control = encodeJsonFrame(5, FrameType.Control, { type: "arm" });
+    transport.send(open);
+    transport.send(control);
+    expect(transport.buffered(5)).toBe(open.byteLength + control.byteLength);
+    expect(transport.buffered(7)).toBe(0);
+    await settle();
+    expect(transport.buffered(5)).toBe(0);
+  });
+
   test("the end of the session reports its reason one time", async () => {
     const session = new FakeSession();
     const transport = new WebTransportTransport(session as unknown as WebTransport);

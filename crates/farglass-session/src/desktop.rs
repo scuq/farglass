@@ -43,6 +43,7 @@ struct HostConfig {
     ssh_agent: bool,
     ssh_agent_clear_on_lock: bool,
     microphone: bool,
+    camera: bool,
 }
 
 impl Default for HostConfig {
@@ -52,6 +53,7 @@ impl Default for HostConfig {
             ssh_agent: true,
             ssh_agent_clear_on_lock: true,
             microphone: true,
+            camera: true,
         }
     }
 }
@@ -117,6 +119,14 @@ pub fn ssh_agent_clear_on_lock() -> bool {
 #[must_use]
 pub fn microphone_allowed() -> bool {
     host_config().microphone
+}
+
+/// Returns `true` if the apps of the session can use the camera of the client (F116).
+///
+/// `camera` in the configuration file of the host decides, and is on by default.
+#[must_use]
+pub fn camera_allowed() -> bool {
+    host_config().camera
 }
 
 /// Returns `true` if the agent must start Xwayland (F083).
@@ -275,5 +285,12 @@ mod tests {
         assert!(HostConfig::default().microphone);
         assert!(!host_config_in("microphone = false\n").unwrap().microphone);
         assert!(host_config_in("microphone = \"no\"\n").is_err());
+    }
+
+    #[test]
+    fn the_camera_is_on_unless_the_file_turns_it_off() {
+        assert!(HostConfig::default().camera);
+        assert!(!host_config_in("camera = false\n").unwrap().camera);
+        assert!(host_config_in("camera = 1\n").is_err());
     }
 }

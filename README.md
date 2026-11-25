@@ -151,8 +151,9 @@ To show X11 apps, for example Java Swing apps, Wine, or SecureCRT, set `x11_apps
 The users must log out and log in again.
 The section [X11 apps](#x11-apps) gives the risk.
 
-The apps of the host can use the microphone of the browser after the user turns it on in the panel.
+The apps of the host can use the microphone and the camera of the browser after the user turns them on in the panel.
 To turn the microphone off for all users, set `microphone = false` in the same file.
+To turn the camera off for all users, set `camera = false` in the same file.
 The users must log out and log in again.
 
 To see the state, to find a fault, and to install a newer release:
@@ -414,6 +415,7 @@ Firefox and Safari work, with these limits:
 | Connection | WebTransport, else WebSocket | WebTransport, else WebSocket | WebSocket |
 | Video region of a Linux app (H.264) and sound (Opus) | WebCodecs | WebCodecs | WebCodecs |
 | Microphone for the apps of the host (Opus) | WebCodecs | WebCodecs | WebCodecs |
+| Camera for the apps of the host (H.264) | WebCodecs | WebCodecs | WebCodecs |
 | Passkeys | Yes | Yes | Yes |
 | Keyboard Lock | In full screen | Not available | Not available |
 | Window Management (more screens) | Not used yet | Not available | Not available |
@@ -422,6 +424,7 @@ With no WebTransport, the shell uses the WebSocket at once, with no wait.
 A browser that cannot decode H.264 tells the agent, and the agent sends tiles only.
 A browser with no `AudioDecoder` plays no sound of the apps.
 A browser with no `AudioEncoder` shows no Mic button.
+A browser with no `VideoEncoder` shows no Camera button.
 
 With no Keyboard Lock, the browser keeps its own shortcuts, for example Ctrl+T, Ctrl+W, Ctrl+N, Ctrl+Tab, and Cmd+Q on a Mac.
 The shortcuts of the shell never use these keys: see Settings > Keyboard.
@@ -672,6 +675,29 @@ Mic blocked shows that the browser refused the microphone: allow it in the site 
 If you turn the microphone on in a second tab, the first tab turns it off.
 A lock, a logout, and a lost connection turn the microphone off.
 `npm --prefix spikes/e2e run mic` records the fake microphone of Chromium from `farglass-mic`.
+
+The apps of the host can use the camera of your computer, for example for a video conference.
+The agent adds the video source `farglass-camera` to the PipeWire server of the user, with 1280x720 in I420 at 30 pictures each second.
+The camera stays off after each login and each new tab.
+Click Cam off in the panel to arm the camera, and the panel shows Cam ready.
+The browser opens the camera only while an app of the host reads `farglass-camera`, and asks you first.
+Thus the camera light of your computer is on only while an app uses the camera.
+Cam on in the panel shows that an app gets the pictures. Click it to turn the camera off.
+The browser crops the picture to 16:9 and encodes it as H.264 at 1.5 Mbit/s in real time.
+The agent decodes it with openh264. On a VM with two arm64 cores, the decode takes less than 3 % of one core.
+With no stream, the source gives black pictures.
+Cam blocked shows that the browser refused the camera: allow it in the site settings of the browser, then click again.
+Cam disabled shows that the camera switch of the privacy settings of the host is off, for example in GNOME Settings, Privacy, Camera.
+If you arm the camera in a second tab, the first tab turns it off.
+A lock, a logout, and a lost connection turn the camera off.
+
+The host browsers read a PipeWire camera only through the camera portal.
+The portal hides all cameras from such a connection, and the agent shows `farglass-camera` on it, and no other camera (ADR-056).
+The launcher starts Chromium with `--enable-features=WebRtcPipeWireCamera`.
+Firefox on the host finds the camera only after you set `media.webrtc.camera.allow-pipewire` to true in `about:config`.
+The first app that opens the camera can show the Access dialog of the portal.
+An app that reads only V4L2 devices, for example `/dev/video0`, does not see the camera.
+`npm --prefix spikes/e2e run camera` shows the fake camera of Chromium to a host Chromium through the camera portal.
 
 A video of a web page in the host browser plays in your browser, with the decoder of your computer (video redirection).
 The extension in `extension/redirect` copies what the page gives to Media Source Extensions and the state of the video.

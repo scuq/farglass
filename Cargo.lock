@@ -1207,6 +1207,7 @@ dependencies = [
  "farglass-surface",
  "futures-util",
  "nix",
+ "openh264",
  "opus1",
  "pipewire",
  "pty-process",

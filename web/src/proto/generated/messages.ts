@@ -68,7 +68,7 @@ id: number,
 /**
  * Reports whether the shell decodes the video messages (F037). A shell before this field sends none and gets tiles only.
  */
-video?: boolean, } | { "kind": "surface-input" } | { "kind": "clipboard" } | { "kind": "audio" } | { "kind": "mic" } | { "kind": "redirect" } | { "kind": "stats" } | { "kind": "apps" } | { "kind": "bookmarks" } | { "kind": "netcheck" } | { "kind": "tray" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" } | { "kind": "passkeys" };
+video?: boolean, } | { "kind": "surface-input" } | { "kind": "clipboard" } | { "kind": "audio" } | { "kind": "mic" } | { "kind": "camera" } | { "kind": "redirect" } | { "kind": "stats" } | { "kind": "apps" } | { "kind": "bookmarks" } | { "kind": "netcheck" } | { "kind": "tray" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" } | { "kind": "passkeys" };
 
 /**
  * The payload of a ready frame. The receiver of the open frame accepts the channel.
@@ -685,6 +685,52 @@ message: string, } | { "type": "taken" };
  * A control message of the shell on a mic channel (F114).
  */
 export type MicRequest = { "type": "start" } | { "type": "stop" };
+
+/**
+ * A control message of the agent on a camera channel (F116).
+ */
+export type CameraEvent = { "type": "ready", 
+/**
+ * The codec, `h264`.
+ */
+codec: string, 
+/**
+ * The width in pixels.
+ */
+width: number, 
+/**
+ * The height in pixels.
+ */
+height: number, 
+/**
+ * The largest number of pictures each second.
+ */
+frame_rate: number, } | { "type": "unavailable", 
+/**
+ * The cause.
+ */
+message: string, } | { "type": "blocked", 
+/**
+ * The cause, and the setting that changes it.
+ */
+message: string, } | { "type": "reading" } | { "type": "idle" } | { "type": "key-frame" } | { "type": "taken" };
+
+/**
+ * A control message of the shell on a camera channel (F116).
+ */
+export type CameraRequest = { "type": "arm" } | { "type": "disarm" } | { "type": "format", 
+/**
+ * The codec, `h264`.
+ */
+codec: string, 
+/**
+ * The width in pixels.
+ */
+width: number, 
+/**
+ * The height in pixels.
+ */
+height: number, };
 
 /**
  * A rectangle of a redirected video.

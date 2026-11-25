@@ -22,6 +22,8 @@ import {
 /** A transport that carries one frame in each message. */
 export interface Transport {
   send(message: Uint8Array<ArrayBuffer>): void;
+  /** The bytes that wait to go out for `channel`: on a WebSocket, for all channels. A transport with no count gives 0. */
+  buffered?(channel: number): number;
   close(): void;
   onmessage: ((message: ArrayBuffer) => void) | null;
   onclose: ((reason: string) => void) | null;
@@ -72,6 +74,11 @@ export class Channel {
     if (this.open) {
       this.connection.sendRaw(dataFrame(this.id, data));
     }
+  }
+
+  /** The bytes of this channel that wait to go out, for a sender that drops late data (F116). */
+  get buffered(): number {
+    return this.connection.buffered(this.id);
   }
 
   /** Sends one control message. */
@@ -267,6 +274,11 @@ export class Connection {
     this.#stopped("The shell closed the connection.");
   }
 
+  /** The bytes that wait to go out for channel `channel`. */
+  buffered(channel: number): number {
+    return this.#transport.buffered?.(channel) ?? 0;
+  }
+
   /** @internal Sends one encoded frame. */
   sendRaw(frame: Uint8Array<ArrayBuffer>): void {
     if (this.#state === "open") {
@@ -365,6 +377,7 @@ export function webSocketTransport(socket: WebSocket): Transport {
   socket.binaryType = "arraybuffer";
   const transport: Transport = {
     send: (message) => socket.send(message),
+    buffered: () => socket.bufferedAmount,
     close: () => socket.close(1000),
     onmessage: null,
     onclose: null,

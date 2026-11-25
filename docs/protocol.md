@@ -433,6 +433,49 @@ The agent closes the channel in these cases:
 - A data frame with less than 4 bytes, or with an Opus packet of more than 1275 bytes: `protocol-error`.
 - More packets than 50 each second, after a burst of 150 packets: `resource-limit`.
 
+## Camera channel
+
+A channel `{"kind":"camera"}` gives the camera of the client to the apps of the session (F116, ADR-056, ADR-057).
+The shell keeps it open while the desktop shows.
+The agent sends one of these messages at once:
+
+| Message | Meaning |
+|---|---|
+| `{"type":"ready","codec":"h264","width":1280,"height":720,"frame_rate":30}` | The session has the node `farglass-camera`. The pictures must have this size, at most at this frame rate. |
+| `{"type":"unavailable","message":"…"}` | The session has no camera node, for example with no PipeWire server. |
+| `{"type":"blocked","message":"…"}` | The camera switch of the privacy settings of the host is off (`org.gnome.desktop.privacy disable-camera`). The portal refuses the camera to all apps. |
+
+If `camera = false` is in the configuration file, the agent refuses the channel with `access-denied`.
+
+The shell sends these messages:
+
+| Message | Meaning |
+|---|---|
+| `{"type":"arm"}` | The user armed the camera. This channel holds the camera now. |
+| `{"type":"disarm"}` | The user turned the camera off. |
+| `{"type":"format","codec":"h264","width":1280,"height":720}` | A stream starts. Data frames follow, and the first one is a key frame. |
+
+After an arm, the agent sends these messages to the channel that holds the camera:
+
+| Message | Meaning |
+|---|---|
+| `{"type":"reading"}` | An app of the host reads the node. The shell opens the camera and sends a format. |
+| `{"type":"idle"}` | No app of the host reads the node. The shell closes the camera, and the camera stays armed. |
+| `{"type":"key-frame"}` | A picture did not decode. The next picture must be a key frame. |
+| `{"type":"taken"}` | A different channel of the user armed the camera. The agent ignores the pictures of this channel until its next arm. |
+
+Each data frame holds one picture: a flags byte, then one H.264 access unit in Annex B form.
+Bit 0 of the flags byte marks a key frame.
+The agent ignores the pictures of a stream before its first key frame.
+The shell drops a picture while the send buffer of the channel holds more than 256 KiB, and then waits for a key frame.
+
+The agent closes the channel in these cases:
+
+- A format or a data frame before an arm, or after a disarm: `protocol-error`.
+- A format, or a decoded picture, with a different size than the ready message: `protocol-error`.
+- A data frame with less than 2 bytes, or with more than 512 KiB: `protocol-error`.
+- More pictures than 30 each second, after a burst of 60 pictures: `resource-limit`.
+
 ## WebTransport
 
 farglassd serves WebTransport on HTTP/3 at `/wt`, on the UDP port with the number of the TCP port.

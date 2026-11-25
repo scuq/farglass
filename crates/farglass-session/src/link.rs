@@ -9,11 +9,11 @@ use std::time::Duration;
 use bytes::Bytes;
 use farglass_proto::codec::{CodecError, FrameCodec};
 use farglass_proto::message::{
-    AppsEvent, AppsRequest, AudioEvent, BookmarksEvent, BookmarksRequest, Bus, ClipboardMessage,
-    ClipboardMime, Close, CloseReason, DbusEvent, DbusRequest, LinkMessage, MAX_CLIPBOARD_LEN,
-    MicEvent, MicRequest, NetcheckEvent, NetcheckRequest, NotifyReply, Open, PolkitReply, PtyEvent,
-    PtyRequest, Ready, RedirectRequest, StateEvent, StateRequest, SurfaceAck, SurfaceInput,
-    SurfaceRequest, TrayRequest,
+    AppsEvent, AppsRequest, AudioEvent, BookmarksEvent, BookmarksRequest, Bus, CameraEvent,
+    CameraRequest, ClipboardMessage, ClipboardMime, Close, CloseReason, DbusEvent, DbusRequest,
+    LinkMessage, MAX_CLIPBOARD_LEN, MicEvent, MicRequest, NetcheckEvent, NetcheckRequest,
+    NotifyReply, Open, PolkitReply, PtyEvent, PtyRequest, Ready, RedirectRequest, StateEvent,
+    StateRequest, SurfaceAck, SurfaceInput, SurfaceRequest, TrayRequest,
 };
 use farglass_proto::{ChannelId, Frame, FrameError, FrameType, PROTOCOL_VERSION, Side};
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -24,6 +24,7 @@ use tokio_util::codec::Framed;
 
 use crate::audio::{self, Audio};
 use crate::bookmarks::Bookmarks;
+use crate::camera::{self, Camera};
 use crate::dbus::{self, Buses, DbusOptions, Filter, Subscriptions};
 use crate::launch::{LaunchOptions, Launcher};
 use crate::logind::Logind;
@@ -96,6 +97,8 @@ pub struct Session {
     pub audio: Arc<Audio>,
     /// The microphone of the client for the apps (F114).
     pub mic: Arc<Mic>,
+    /// The camera of the client for the apps (F116).
+    pub camera: Arc<Camera>,
     /// The video players of the host browsers.
     pub redirect: Arc<Redirect>,
     /// The use of the host by the windows and by farglass.
@@ -139,6 +142,7 @@ impl Default for Session {
             ),
             audio: Audio::new(),
             mic: Mic::new(),
+            camera: Camera::new(),
             redirect,
         }
     }
@@ -533,6 +537,39 @@ where
                         .err()
                         .map(|error| (error.reason(), error.to_string())),
                     Kind::Mic { mic: None } => None,
+                    Kind::Camera {
+                        camera: Some(camera),
+                    } if frame.frame_type() == FrameType::Control => {
+                        match frame.parse::<CameraRequest>() {
+                            Ok(CameraRequest::Arm) => {
+                                camera.arm();
+                                None
+                            }
+                            Ok(CameraRequest::Disarm) => {
+                                camera.disarm();
+                                None
+                            }
+                            Ok(CameraRequest::Format {
+                                codec,
+                                width,
+                                height,
+                            }) => camera
+                                .format(&codec, width, height)
+                                .err()
+                                .map(|error| (error.reason(), error.to_string())),
+                            Err(error) => Some((
+                                CloseReason::ProtocolError,
+                                format!("The camera request is not valid: {error}"),
+                            )),
+                        }
+                    }
+                    Kind::Camera {
+                        camera: Some(camera),
+                    } => camera
+                        .frame(frame.payload())
+                        .err()
+                        .map(|error| (error.reason(), error.to_string())),
+                    Kind::Camera { camera: None } => None,
                     Kind::Clipboard { incoming, .. } => match clipboard_frame(incoming, &frame) {
                         Ok(Some(clip)) => {
                             session.surfaces.set_clipboard(clip);
@@ -1055,6 +1092,11 @@ enum Kind {
         /// `None` if the session has no microphone source.
         mic: Option<mic::MicGuard>,
     },
+    /// Gives the camera of the client to the apps. Dropping the channel turns the camera off.
+    Camera {
+        /// `None` if the session has no camera node, or a setting of the host blocks the camera.
+        camera: Option<camera::CameraGuard>,
+    },
     /// The agent refused or closed the channel.
     Closed,
 }
@@ -1192,6 +1234,41 @@ fn open(
                 })
             });
             accept(Kind::Mic { mic: guard })
+        }
+        Ok(Open::Camera) if !crate::desktop::camera_allowed() => refuse(
+            CloseReason::AccessDenied,
+            "The administrator turned the camera off.".to_owned(),
+        ),
+        Ok(Open::Camera) => {
+            let event = if !session.camera.available() {
+                CameraEvent::Unavailable {
+                    message: "The session has no camera node.".to_owned(),
+                }
+            } else if camera::host_blocks_camera() {
+                CameraEvent::Blocked {
+                    message: "The camera switch of the privacy settings of the host is off \
+                              (org.gnome.desktop.privacy disable-camera)."
+                        .to_owned(),
+                }
+            } else {
+                CameraEvent::Ready {
+                    codec: camera::CODEC.to_owned(),
+                    width: u32::try_from(camera::WIDTH).unwrap_or(1280),
+                    height: u32::try_from(camera::HEIGHT).unwrap_or(720),
+                    frame_rate: camera::FRAME_RATE,
+                }
+            };
+            let ready = matches!(event, CameraEvent::Ready { .. });
+            let _ = events.send(Frame::json(channel, FrameType::Control, &event)?);
+            let guard = ready.then(|| {
+                let events = events.clone();
+                session.camera.add_channel(move |event| {
+                    if let Ok(frame) = Frame::json(channel, FrameType::Control, &event) {
+                        let _ = events.send(frame);
+                    }
+                })
+            });
+            accept(Kind::Camera { camera: guard })
         }
         Ok(Open::Redirect) => {
             let events = events.clone();

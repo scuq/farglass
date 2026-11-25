@@ -2,6 +2,7 @@ import { createSignal, For, onCleanup, Show, untrack } from "solid-js";
 import { setContextMenu } from "../menu/menu";
 import { windowMenu } from "../wm/menus";
 import { microphone, type MicState } from "../audio/mic";
+import { camera, type CameraState } from "../camera/camera";
 import { soundPlayer } from "../audio/player";
 import { isShellIcon, windowIcon } from "../launcher/hostApps";
 import { EMPTY_LAUNCHER, LAUNCHER_KEY, type LauncherState, parseLauncherState } from "../launcher/usage";
@@ -18,6 +19,15 @@ import { Launcher } from "./Launcher";
 import { Popover } from "./Popover";
 import { Tray } from "./Tray";
 import "./panel.css";
+
+/** The text and the tooltip of the camera button for each state (F116). The host gives the tooltip of a block. */
+const CAMERA_BUTTON: Record<CameraState, { label: string; title: string }> = {
+  off: { label: "Cam off", title: "Let the apps of the host use the camera of this computer" },
+  armed: { label: "Cam ready", title: "The camera turns on when an app of the host opens it. Click to turn it off." },
+  on: { label: "Cam on", title: "An app of the host gets the pictures of this camera. Click to turn it off." },
+  refused: { label: "Cam blocked", title: "The browser refused the camera. Allow it in the site settings of the browser, then click again." },
+  blocked: { label: "Cam disabled", title: "" },
+};
 
 /** The text and the tooltip of the microphone button for each state (F114). */
 const MIC_BUTTON: Record<MicState, { label: string; title: string }> = {
@@ -166,6 +176,19 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
           onClick={() => void microphone()?.toggle()}
         >
           {MIC_BUTTON[microphone()?.state() ?? "off"].label}
+        </button>
+      </Show>
+      <Show when={camera()?.available()}>
+        <button
+          type="button"
+          class="panel-camera"
+          aria-pressed={String(camera()?.state() === "armed" || camera()?.state() === "on") as "true" | "false"}
+          aria-disabled={camera()?.state() === "blocked" ? "true" : undefined}
+          data-state={camera()?.state()}
+          title={camera()?.state() === "blocked" ? camera()?.message() : CAMERA_BUTTON[camera()?.state() ?? "off"].title}
+          onClick={() => camera()?.toggle()}
+        >
+          {CAMERA_BUTTON[camera()?.state() ?? "off"].label}
         </button>
       </Show>
       <button type="button" class="panel-overview" aria-pressed={String(c.overviewOpen()) as "true" | "false"} onClick={() => c.setOverviewOpen(!c.overviewOpen())} title={`Show all workspaces and windows (${c.hint("overview")})`}>
