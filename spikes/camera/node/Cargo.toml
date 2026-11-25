@@ -1,0 +1,11 @@
+[package]
+name = "camera-node"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# The spike stays out of the farglass workspace (F115).
+[workspace]
+
+[dependencies]
+pipewire = { version = "0.10.1", features = ["v0_3_49"] }

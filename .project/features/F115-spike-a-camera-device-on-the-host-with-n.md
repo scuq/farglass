@@ -1,7 +1,7 @@
 ---
 id: F115
 title: Spike: a camera device on the host with no kernel module
-status: planned
+status: done
 phase: P08
 tags: [camera, spike]
 decisions: [ADR-008]
@@ -21,3 +21,4 @@ Know how the agent gives the camera of the client to host apps, with no kernel m
 - The code of the spike stays in spikes/ and does not go into the crates.
 
 ## Acceptance
+Path A works with no kernel module (ADR-056). A PipeWire node farglass-camera with media.class Video/Source and media.role Camera reaches the host Chromium 159 (with --enable-features=WebRtcPipeWireCamera) and Firefox ESR 153 (with media.webrtc.camera.allow-pipewire) at 1280x720 and 27 to 30 frames each second, after the agent gives the portal connection of host apps rwx on the node. Without that grant, Debian 13 shows no PipeWire camera to host apps. A GStreamer pipewiresrc reads the node directly. openh264 decodes 720p30 with 2.4 % to 16 % of one arm64 core; amd64 is left to F116. getUserMedia works in the client Chromium on a self-signed certificate after Proceed. v4l2loopback is not necessary. The scripts are in spikes/camera/.
