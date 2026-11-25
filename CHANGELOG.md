@@ -6,7 +6,7 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ---
 
-## Unreleased
+## v0.3.0 — 26 November 2026 — Microphone and camera for host apps
 
 ### Added
 - The apps of the host can use the microphone of your computer, for example for a video conference. Click Mic off in the Media menu of the panel to turn it on. To turn the microphone off for all users, set `microphone = false` in `/etc/farglass/farglassd.conf`.
