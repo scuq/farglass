@@ -30,7 +30,7 @@ import net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
-import { buildAll, echo, start, TIMEOUT_MS } from "./lib.mjs";
+import { buildAll, echo, mediaItem, start, TIMEOUT_MS } from "./lib.mjs";
 
 /** The extra 95th percentile that the camera can add, in ms. */
 const BOUND_MS = 30;
@@ -165,8 +165,8 @@ async function measure(name, url, { noWebTransport }) {
   const off = await echoTimes(page, `off ${name}`);
 
   const button = page.locator(".panel-camera");
-  await button.waitFor({ timeout: TIMEOUT_MS });
-  await button.click();
+  await button.waitFor({ state: "attached", timeout: TIMEOUT_MS });
+  await (await mediaItem(page, ".panel-camera")).click();
   await page.waitForFunction(() => document.querySelector(".panel-camera")?.textContent === "Cam ready", null, { timeout: TIMEOUT_MS });
   const host = hostChromium(120_000);
   try {
@@ -205,7 +205,7 @@ async function measure(name, url, { noWebTransport }) {
   const rate = await button.evaluate((el) => ({ bitrate: Number(el.dataset.bitrate), fps: Number(el.dataset.fps) }));
   stopGroup(host.child);
   await host.done;
-  await button.click();
+  await (await mediaItem(page, ".panel-camera")).click();
   await context.close();
   const line = `${name}: echo p50/p95 ${off.p50}/${off.p95} ms with the camera off, ${on.p50}/${on.p95} ms on; camera ${Math.round(rate.bitrate / 1000)} kbit/s at ${rate.fps} fps`;
   console.log(`INFO: ${line}`);

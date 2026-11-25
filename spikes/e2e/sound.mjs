@@ -18,7 +18,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import { buildAll, start, TIMEOUT_MS } from "./lib.mjs";
+import { buildAll, mediaItem, start, TIMEOUT_MS } from "./lib.mjs";
 
 const SHOTS = process.env.FARGLASS_SHOTS;
 const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "animation.py");
@@ -67,7 +67,7 @@ try {
   await page.goto(url);
   await page.locator(".wm").waitFor({ timeout: TIMEOUT_MS });
   const button = page.locator(".panel-sound");
-  await button.waitFor({ timeout: TIMEOUT_MS });
+  await button.waitFor({ state: "attached", timeout: TIMEOUT_MS });
   check(true, "the panel shows the sound button");
 
   const env = {
@@ -91,8 +91,9 @@ try {
   // The tone has the volume 0.3: its peak is near 0.3.
   check(level > 0.2 && level < 0.4, `the worklet plays the tone (peak ${level})`);
 
-  await button.click();
-  check((await button.getAttribute("aria-pressed")) === "true", "a click turns the sound off");
+  await (await mediaItem(page, ".panel-sound")).click();
+  check((await button.getAttribute("aria-checked")) === "false", "a click turns the sound off");
+  check((await page.locator(".panel-media").textContent()) === "Muted", "the panel button shows Muted");
   if (SHOTS) await page.screenshot({ path: join(SHOTS, "sound.png") });
   check(errors.length === 0, `no page error ${errors.join("; ")}`);
 } catch (error) {

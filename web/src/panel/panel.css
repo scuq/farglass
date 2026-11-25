@@ -20,6 +20,9 @@
 .panel-session {
   anchor-name: --panel-session;
 }
+.panel-media {
+  anchor-name: --panel-media;
+}
 .panel-workspaces,
 .panel-tasks {
   display: flex;
@@ -39,9 +42,10 @@
 .panel button[aria-pressed="true"] {
   outline: 2px solid var(--focus);
 }
-/* A microphone or a camera that sends to the host must be visible at a glance (F114, F116). */
-.panel button.panel-mic[data-state="on"],
-.panel button.panel-camera[data-state="on"] {
+/* A microphone or a camera that sends to the host must be visible at a glance, also with the menu closed (F114, F116, F119). */
+.panel button.panel-media[data-live="true"],
+.panel-media-menu .panel-mic[data-state="on"],
+.panel-media-menu .panel-camera[data-state="on"] {
   color: var(--bg);
   background: var(--focus);
 }
@@ -146,6 +150,12 @@
   margin-top: 4px;
   min-width: 10rem;
 }
+.panel-media-menu {
+  position-anchor: --panel-media;
+  position-area: bottom span-left;
+  margin-top: 4px;
+  min-width: 10rem;
+}
 .panel-keyboard {
   anchor-name: --panel-keyboard;
   min-width: 2.5rem;
@@ -165,6 +175,7 @@
     inset: 2.5rem auto auto 0.5rem;
   }
   .panel-session-menu,
+  .panel-media-menu,
   .panel-keyboard-menu {
     position: fixed;
     inset: 2.5rem 0.5rem auto auto;
@@ -172,11 +183,13 @@
 }
 
 .panel-session-menu [role="menu"],
+.panel-media-menu [role="menu"],
 .panel-keyboard-menu [role="menu"] {
   display: flex;
   flex-direction: column;
 }
 .panel-session-menu [role="menuitem"],
+.panel-media-menu [role="menuitemcheckbox"],
 .panel-keyboard-menu [role="menuitem"] {
   padding: 0.4rem 0.75rem;
   text-align: left;
@@ -187,11 +200,14 @@
 }
 .panel-session-menu [role="menuitem"]:hover,
 .panel-session-menu [role="menuitem"]:focus-visible,
+.panel-media-menu [role="menuitemcheckbox"]:hover,
+.panel-media-menu [role="menuitemcheckbox"]:focus-visible,
 .panel-keyboard-menu [role="menuitem"]:hover,
 .panel-keyboard-menu [role="menuitem"]:focus-visible {
   background: var(--line);
 }
-.panel-session-menu [role="menuitem"][aria-disabled="true"] {
+.panel-session-menu [role="menuitem"][aria-disabled="true"],
+.panel-media-menu [role="menuitemcheckbox"][aria-disabled="true"] {
   color: var(--muted);
 }
 

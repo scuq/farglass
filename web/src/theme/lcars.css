@@ -171,8 +171,9 @@
   border: 0;
   border-radius: 0;
 }
-:root[data-theme="lcars"] .panel button.panel-mic[data-state="on"],
-:root[data-theme="lcars"] .panel button.panel-camera[data-state="on"] {
+:root[data-theme="lcars"] .panel button.panel-media[data-live="true"],
+:root[data-theme="lcars"] .panel-media-menu .panel-mic[data-state="on"],
+:root[data-theme="lcars"] .panel-media-menu .panel-camera[data-state="on"] {
   color: var(--on-focus);
   background: var(--focus);
 }
@@ -348,7 +349,8 @@
 :root[data-theme="lcars"] .launcher-results li,
 :root[data-theme="lcars"] .context-menu-item,
 :root[data-theme="lcars"] .wm-switcher-item,
-:root[data-theme="lcars"] .panel-session-menu [role="menuitem"] {
+:root[data-theme="lcars"] .panel-session-menu [role="menuitem"],
+:root[data-theme="lcars"] .panel-media-menu [role="menuitemcheckbox"] {
   border-radius: 4px;
 }
 /* The selection: a tint and a marker in the accent color at the left. */
@@ -356,18 +358,22 @@
 :root[data-theme="lcars"] .context-menu-item[data-active="true"],
 :root[data-theme="lcars"] .wm-switcher-item[aria-selected="true"],
 :root[data-theme="lcars"] .panel-session-menu [role="menuitem"]:hover,
-:root[data-theme="lcars"] .panel-session-menu [role="menuitem"]:focus-visible {
+:root[data-theme="lcars"] .panel-session-menu [role="menuitem"]:focus-visible,
+:root[data-theme="lcars"] .panel-media-menu [role="menuitemcheckbox"]:hover,
+:root[data-theme="lcars"] .panel-media-menu [role="menuitemcheckbox"]:focus-visible {
   color: var(--fg);
   background: color-mix(in srgb, var(--focus) 14%, transparent);
   box-shadow: inset 3px 0 var(--focus);
 }
-:root[data-theme="lcars"] .panel-session-menu [role="menuitem"] {
+:root[data-theme="lcars"] .panel-session-menu [role="menuitem"],
+:root[data-theme="lcars"] .panel-media-menu [role="menuitemcheckbox"] {
   padding: 0.4rem 0.9rem;
   color: var(--fg);
   border: 0;
   background: none;
 }
-:root[data-theme="lcars"] .panel-session-menu [role="menuitem"][aria-disabled="true"] {
+:root[data-theme="lcars"] .panel-session-menu [role="menuitem"][aria-disabled="true"],
+:root[data-theme="lcars"] .panel-media-menu [role="menuitemcheckbox"][aria-disabled="true"] {
   color: var(--muted);
 }
 :root[data-theme="lcars"] .launcher-search {

@@ -1,8 +1,8 @@
 import { createSignal, For, onCleanup, Show, untrack } from "solid-js";
 import { setContextMenu } from "../menu/menu";
 import { windowMenu } from "../wm/menus";
-import { microphone, type MicState } from "../audio/mic";
-import { camera, type CameraState } from "../camera/camera";
+import { microphone } from "../audio/mic";
+import { camera } from "../camera/camera";
 import { soundPlayer } from "../audio/player";
 import { isShellIcon, windowIcon } from "../launcher/hostApps";
 import { EMPTY_LAUNCHER, LAUNCHER_KEY, type LauncherState, parseLauncherState } from "../launcher/usage";
@@ -16,25 +16,10 @@ import { Clock } from "./Clock";
 import { Dock } from "./Dock";
 import { KeyboardIndicator, type KeyboardState } from "./KeyboardIndicator";
 import { Launcher } from "./Launcher";
+import { CAMERA_ITEM, mediaSummary, MIC_ITEM, soundLabel } from "./media";
 import { Popover } from "./Popover";
 import { Tray } from "./Tray";
 import "./panel.css";
-
-/** The text and the tooltip of the camera button for each state (F116). The host gives the tooltip of a block. */
-const CAMERA_BUTTON: Record<CameraState, { label: string; title: string }> = {
-  off: { label: "Cam off", title: "Let the apps of the host use the camera of this computer" },
-  armed: { label: "Cam ready", title: "The camera turns on when an app of the host opens it. Click to turn it off." },
-  on: { label: "Cam on", title: "An app of the host gets the pictures of this camera. Click to turn it off." },
-  refused: { label: "Cam blocked", title: "The browser refused the camera. Allow it in the site settings of the browser, then click again." },
-  blocked: { label: "Cam disabled", title: "" },
-};
-
-/** The text and the tooltip of the microphone button for each state (F114). */
-const MIC_BUTTON: Record<MicState, { label: string; title: string }> = {
-  off: { label: "Mic off", title: "Let the apps of the host use the microphone of this computer" },
-  on: { label: "Mic on", title: "The apps of the host get the sound of this microphone. Click to turn it off." },
-  refused: { label: "Mic blocked", title: "The browser refused the microphone. Allow it in the site settings of the browser, then click again." },
-};
 
 /**
  * The panel at the top: the launcher, the workspaces, the open windows of the
@@ -43,6 +28,13 @@ const MIC_BUTTON: Record<MicState, { label: string; title: string }> = {
 export function Panel(props: { controller: DesktopController; user: string; onlogout: () => void; onlock: () => void; keyboard?: KeyboardState }) {
   const c = props.controller;
   const [sessionOpen, setSessionOpen] = createSignal(false);
+  const [mediaOpen, setMediaOpen] = createSignal(false);
+  const media = () =>
+    mediaSummary({
+      muted: soundPlayer()?.available() ? soundPlayer()?.muted() : undefined,
+      mic: microphone()?.available() ? microphone()?.state() : undefined,
+      camera: camera()?.available() ? camera()?.state() : undefined,
+    });
   // The pins and the use of the apps in the launcher (F076). The panel keeps them: the launcher has them at once when it opens.
   const [launcherState, setLauncherState] = createSignal<LauncherState>(EMPTY_LAUNCHER);
   onCleanup(c.state.watch(LAUNCHER_KEY, (stored) => setLauncherState(parseLauncherState(stored))));
@@ -152,46 +144,70 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
         </For>
       </nav>
 
-      <Show when={soundPlayer()?.available()}>
+      <Show when={soundPlayer()?.available() || microphone()?.available() || camera()?.available()}>
         <button
           type="button"
-          class="panel-sound"
-          aria-pressed={String(soundPlayer()?.muted() ?? false) as "true" | "false"}
-          data-packets={soundPlayer()?.packets()}
-          data-playing={String(soundPlayer()?.state()?.playing ?? false)}
-          data-level={(soundPlayer()?.state()?.level ?? 0).toFixed(2)}
-          title="Turn the sound of the apps off or on"
-          onClick={() => soundPlayer()?.setMuted(!soundPlayer()?.muted())}
+          class="panel-media"
+          aria-haspopup="menu"
+          aria-expanded={String(mediaOpen()) as "true" | "false"}
+          aria-controls="media-menu"
+          data-live={String(media().live)}
+          data-sound={soundPlayer()?.available() ? (soundPlayer()?.muted() ? "off" : "on") : undefined}
+          data-mic={microphone()?.available() ? microphone()?.state() : undefined}
+          data-camera={camera()?.available() ? camera()?.state() : undefined}
+          title="Sound, microphone, and camera"
+          onClick={() => setMediaOpen(!mediaOpen())}
         >
-          {soundPlayer()?.muted() ? "Sound off" : "Sound"}
+          {media().label}
         </button>
-      </Show>
-      <Show when={microphone()?.available()}>
-        <button
-          type="button"
-          class="panel-mic"
-          aria-pressed={String(microphone()?.state() === "on") as "true" | "false"}
-          data-state={microphone()?.state()}
-          title={MIC_BUTTON[microphone()?.state() ?? "off"].title}
-          onClick={() => void microphone()?.toggle()}
-        >
-          {MIC_BUTTON[microphone()?.state() ?? "off"].label}
-        </button>
-      </Show>
-      <Show when={camera()?.available()}>
-        <button
-          type="button"
-          class="panel-camera"
-          aria-pressed={String(camera()?.state() === "armed" || camera()?.state() === "on") as "true" | "false"}
-          aria-disabled={camera()?.state() === "blocked" ? "true" : undefined}
-          data-state={camera()?.state()}
-          data-bitrate={camera()?.rate().bitrate}
-          data-fps={camera()?.rate().frameRate}
-          title={camera()?.state() === "blocked" ? camera()?.message() : CAMERA_BUTTON[camera()?.state() ?? "off"].title}
-          onClick={() => camera()?.toggle()}
-        >
-          {CAMERA_BUTTON[camera()?.state() ?? "off"].label}
-        </button>
+        <Popover id="media-menu" class="panel-media-menu" label="Sound, microphone, and camera" open={mediaOpen()} keep onClose={() => setMediaOpen(false)}>
+          <div role="menu" aria-label="Sound, microphone, and camera">
+            <Show when={soundPlayer()?.available()}>
+              <button
+                type="button"
+                role="menuitemcheckbox"
+                class="panel-sound"
+                aria-checked={String(!(soundPlayer()?.muted() ?? false)) as "true" | "false"}
+                data-packets={soundPlayer()?.packets()}
+                data-playing={String(soundPlayer()?.state()?.playing ?? false)}
+                data-level={(soundPlayer()?.state()?.level ?? 0).toFixed(2)}
+                title="Turn the sound of the apps off or on"
+                onClick={() => soundPlayer()?.setMuted(!soundPlayer()?.muted())}
+              >
+                {soundLabel(soundPlayer()?.muted() ?? false)}
+              </button>
+            </Show>
+            <Show when={microphone()?.available()}>
+              <button
+                type="button"
+                role="menuitemcheckbox"
+                class="panel-mic"
+                aria-checked={String(microphone()?.state() === "on") as "true" | "false"}
+                data-state={microphone()?.state()}
+                title={MIC_ITEM[microphone()?.state() ?? "off"].title}
+                onClick={() => void microphone()?.toggle()}
+              >
+                {MIC_ITEM[microphone()?.state() ?? "off"].label}
+              </button>
+            </Show>
+            <Show when={camera()?.available()}>
+              <button
+                type="button"
+                role="menuitemcheckbox"
+                class="panel-camera"
+                aria-checked={String(camera()?.state() === "armed" || camera()?.state() === "on") as "true" | "false"}
+                aria-disabled={camera()?.state() === "blocked" ? "true" : undefined}
+                data-state={camera()?.state()}
+                data-bitrate={camera()?.rate().bitrate}
+                data-fps={camera()?.rate().frameRate}
+                title={camera()?.state() === "blocked" ? camera()?.message() : CAMERA_ITEM[camera()?.state() ?? "off"].title}
+                onClick={() => camera()?.toggle()}
+              >
+                {CAMERA_ITEM[camera()?.state() ?? "off"].label}
+              </button>
+            </Show>
+          </div>
+        </Popover>
       </Show>
       <button type="button" class="panel-overview" aria-pressed={String(c.overviewOpen()) as "true" | "false"} onClick={() => c.setOverviewOpen(!c.overviewOpen())} title={`Show all workspaces and windows (${c.hint("overview")})`}>
         Overview

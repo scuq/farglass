@@ -423,8 +423,8 @@ Firefox and Safari work, with these limits:
 With no WebTransport, the shell uses the WebSocket at once, with no wait.
 A browser that cannot decode H.264 tells the agent, and the agent sends tiles only.
 A browser with no `AudioDecoder` plays no sound of the apps.
-A browser with no `AudioEncoder` shows no Mic button.
-A browser with no `VideoEncoder` shows no Camera button.
+A browser with no `AudioEncoder` shows no Mic item in the Media menu.
+A browser with no `VideoEncoder` shows no Cam item in the Media menu.
 
 With no Keyboard Lock, the browser keeps its own shortcuts, for example Ctrl+T, Ctrl+W, Ctrl+N, Ctrl+Tab, and Cmd+Q on a Mac.
 The shortcuts of the shell never use these keys: see Settings > Keyboard.
@@ -658,19 +658,23 @@ The apps of the web session get `PULSE_SINK=farglass` and `PIPEWIRE_NODE=farglas
 The agent encodes the sound as Opus at 48 kHz in stereo, 20 ms in each packet, and sends no packets after 1 s of silence.
 The browser decodes the packets with WebCodecs and plays them in an AudioWorklet with a jitter buffer: the sound starts after 60 ms, and the delay stays below 200 ms.
 The browser starts the sound only after a press or a key in the page.
-The Sound button in the panel turns the sound off and on.
+The panel has one Media menu for the sound, the microphone, and the camera.
+Click Sound in the Media menu to turn the sound off and on.
+The menu stays open after a click, thus you can change two items.
+With the menu closed, the Media button names each exception: Mic on, Cam on, Cam ready, and Muted.
+A microphone or a camera that sends to the host also changes the color of the button.
 `npm --prefix spikes/e2e run sound` plays a tone from `spikes/e2e/fixtures/animation.py --tone`, and the browser must play it.
 
 The apps of the host can use the microphone of your computer, for example for a video conference.
 The agent adds the audio source `farglass-mic` to the PipeWire server of the user.
 The apps of the web session get `PULSE_SOURCE=farglass-mic`, thus PulseAudio clients record from it.
 The microphone stays off after each login and each new tab.
-Click Mic off in the panel to turn it on, and the browser asks you first.
+Click Mic off in the Media menu of the panel to turn it on, and the browser asks you first.
 The browser records with its echo cancellation, its noise suppression, and its automatic gain.
 It encodes the sound as Opus at 48 kHz in mono, 20 ms in each packet, at 32 kbit/s.
 The agent decodes the packets into a jitter buffer: the sound starts after 40 ms, and the delay stays below 120 ms.
 With the microphone off, the source gives silence.
-Mic on in the panel shows that the apps get the sound. Click it to turn the microphone off.
+Mic on shows that the apps get the sound. Click it to turn the microphone off.
 Mic blocked shows that the browser refused the microphone: allow it in the site settings of the browser, then click again.
 If you turn the microphone on in a second tab, the first tab turns it off.
 A lock, a logout, and a lost connection turn the microphone off.
@@ -679,10 +683,10 @@ A lock, a logout, and a lost connection turn the microphone off.
 The apps of the host can use the camera of your computer, for example for a video conference.
 The agent adds the video source `farglass-camera` to the PipeWire server of the user, with 1280x720 in I420 at 30 pictures each second.
 The camera stays off after each login and each new tab.
-Click Cam off in the panel to arm the camera, and the panel shows Cam ready.
+Click Cam off in the Media menu of the panel to arm the camera, and the menu shows Cam ready.
 The browser opens the camera only while an app of the host reads `farglass-camera`, and asks you first.
 Thus the camera light of your computer is on only while an app uses the camera.
-Cam on in the panel shows that an app gets the pictures. Click it to turn the camera off.
+Cam on shows that an app gets the pictures. Click it to turn the camera off.
 The browser crops the picture to 16:9 and encodes it as H.264 in real time, at most at 1.5 Mbit/s.
 The agent decodes it with openh264. On a VM with two arm64 cores, the decode takes less than 3 % of one core.
 

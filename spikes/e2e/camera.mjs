@@ -23,7 +23,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
-import { buildAll, start, TIMEOUT_MS } from "./lib.mjs";
+import { buildAll, mediaItem, start, TIMEOUT_MS } from "./lib.mjs";
 
 const SHOTS = process.env.FARGLASS_SHOTS;
 const state = mkdtempSync(join(tmpdir(), "farglass-e2e-"));
@@ -128,10 +128,10 @@ try {
   await page.goto(url);
   await page.locator(".wm").waitFor({ timeout: TIMEOUT_MS });
   const button = page.locator(".panel-camera");
-  await button.waitFor({ timeout: TIMEOUT_MS });
+  await button.waitFor({ state: "attached", timeout: TIMEOUT_MS });
   check((await button.textContent()) === "Cam off", "the panel shows the camera button, off");
 
-  await button.click();
+  await (await mediaItem(page, ".panel-camera")).click();
   await page.waitForFunction(() => document.querySelector(".panel-camera")?.textContent === "Cam ready", null, { timeout: TIMEOUT_MS });
   check(/event=camera result=accepted reason=arm/.test(agent.log()), "a click arms the camera, and the agent logs it");
   await page.waitForTimeout(500);
@@ -140,6 +140,7 @@ try {
   const host = hostChromium();
   await page.waitForFunction(() => document.querySelector(".panel-camera")?.dataset.state === "on", null, { timeout: 60_000 });
   check(true, "the panel shows Cam on while the host Chromium reads the camera");
+  check((await page.locator(".panel-media").textContent()) === "Cam on", "the panel button shows Cam on with the media menu closed");
   if (SHOTS) await page.screenshot({ path: join(SHOTS, "camera.png") });
   const { status, line } = await host;
   const result = JSON.parse(line.startsWith("{") ? line : "{}");
@@ -152,7 +153,7 @@ try {
   await page.waitForFunction(() => document.querySelector(".panel-camera")?.textContent === "Cam ready", null, { timeout: TIMEOUT_MS });
   check(/event=camera result=accepted reason=stop/.test(agent.log()), "the host Chromium stops, the capture stops, and the camera stays armed");
 
-  await button.click();
+  await (await mediaItem(page, ".panel-camera")).click();
   check((await button.textContent()) === "Cam off", "a second click turns the camera off");
   await page.waitForTimeout(300);
   check(/event=camera result=accepted reason=disarm/.test(agent.log()), "the agent logs the disarm");

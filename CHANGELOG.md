@@ -9,8 +9,11 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 ## Unreleased
 
 ### Added
-- The apps of the host can use the microphone of your computer, for example for a video conference. Click Mic off in the panel to turn it on. To turn the microphone off for all users, set `microphone = false` in `/etc/farglass/farglassd.conf`.
-- The apps of the host can use the camera of your computer, for example for a video conference. Click Cam off in the panel to arm the camera. The browser opens the camera only while an app of the host uses it. The camera uses at most half of your uplink, and less on a slow network. Thus it does not delay your keys and clicks. In Firefox on the host, set `media.webrtc.camera.allow-pipewire` to true in `about:config`. To turn the camera off for all users, set `camera = false` in `/etc/farglass/farglassd.conf`.
+- The apps of the host can use the microphone of your computer, for example for a video conference. Click Mic off in the Media menu of the panel to turn it on. To turn the microphone off for all users, set `microphone = false` in `/etc/farglass/farglassd.conf`.
+- The apps of the host can use the camera of your computer, for example for a video conference. Click Cam off in the Media menu of the panel to arm the camera. The browser opens the camera only while an app of the host uses it. The camera uses at most half of your uplink, and less on a slow network. Thus it does not delay your keys and clicks. In Firefox on the host, set `media.webrtc.camera.allow-pipewire` to true in `about:config`. To turn the camera off for all users, set `camera = false` in `/etc/farglass/farglassd.conf`.
+
+### Changed
+- The sound, the microphone, and the camera are in one Media menu in the panel, thus the panel uses less space. With the menu closed, the Media button shows Mic on, Cam on, Cam ready, or Muted.
 
 ### Fixed
 - A GTK window with no header bar of its own no longer shows two title bars. Before, GTK drew a title bar inside the frame of farglass.

@@ -17,7 +17,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
-import { buildAll, start, TIMEOUT_MS } from "./lib.mjs";
+import { buildAll, mediaItem, start, TIMEOUT_MS } from "./lib.mjs";
 
 const SHOTS = process.env.FARGLASS_SHOTS;
 const state = mkdtempSync(join(tmpdir(), "farglass-e2e-"));
@@ -86,13 +86,13 @@ try {
   await page.goto(url);
   await page.locator(".wm").waitFor({ timeout: TIMEOUT_MS });
   const button = page.locator(".panel-mic");
-  await button.waitFor({ timeout: TIMEOUT_MS });
+  await button.waitFor({ state: "attached", timeout: TIMEOUT_MS });
   check((await button.textContent()) === "Mic off", "the panel shows the microphone button, off");
 
   const before = await record(1500);
   check(before.samples > 0 && before.peak === 0, `the source gives silence while the microphone is off (${before.samples} samples)`);
 
-  await button.click();
+  await (await mediaItem(page, ".panel-mic")).click();
   await page.waitForFunction(() => document.querySelector(".panel-mic")?.dataset.state === "on", null, { timeout: TIMEOUT_MS });
   check(true, "a click turns the microphone on");
   check(/event=microphone result=accepted reason=start/.test(agent.log()), "the agent logs the start in the security log");
@@ -100,7 +100,8 @@ try {
   check(during.peak > 0.01, `an app records the fake microphone of the browser (peak ${during.peak.toFixed(3)})`);
   if (SHOTS) await page.screenshot({ path: join(SHOTS, "mic.png") });
 
-  await button.click();
+  check((await page.locator(".panel-media").textContent()) === "Mic on", "the panel button shows Mic on");
+  await (await mediaItem(page, ".panel-mic")).click();
   check((await button.textContent()) === "Mic off", "a second click turns the microphone off");
   await page.waitForTimeout(300);
   const after = await record(1500);

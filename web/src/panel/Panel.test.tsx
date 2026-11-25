@@ -138,8 +138,10 @@ describe("sound of the apps", () => {
       expect(button.dataset.packets).toBe("1");
       button.click();
       await settle();
-      expect(button.getAttribute("aria-pressed")).toBe("true");
+      expect(button.getAttribute("aria-checked")).toBe("false");
       expect(button.textContent).toBe("Sound off");
+      // The panel button names the exception with the menu closed.
+      expect(host.querySelector(".panel-media")!.textContent).toBe("Muted");
       expect(gains[0]!.value).toBe(0);
     } finally {
       vi.unstubAllGlobals();
@@ -218,7 +220,7 @@ describe("microphone for the apps", () => {
       await settle();
       const button = host.querySelector<HTMLButtonElement>(".panel-mic")!;
       expect(button.textContent).toBe("Mic off");
-      expect(button.getAttribute("aria-pressed")).toBe("false");
+      expect(button.getAttribute("aria-checked")).toBe("false");
       server.take();
       button.click();
       await settle();
@@ -385,7 +387,8 @@ describe("camera for the apps", () => {
       await settle();
       expect(sent().map((f) => parseJson(f))).toEqual([{ type: "arm" }]);
       expect(button.textContent).toBe("Cam ready");
-      expect(button.getAttribute("aria-pressed")).toBe("true");
+      expect(button.getAttribute("aria-checked")).toBe("true");
+      expect(host.querySelector(".panel-media")!.textContent).toBe("Cam ready");
       expect(media).not.toHaveBeenCalled();
       // An app of the host opens the camera.
       server.push(encodeJsonFrame(cam, FrameType.Control, { type: "reading" }));
@@ -522,6 +525,64 @@ describe("camera for the apps", () => {
       expect(server.take().filter((f) => f.channel === cam)).toEqual([]);
     } finally {
       restore();
+    }
+  });
+});
+
+describe("media menu", () => {
+  test("one panel button opens the menu, and a live microphone shows on the button with the menu closed", async () => {
+    const track = { stop: () => {}, addEventListener: () => {} };
+    class FakeContext {
+      audioWorklet = { addModule: async () => {} };
+      createMediaStreamSource() {
+        return { connect: (to: unknown) => to };
+      }
+      close = async () => {};
+    }
+    class FakeEncoder {
+      state = "unconfigured";
+      configure() {
+        this.state = "configured";
+      }
+      close() {
+        this.state = "closed";
+      }
+    }
+    vi.stubGlobal("AudioContext", FakeContext);
+    vi.stubGlobal("AudioWorkletNode", class { port = { onmessage: null }; });
+    vi.stubGlobal("AudioEncoder", FakeEncoder);
+    vi.stubGlobal("AudioData", class {});
+    vi.stubGlobal("navigator", { ...navigator, mediaDevices: { getUserMedia: async () => ({ getTracks: () => [track] }) } });
+    try {
+      const { host, server, channelOf } = await mountDesktop();
+      expect(host.querySelector(".panel-media")).toBeNull();
+      const mic = channelOf("mic");
+      server.push(readyFrame(mic));
+      server.push(encodeJsonFrame(mic, FrameType.Control, { type: "ready", codec: "opus", sample_rate: 48000, channels: 1, frame_samples: 960 }));
+      await settle();
+      const button = host.querySelector<HTMLButtonElement>(".panel-media")!;
+      expect(button.textContent).toBe("Media");
+      expect(button.dataset.live).toBe("false");
+      expect(button.getAttribute("aria-expanded")).toBe("false");
+      button.click();
+      await settle();
+      expect(button.getAttribute("aria-expanded")).toBe("true");
+      const menu = host.querySelector<HTMLElement>("#media-menu")!;
+      expect([...menu.querySelectorAll('[role="menuitemcheckbox"]')].map((item) => item.textContent)).toEqual(["Mic off"]);
+      menu.querySelector<HTMLButtonElement>(".panel-mic")!.click();
+      await settle();
+      await settle();
+      // The menu stays open after a toggle, and the panel button shows the live microphone.
+      expect(button.getAttribute("aria-expanded")).toBe("true");
+      expect(button.textContent).toBe("Mic on");
+      expect(button.dataset.live).toBe("true");
+      button.click();
+      await settle();
+      expect(button.getAttribute("aria-expanded")).toBe("false");
+      expect(button.textContent).toBe("Mic on");
+      expect(button.dataset.mic).toBe("on");
+    } finally {
+      vi.unstubAllGlobals();
     }
   });
 });

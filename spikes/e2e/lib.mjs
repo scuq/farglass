@@ -116,6 +116,22 @@ export async function relay(target) {
   };
 }
 
+/**
+ * Returns the item `selector` of the media menu of the panel (F119): sound, microphone, or camera.
+ * The item is in the page also while the menu is closed. The function opens the menu if it is closed,
+ * thus a click on the item works. A click in the page closes the menu again.
+ */
+export async function mediaItem(page, selector) {
+  const item = page.locator(selector);
+  await item.waitFor({ state: "attached", timeout: TIMEOUT_MS });
+  const button = page.locator(".panel-media");
+  if ((await button.getAttribute("aria-expanded")) !== "true") {
+    await button.click();
+  }
+  await item.waitFor({ state: "visible", timeout: TIMEOUT_MS });
+  return item;
+}
+
 /** Logs out through the session menu of the panel. */
 export async function logout(page, user) {
   await page.getByRole("button", { name: `Logged in as ${user}` }).click();

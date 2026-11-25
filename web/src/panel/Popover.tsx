@@ -12,6 +12,9 @@ const SUPPORTED = typeof HTMLElement !== "undefined" && "showPopover" in HTMLEle
  * the browser closes the popover itself on a click outside or on Escape.
  * In a DOM with no Popover API, for example a test DOM, the content shows
  * only while `open` is true.
+ *
+ * With `keep`, the content stays in the DOM while the popover is closed, for
+ * content that holds a state, for example the media menu (F119).
  */
 export function Popover(props: {
   id: string;
@@ -19,6 +22,7 @@ export function Popover(props: {
   open: boolean;
   onClose: () => void;
   label: string;
+  keep?: boolean;
   children: JSX.Element;
 }) {
   let element: HTMLElement | undefined;
@@ -55,7 +59,7 @@ export function Popover(props: {
         });
       }}
     >
-      {props.open ? props.children : null}
+      {props.open || props.keep ? props.children : null}
     </div>
   );
 }
