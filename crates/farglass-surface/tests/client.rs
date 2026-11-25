@@ -882,3 +882,26 @@ fn a_subsurface_shows_as_a_popup_at_its_place() {
         |e| matches!(e, Event::PopupClosed { id } if *id == child_id),
     );
 }
+
+#[test]
+fn the_compositor_offers_the_kde_server_decoration_global() {
+    // GTK reads the default mode of this global: with it, a GTK window with no header bar
+    // draws no title bar of its own (F113).
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("wayland-test");
+    let compositor = Compositor::spawn(&socket, |_| {}).unwrap();
+    let connection =
+        Connection::from_socket(UnixStream::connect(compositor.socket()).unwrap()).unwrap();
+    let (globals, _queue) = registry_queue_init::<App>(&connection).unwrap();
+    let interfaces: Vec<String> = globals
+        .contents()
+        .clone_list()
+        .into_iter()
+        .map(|global| global.interface)
+        .collect();
+    assert!(
+        interfaces.contains(&"org_kde_kwin_server_decoration_manager".to_owned()),
+        "{interfaces:?}"
+    );
+    assert!(interfaces.contains(&"zxdg_decoration_manager_v1".to_owned()));
+}

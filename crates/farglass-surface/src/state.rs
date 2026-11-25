@@ -14,6 +14,7 @@ use smithay::delegate_data_device;
 use smithay::delegate_output;
 use smithay::delegate_seat;
 use smithay::delegate_shm;
+use smithay::delegate_kde_decoration;
 use smithay::delegate_xdg_decoration;
 use smithay::delegate_xdg_shell;
 use smithay::input::keyboard::{FilterResult, Keycode, XkbConfig};
@@ -49,6 +50,8 @@ use smithay::wayland::selection::data_device::{
     request_data_device_client_selection, set_data_device_focus, set_data_device_selection,
 };
 use smithay::wayland::selection::{SelectionHandler, SelectionSource, SelectionTarget};
+use smithay::reexports::wayland_protocols_misc::server_decoration::server::org_kde_kwin_server_decoration_manager::Mode as KdeDecorationMode;
+use smithay::wayland::shell::kde::decoration::{KdeDecorationHandler, KdeDecorationState};
 use smithay::wayland::shell::xdg::decoration::{XdgDecorationHandler, XdgDecorationState};
 use smithay::wayland::shell::xdg::{
     PopupSurface, PositionerState, SurfaceCachedState, ToplevelSurface, XdgShellHandler,
@@ -360,6 +363,9 @@ pub(crate) struct State {
     shm: ShmState,
     xdg_shell: XdgShellState,
     _decoration: XdgDecorationState,
+    /// The KDE server decoration global (F113). GTK reads its default mode: with the server mode,
+    /// a GTK window with no header bar draws no title bar of its own.
+    kde_decoration: KdeDecorationState,
     _cursor_shape: CursorShapeManagerState,
     data_device: DataDeviceState,
     _outputs: OutputManagerState,
@@ -488,6 +494,7 @@ fn setup(
         shm: ShmState::new::<State>(&dh, [wl_shm::Format::Argb8888, wl_shm::Format::Xrgb8888]),
         xdg_shell: XdgShellState::new::<State>(&dh),
         _decoration: XdgDecorationState::new::<State>(&dh),
+        kde_decoration: KdeDecorationState::new::<State>(&dh, KdeDecorationMode::Server),
         // GTK 4 selects its cursors by name through cursor-shape-v1.
         _cursor_shape: CursorShapeManagerState::new::<State>(&dh),
         // The clipboard (F030). GTK also needs a data device to start.
@@ -1569,11 +1576,19 @@ impl XdgDecorationHandler for State {
         _mode: zxdg_toplevel_decoration_v1::Mode,
     ) {
         // The shell draws the frame of each window, thus the mode is always server-side.
-        self.new_decoration(toplevel);
+        XdgDecorationHandler::new_decoration(self, toplevel);
     }
 
     fn unset_mode(&mut self, toplevel: ToplevelSurface) {
-        self.new_decoration(toplevel);
+        XdgDecorationHandler::new_decoration(self, toplevel);
+    }
+}
+
+// GTK does not use xdg-decoration. It uses this older protocol (F113). The default handler
+// accepts the mode that a window asks for: a window with a header bar keeps its own frame.
+impl KdeDecorationHandler for State {
+    fn kde_decoration_state(&self) -> &KdeDecorationState {
+        &self.kde_decoration
     }
 }
 
@@ -1687,6 +1702,7 @@ delegate_compositor!(State);
 delegate_shm!(State);
 delegate_xdg_shell!(State);
 delegate_xdg_decoration!(State);
+delegate_kde_decoration!(State);
 delegate_seat!(State);
 delegate_output!(State);
 delegate_cursor_shape!(State);

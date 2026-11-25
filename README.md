@@ -64,6 +64,10 @@ Each web session runs its own Wayland compositor with no screen, built on Smitha
 It draws nothing: for each commit, it gives the buffer and the damage of each window to the encoder.
 The shell is the only window manager.
 The compositor asks each app for server-side decorations, and the shell draws the frame and places the window.
+It offers the xdg-decoration protocol and the KDE server decoration protocol, which GTK uses.
+A GTK window with no header bar thus has only the frame of the shell.
+An app that draws its own header bar, for example a libadwaita app, keeps that bar inside the frame of the shell.
+GNOME Terminal has no header bar after `gsettings set org.gnome.Terminal.Legacy.Settings headerbar false`.
 
 X11 apps go through Xwayland, which is off by default.
 If `x11_apps = true`, the compositor starts Xwayland with the session and is its X11 window manager.

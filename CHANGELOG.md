@@ -6,6 +6,11 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ---
 
+## Unreleased
+
+### Fixed
+- A GTK window with no header bar of its own no longer shows two title bars. Before, GTK drew a title bar inside the frame of farglass.
+
 ## v0.2.2 — 25 November 2026 — Network check app
 
 ### Added
