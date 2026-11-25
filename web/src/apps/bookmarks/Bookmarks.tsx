@@ -43,6 +43,8 @@ export default function BookmarksApp(props: { context: AppContext }) {
   const [draft, setDraft] = createSignal<Draft>(EMPTY);
   const [removing, setRemoving] = createSignal<number | null>(null);
   const [opening, setOpening] = createSignal<string | null>(null);
+  /** In the edit mode, each row shows its Edit and Delete buttons. */
+  const [editMode, setEditMode] = createSignal(false);
 
   if (!client) {
     return <p class="bookmarks-empty">The bookmarks are not available: the desktop has no connection to the host.</p>;
@@ -138,6 +140,9 @@ export default function BookmarksApp(props: { context: AppContext }) {
         <button type="button" onClick={() => client.refresh()}>
           Reload
         </button>
+        <button type="button" disabled={!state() || state()?.error !== undefined} aria-pressed={editMode() ? "true" : "false"} onClick={() => setEditMode(!editMode())}>
+          {editMode() ? "Done" : "Edit"}
+        </button>
         <button type="button" disabled={!state() || state()?.error !== undefined} onClick={() => startEdit(-1)}>
           Add
         </button>
@@ -209,12 +214,14 @@ export default function BookmarksApp(props: { context: AppContext }) {
                   </Show>
                   <Show when={problemOf(index())}>{(problem) => <span class="bookmarks-problem">{problem()}</span>}</Show>
                 </button>
-                <button type="button" disabled={state()?.error !== undefined} onClick={() => startEdit(index())} aria-label={`Edit ${bookmark.name}`}>
-                  Edit
-                </button>
-                <button type="button" disabled={state()?.error !== undefined} onClick={() => setRemoving(index())} aria-label={`Delete ${bookmark.name}`}>
-                  Delete
-                </button>
+                <Show when={editMode()}>
+                  <button type="button" disabled={state()?.error !== undefined} onClick={() => startEdit(index())} aria-label={`Edit ${bookmark.name}`}>
+                    Edit
+                  </button>
+                  <button type="button" disabled={state()?.error !== undefined} onClick={() => setRemoving(index())} aria-label={`Delete ${bookmark.name}`}>
+                    Delete
+                  </button>
+                </Show>
               </li>
             )}
           </For>

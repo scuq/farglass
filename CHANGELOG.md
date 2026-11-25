@@ -6,6 +6,11 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ---
 
+## Unreleased
+
+### Changed
+- The rows of the Bookmarks app no longer show Edit and Delete buttons. Select Edit at the top to show them, and select Done to hide them again.
+
 ## v0.2.0 — 24 November 2026 — Bookmarks, system tray, and settings with a filter and graphs
 
 ### Added
