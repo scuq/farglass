@@ -123,6 +123,19 @@ export function TerminalPage(props: { context: AppContext }) {
           </For>
         </div>
       </Section>
+      <Section id="terminal-splits" group>
+        <p class="settings-note">To split a pane, press Alt+Shift+\ for a pane on the right, or Alt+Shift+- for a pane below. You can also right-click the terminal. To go to the next pane, press Alt+Shift with an arrow key. Drag the border between two panes to change their size.</p>
+        <div class="settings-choices">
+          <label class="settings-choice">
+            <input type="checkbox" checked={value().dimInactive} onChange={(event) => change({ dimInactive: event.currentTarget.checked })} />
+            Dim the panes that do not have the focus
+          </label>
+          <label class="settings-choice">
+            <input type="checkbox" checked={value().focusFollowsMouse} onChange={(event) => change({ focusFollowsMouse: event.currentTarget.checked })} />
+            Give the focus to the pane under the pointer
+          </label>
+        </div>
+      </Section>
     </div>
   );
 }

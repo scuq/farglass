@@ -15,6 +15,10 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 - To close a tab, select × on the tab, middle-click the tab, or type `exit` in its shell. Closing the window stops the shells of all its tabs.
 - The tabs and their scrollback stay after a reload and show the same in each browser tab.
 - Settings > Terminal sets when the tab bar shows, where a new tab opens, and if a tab closes when its shell stops.
+- A terminal tab can show several shells side by side in split panes. Press Alt+Shift+\ to split a pane to the right, or Alt+Shift+- to split it down. You can also right-click the terminal and select Split right or Split down.
+- Press Alt+Shift with an arrow key to go to the next pane. Drag the border between two panes to change their size, and double-click it to make the two panes equal again.
+- To close a pane, type `exit` in its shell, or right-click it and select Close pane. The panes and their sizes stay after a reload.
+- Settings > Terminal can dim the panes that do not have the focus, and can give the focus to the pane under the pointer.
 
 ### Changed
 - The rows of the Bookmarks app no longer show Edit and Delete buttons. Select Edit at the top to show them, and select Done to hide them again.

@@ -8,7 +8,7 @@ describe("terminal settings", () => {
   });
 
   it("keeps valid values", () => {
-    const value = { colors: "nord", font: "Fira Code", fontSize: 16, scrollback: 50_000, tabBar: "always", onExit: "keep", newTab: "next" };
+    const value = { colors: "nord", font: "Fira Code", fontSize: 16, scrollback: 50_000, tabBar: "always", onExit: "keep", newTab: "next", dimInactive: false, focusFollowsMouse: true };
     expect(parseTerminal(value)).toEqual(value);
   });
 

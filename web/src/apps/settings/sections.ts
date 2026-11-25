@@ -29,6 +29,7 @@ export const SECTIONS = [
   { id: "terminal-font", page: "terminal", title: "Font", keywords: ["font size", "typeface", "monospace", "fira", "jetbrains", "cascadia", "hack"] },
   { id: "terminal-scrollback", page: "terminal", title: "Scrollback", keywords: ["history", "buffer", "lines", "scroll"] },
   { id: "terminal-tabs", page: "terminal", title: "Tabs", keywords: ["tab bar", "new tab", "close", "exit", "shell stops"] },
+  { id: "terminal-splits", page: "terminal", title: "Split panes", keywords: ["split", "pane", "divider", "dim", "focus follows mouse", "pointer"] },
   { id: "focus-rules", page: "focus", title: "Focus protection", keywords: ["notifications", "do not disturb", "interrupt", "windows", "attention", "quiet"] },
   { id: "datetime-clock", page: "datetime", title: "Clock in the panel", keywords: ["24-hour", "12-hour", "24 hours", "12 hours", "am", "pm", "crockford", "timestamp", "format"] },
   { id: "datetime-host", page: "datetime", title: "Time of the host", keywords: ["timezone", "time zone", "ntp", "network time", "date", "synchronized"] },

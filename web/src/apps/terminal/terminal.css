@@ -77,6 +77,50 @@
   padding: 0.15rem 0.45rem;
 }
 
+/* The panes of a tab (F109): each at its place in the tab area, with a divider between two panes. */
+.term-cell {
+  position: absolute;
+}
+.term-panes[data-split] .term-cell {
+  transition: opacity 120ms;
+}
+.term-panes[data-split][data-dim] .term-cell:not([data-focused]) .xterm {
+  opacity: 0.55;
+}
+.term-divider {
+  position: absolute;
+  z-index: 5;
+  touch-action: none;
+}
+.term-divider::before {
+  content: "";
+  position: absolute;
+  background: var(--line);
+}
+.term-divider:hover::before,
+.term-divider:active::before {
+  background: var(--focus);
+}
+.term-divider[data-dir="row"] {
+  margin-left: -3px;
+  width: 7px !important;
+  cursor: col-resize;
+}
+.term-divider[data-dir="row"]::before {
+  inset: 0 3px;
+}
+.term-divider[data-dir="column"] {
+  margin-top: -3px;
+  height: 7px !important;
+  cursor: row-resize;
+}
+.term-divider[data-dir="column"]::before {
+  inset: 3px 0;
+}
+:root[data-motion="reduced"] .term-cell {
+  transition: none !important;
+}
+
 /* A terminal fills its pane. */
 .term-app {
   position: absolute;

@@ -4,7 +4,8 @@
 //
 // The script builds the programs, starts farglassd in dev_user mode and the agent,
 // and opens a terminal window. It opens tabs with the + button and with Alt+Shift+Enter,
-// switches them with Alt+PageDown, reloads the page, closes a tab, and changes the
+// switches them with Alt+PageDown, reloads the page, and closes a tab. It splits panes
+// with keys, drags a divider, and closes panes (F109). Then it changes the
 // color profile and the font in Settings > Terminal.
 //
 // Exit status: 0 if all steps pass, 1 if a step fails.
@@ -26,8 +27,10 @@ function check(condition, text) {
   console.log(`PASS: ${text}`);
 }
 
-/** The visible terminal of the window `id`. */
-const visible = (page, id) => page.locator(`[data-window="${id}"] .term-app:not([hidden])`);
+/** The terminal of the window `id` that has the focus: of the active tab, the focused pane. */
+const visible = (page, id) => page.locator(`[data-window="${id}"] .term-cell[data-focused]:not([hidden]) .term-app`);
+/** The number of panes that show in the window `id`. */
+const shown = (page, id) => page.locator(`[data-window="${id}"] .term-cell:not([hidden])`).count();
 
 /** Waits until the visible terminal of the window `id` shows `pattern`. */
 async function until(page, id, pattern) {
@@ -68,6 +71,7 @@ try {
   browser = await chromium.launch();
   const context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1280, height: 800 } });
   const page = await context.newPage();
+  page.on("pageerror", (error) => console.log(`INFO: page error ${error.message}`));
   await page.goto(url);
   await page.locator(".wm-window").first().waitFor({ timeout: TIMEOUT_MS });
 
@@ -118,7 +122,57 @@ try {
   check(true, "the close button closes a tab, and with one tab the tab bar goes");
   await until(page, id, /first-2/);
 
-  // 7. Settings > Terminal changes the colors and the font of the open terminal at once.
+  // 7. Alt+Shift+\\ splits the pane. The new pane on the right has its own shell and the focus.
+  await visible(page, id).click();
+  await page.keyboard.press("Alt+Shift+Backslash");
+  await page.locator(`[data-window="${id}"] .term-cell[data-focused] .term-app[data-status="running"]`).waitFor({ timeout: TIMEOUT_MS });
+  check((await shown(page, id)) === 2, "Alt+Shift+\\ splits the pane in two");
+  await page.keyboard.type("echo right-$((3+3))");
+  await page.keyboard.press("Enter");
+  const right = await until(page, id, /right-6/);
+  check(!right.includes("first-2"), "the new pane has its own shell and gets the focus");
+  const cells = await page.locator(`[data-window="${id}"] .term-cell:not([hidden])`).evaluateAll((els) => els.map((el) => el.getBoundingClientRect().x));
+  check(cells[1] > cells[0] + 100, "the new pane is right of the first pane");
+
+  // 8. Alt+Shift+- splits down, Alt+Shift+Left goes back to the first pane.
+  await page.keyboard.press("Alt+Shift+Minus");
+  await page.waitForFunction((win) => document.querySelectorAll(`[data-window="${win}"] .term-cell:not([hidden]) .term-app[data-status="running"]`).length === 3, id, { timeout: TIMEOUT_MS });
+  check(true, "Alt+Shift+- splits the right pane down");
+  await page.keyboard.press("Alt+Shift+ArrowLeft");
+  await until(page, id, /first-2/);
+  check(true, "Alt+Shift+Left gives the focus to the pane on the left");
+
+  // 9. A drag of the divider changes the sizes. A reload keeps the panes and the sizes.
+  const divider = page.locator(`[data-window="${id}"] .term-divider[data-dir="row"]`);
+  const bar = await divider.boundingBox();
+  // A quarter down: the middle of the divider is the end of the divider of the right panes.
+  await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height / 4);
+  await page.mouse.down();
+  await page.mouse.move(bar.x - 120, bar.y + bar.height / 4, { steps: 5 });
+  await page.mouse.up();
+  const widths = () => page.locator(`[data-window="${id}"] .term-cell:not([hidden])`).evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().width)));
+  const dragged = await widths();
+  check(dragged[0] < dragged[1] - 150, `a drag of the divider makes the left pane smaller (${dragged.join(", ")} px)`);
+  if (SHOTS) await page.screenshot({ path: join(SHOTS, "splits.png") });
+  await page.reload();
+  await page.waitForFunction((win) => document.querySelectorAll(`[data-window="${win}"] .term-cell:not([hidden]) .term-app[data-status="running"]`).length === 3, id, { timeout: TIMEOUT_MS });
+  const reloaded = await widths();
+  check(Math.abs(reloaded[0] - dragged[0]) <= 2, "a reload keeps the three panes and their sizes");
+
+  // 10. exit closes a pane. Its neighbor gets the space.
+  await page.locator(`[data-window="${id}"] .term-cell:not([hidden]) .term-app`).nth(2).click();
+  await page.keyboard.type("exit");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction((win) => document.querySelectorAll(`[data-window="${win}"] .term-cell:not([hidden])`).length === 2, id, { timeout: TIMEOUT_MS });
+  check(true, "exit in a pane closes the pane");
+  await page.locator(`[data-window="${id}"] .term-cell:not([hidden]) .term-app`).nth(1).click();
+  await page.keyboard.type("exit");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction((win) => document.querySelectorAll(`[data-window="${win}"] .term-cell:not([hidden])`).length === 1, id, { timeout: TIMEOUT_MS });
+  await until(page, id, /first-2/);
+  check(true, "with one pane left, the first shell fills the window again");
+
+  // 11. Settings > Terminal changes the colors and the font of the open terminal at once.
   const term = visible(page, id);
   const before = await term.evaluate((el) => getComputedStyle(el).getPropertyValue("--term-bg"));
   await launch(page, "Settings");

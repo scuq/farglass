@@ -68,9 +68,13 @@ export interface TerminalSettings {
   readonly tabBar: (typeof TAB_BARS)[number];
   readonly onExit: (typeof ON_EXITS)[number];
   readonly newTab: (typeof NEW_TABS)[number];
+  /** The panes of a split tab that do not have the focus are dim (F109). */
+  readonly dimInactive: boolean;
+  /** The pane under the pointer gets the focus (F109). */
+  readonly focusFollowsMouse: boolean;
 }
 
-export const DEFAULT_TERMINAL: TerminalSettings = { colors: "theme", font: "default", fontSize: 14, scrollback: 10_000, tabBar: "auto", onExit: "close", newTab: "end" };
+export const DEFAULT_TERMINAL: TerminalSettings = { colors: "theme", font: "default", fontSize: 14, scrollback: 10_000, tabBar: "auto", onExit: "close", newTab: "end", dimInactive: true, focusFollowsMouse: false };
 
 const oneOf = <T>(list: readonly T[], value: unknown, fallback: T): T => (list.includes(value as T) ? (value as T) : fallback);
 
@@ -85,6 +89,8 @@ export function parseTerminal(value: unknown): TerminalSettings {
     tabBar: oneOf(TAB_BARS, record.tabBar, DEFAULT_TERMINAL.tabBar),
     onExit: oneOf(ON_EXITS, record.onExit, DEFAULT_TERMINAL.onExit),
     newTab: oneOf(NEW_TABS, record.newTab, DEFAULT_TERMINAL.newTab),
+    dimInactive: typeof record.dimInactive === "boolean" ? record.dimInactive : DEFAULT_TERMINAL.dimInactive,
+    focusFollowsMouse: typeof record.focusFollowsMouse === "boolean" ? record.focusFollowsMouse : DEFAULT_TERMINAL.focusFollowsMouse,
   };
 }
 
