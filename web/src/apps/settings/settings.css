@@ -548,3 +548,31 @@ legend.settings-card-title {
     display: none;
   }
 }
+
+/* Settings > Terminal (F107): a strip of the 8 ANSI colors of a profile, and a line in the chosen font. */
+.term-profile {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.term-profile-sample {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.term-profile-cell {
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 2px;
+}
+.term-font-sample {
+  margin: 0.5rem 0 0;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  white-space: pre;
+  overflow-x: auto;
+}

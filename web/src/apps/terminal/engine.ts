@@ -5,12 +5,16 @@
  * ghostty-web, can implement it, and the app does not change.
  */
 
+import type { TerminalSettings } from "./settings";
+
 /** A terminal emulator in one element. */
 export interface TerminalEngine {
   /** The renderer that draws the terminal. */
   readonly renderer: "webgl" | "dom";
   readonly cols: number;
   readonly rows: number;
+  /** Applies the color profile, the font, and the scrollback (F107). */
+  configure(settings: TerminalSettings): void;
   /** Writes output. `done` runs when the emulator parsed it. */
   write(data: Uint8Array | string, done?: () => void): void;
   /** Clears the screen, the scrollback, and the modes. */

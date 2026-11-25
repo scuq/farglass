@@ -11,6 +11,7 @@ import { PowerPage } from "./pages/Power";
 import { PasskeysPage } from "./pages/Passkeys";
 import { ResourcesPage } from "./pages/Resources";
 import { SystemPage } from "./pages/System";
+import { TerminalPage } from "./pages/Terminal";
 import { UsersPage } from "./pages/Users";
 import { matchSections, pagesOf } from "./sections";
 import "./settings.css";
@@ -84,6 +85,8 @@ export default function Settings(props: { context: AppContext }) {
     switch (id) {
       case "appearance":
         return <AppearancePage context={props.context} />;
+      case "terminal":
+        return <TerminalPage context={props.context} />;
       case "keyboard":
         return <KeyboardPage context={props.context} />;
       case "focus":

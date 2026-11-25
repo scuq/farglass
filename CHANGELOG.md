@@ -8,6 +8,10 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ## Unreleased
 
+### Added
+- Settings > Terminal sets the color profile, the font, the font size, and the scrollback of the terminal. The color profiles are Solarized dark, Solarized light, Gruvbox dark, Dracula, Nord, and Tango light. The default follows the desktop theme.
+- A change in Settings > Terminal applies at once to each open terminal in each tab of your session.
+
 ### Changed
 - The rows of the Bookmarks app no longer show Edit and Delete buttons. Select Edit at the top to show them, and select Done to hide them again.
 

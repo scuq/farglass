@@ -9,6 +9,7 @@ import "@xterm/xterm/css/xterm.css";
 import { isDarkTheme, isLcarsTheme, isReducedMotion, onThemeChange } from "../../appearance";
 import type { TerminalEngine } from "./engine";
 import { CopyGate } from "./osc52";
+import { DEFAULT_TERMINAL, fontFamily, paletteOf, type TerminalSettings } from "./settings";
 
 /**
  * Returns the clipboard for OSC 52. A program on the host can set the clipboard of the
@@ -29,8 +30,15 @@ function osc52(gate: CopyGate, blocked: (text: string) => void): IClipboardProvi
   };
 }
 
-/** Returns the colors of the terminal for the theme of the shell. */
-function theme() {
+const ANSI_NAMES = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "brightBlack", "brightRed", "brightGreen", "brightYellow", "brightBlue", "brightMagenta", "brightCyan", "brightWhite"] as const;
+
+/** Returns the colors of the terminal: the color profile, or the theme of the shell (F107). */
+function theme(settings: TerminalSettings) {
+  const palette = paletteOf(settings.colors);
+  if (palette) {
+    const { ansi, ...base } = palette;
+    return { ...base, cursorAccent: base.background, ...Object.fromEntries(ANSI_NAMES.map((name, index) => [name, ansi[index]])) };
+  }
   if (isLcarsTheme()) {
     return { background: "#100b1a", foreground: "#f2eaf2", cursor: "#e6a446", cursorAccent: "#100b1a", selectionBackground: "#4a3566" };
   }
@@ -45,7 +53,10 @@ function theme() {
  * The WebGL renderer draws the terminal if the browser has WebGL2. If the
  * browser has none, or if it loses the WebGL context, the DOM renderer draws it.
  */
-export function createXterm(element: HTMLElement): TerminalEngine {
+export function createXterm(element: HTMLElement, initial: TerminalSettings = DEFAULT_TERMINAL): TerminalEngine {
+  let settings = initial;
+  // The space around the rows has the background of the terminal.
+  const paintBackground = (colors: { background?: string }) => element.style.setProperty("--term-bg", colors.background ?? "");
   const gate = new CopyGate();
   const copyHandlers: ((text: string) => void)[] = [];
   // Capture: the key or the click counts before xterm.js handles it.
@@ -55,10 +66,10 @@ export function createXterm(element: HTMLElement): TerminalEngine {
     allowProposedApi: true,
     // A blinking cursor is an effect: with reduced motion, it stays (F046).
     cursorBlink: !isReducedMotion(),
-    fontFamily: 'ui-monospace, "DejaVu Sans Mono", "Cascadia Mono", Menlo, monospace',
-    fontSize: 14,
-    scrollback: 10_000,
-    theme: theme(),
+    fontFamily: fontFamily(settings.font),
+    fontSize: settings.fontSize,
+    scrollback: settings.scrollback,
+    theme: theme(settings),
   });
   const fit = new FitAddon();
   terminal.loadAddon(fit);
@@ -74,8 +85,10 @@ export function createXterm(element: HTMLElement): TerminalEngine {
   terminal.loadAddon(unicode);
   terminal.unicode.activeVersion = "11";
   terminal.open(element);
+  paintBackground(terminal.options.theme ?? {});
   const stopTheme = onThemeChange(() => {
-    terminal.options.theme = theme();
+    terminal.options.theme = theme(settings);
+    paintBackground(terminal.options.theme);
     terminal.options.cursorBlink = !isReducedMotion();
   });
 
@@ -158,6 +171,23 @@ export function createXterm(element: HTMLElement): TerminalEngine {
     },
     onBlockedCopy: (handler) => {
       copyHandlers.push(handler);
+    },
+    configure: (next) => {
+      const font = next.font !== settings.font || next.fontSize !== settings.fontSize;
+      settings = next;
+      terminal.options.theme = theme(next);
+      paintBackground(terminal.options.theme);
+      terminal.options.scrollback = next.scrollback;
+      if (font) {
+        terminal.options.fontFamily = fontFamily(next.font);
+        terminal.options.fontSize = next.fontSize;
+        // A new cell size gives a new number of columns and rows.
+        try {
+          fit.fit();
+        } catch {
+          // The element has no size yet.
+        }
+      }
     },
     write: (data, done) => terminal.write(data, done),
     reset: () => terminal.reset(),

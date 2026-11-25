@@ -3,6 +3,7 @@ import type { Channel, PtyEvent, PtyRequest } from "../../proto";
 import type { AppContext } from "../types";
 import type { TerminalEngine } from "./engine";
 import { AckCounter, EchoProbe } from "./flow";
+import { parseTerminal, TERMINAL_KEY, type TerminalSettings } from "./settings";
 import { createXterm } from "./xterm";
 import "./terminal.css";
 
@@ -29,6 +30,12 @@ export default function TerminalApp(props: { context: AppContext }) {
   const [copy, setCopy] = createSignal<string | null>(null);
   /** The bytes of the scrollback replay that the emulator did not parse yet. */
   let replaying = 0;
+  /** The settings of Settings > Terminal (F107). A change applies at once. */
+  let settings: TerminalSettings | undefined;
+  context.state.watchShared(TERMINAL_KEY, (value) => {
+    settings = parseTerminal(value);
+    engine?.configure(settings);
+  });
 
   const control = (request: PtyRequest) => channel?.control(request);
 
@@ -79,7 +86,7 @@ export default function TerminalApp(props: { context: AppContext }) {
   };
 
   const mount = (element: HTMLDivElement) => {
-    const term = createXterm(element);
+    const term = createXterm(element, settings);
     engine = term;
     element.dataset.renderer = term.renderer;
     // The text of the terminal for end-to-end tests and assistive tools: the canvas has no text.

@@ -5,6 +5,7 @@
 export const PAGES = [
   { id: "appearance", label: "Appearance", keywords: ["theme", "dark", "light", "accent", "color", "colour", "text size", "font", "motion", "animation", "video", "redirect", "youtube"] },
   { id: "keyboard", label: "Keyboard", keywords: ["shortcuts", "keys", "hotkeys", "keybindings", "tour", "mac", "windows"] },
+  { id: "terminal", label: "Terminal", keywords: ["shell", "console", "color profile", "colour", "palette", "font", "font size", "scrollback", "history", "lines", "solarized", "gruvbox", "dracula", "nord"] },
   { id: "focus", label: "Focus", keywords: ["notifications", "do not disturb", "interrupt", "windows", "attention"] },
   { id: "datetime", label: "Date and time", keywords: ["clock", "time", "timezone", "time zone", "ntp", "date", "24-hour", "12-hour", "am", "pm", "crockford", "timestamp"] },
   { id: "system", label: "System", keywords: ["hostname", "host name", "computer name", "kernel", "operating system", "about"] },
