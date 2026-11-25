@@ -7,9 +7,12 @@
  * A new pane gets `<window id>/<n>`.
  */
 
+import type { PtyStart } from "../../proto";
+
 /** A pane, or two parts of a tab side by side ("row") or one above the other ("column"). */
 export type PaneNode =
-  | { readonly pane: string }
+  /** A pane. `start` is what its terminal starts, for a terminal bookmark (F110): ssh or a folder. */
+  | { readonly pane: string; readonly start?: PtyStart }
   | {
       /** The id of the split: the id of the pane that the split made. */
       readonly split: string;
@@ -42,9 +45,28 @@ export const MIN_RATIO = 0.1;
 
 const clampRatio = (ratio: number) => Math.min(1 - MIN_RATIO, Math.max(MIN_RATIO, ratio));
 
-/** Returns the layout of a new window: one tab with one pane with the id of the window. */
-export function initialLayout(windowId: string): TabLayout {
-  return { tabs: [{ id: windowId, root: { pane: windowId }, focus: windowId }], active: windowId, next: 2 };
+/** Returns the layout of a new window: one tab with one pane with the id of the window, and its start. */
+export function initialLayout(windowId: string, start?: PtyStart): TabLayout {
+  const root: PaneNode = start ? { pane: windowId, start } : { pane: windowId };
+  return { tabs: [{ id: windowId, root, focus: windowId }], active: windowId, next: 2 };
+}
+
+/** Returns a valid start of a pane, or undefined. */
+export function parseStart(value: unknown): PtyStart | undefined {
+  const record = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+  if (record.type === "ssh" && typeof record.url === "string") return { type: "ssh", url: record.url };
+  if (record.type === "folder" && typeof record.path === "string") return { type: "folder", path: record.path };
+  return undefined;
+}
+
+/** Returns the start of the pane `pane`, or undefined for the login shell in the home folder. */
+export function startOf(layout: TabLayout, pane: string): PtyStart | undefined {
+  const find = (node: PaneNode): PtyStart | undefined => ("pane" in node ? (node.pane === pane ? node.start : undefined) : (find(node.a) ?? find(node.b)));
+  for (const tab of layout.tabs) {
+    const start = find(tab.root);
+    if (start) return start;
+  }
+  return undefined;
 }
 
 /** Reports whether `id` is a terminal of the window `windowId`. */
@@ -80,7 +102,8 @@ function parseNode(value: unknown, windowId: string, seen: Set<string>, depth = 
   if (typeof record.pane === "string") {
     if (!isTabOf(record.pane, windowId) || seen.has(record.pane)) return null;
     seen.add(record.pane);
-    return { pane: record.pane };
+    const start = parseStart(record.start);
+    return start ? { pane: record.pane, start } : { pane: record.pane };
   }
   const a = parseNode(record.a, windowId, seen, depth + 1);
   const b = parseNode(record.b, windowId, seen, depth + 1);

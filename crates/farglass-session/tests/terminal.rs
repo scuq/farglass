@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use farglass_proto::codec::FrameCodec;
-use farglass_proto::message::{Close, CloseReason, LinkMessage, Open, PtyEvent, PtyRequest};
+use farglass_proto::message::{
+    Close, CloseReason, LinkMessage, Open, PtyEvent, PtyRequest, PtyStart,
+};
 use farglass_proto::{ChannelId, Frame, FrameType, PROTOCOL_VERSION, PTY_WINDOW};
 use farglass_session::link::Session;
 use farglass_session::terminal::{TerminalOptions, Terminals};
@@ -77,6 +79,7 @@ impl Link {
             terminal: terminal.to_owned(),
             cols: 80,
             rows: 24,
+            start: None,
         };
         self.send(Frame::open(ch(number), &open).unwrap()).await;
         assert_eq!(self.recv().await.frame_type(), FrameType::Ready);
@@ -181,6 +184,45 @@ async fn new_terminal_runs_a_shell_with_the_size_of_the_channel() {
     .await;
     link.input(1, "stty size\n").await;
     link.until(1, "50 132").await;
+}
+
+#[tokio::test]
+async fn a_new_terminal_starts_in_the_folder_of_its_start() {
+    let agent = agent(false);
+    let mut link = Link::connect(&agent).await;
+    let dir = std::env::temp_dir().canonicalize().unwrap();
+    let open = Open::Pty {
+        terminal: "folder".into(),
+        cols: 80,
+        rows: 24,
+        start: Some(PtyStart::Folder {
+            path: dir.display().to_string(),
+        }),
+    };
+    link.send(Frame::open(ch(1), &open).unwrap()).await;
+    assert_eq!(link.recv().await.frame_type(), FrameType::Ready);
+    link.recv().await;
+    link.input(1, "echo at-$(pwd -P)\n").await;
+    link.until(1, &format!("at-{}", dir.display())).await;
+
+    // A folder that does not exist refuses the channel with a message for the user.
+    let missing = Open::Pty {
+        terminal: "missing".into(),
+        cols: 80,
+        rows: 24,
+        start: Some(PtyStart::Folder {
+            path: "/no/such/folder/farglass".into(),
+        }),
+    };
+    link.send(Frame::open(ch(3), &missing).unwrap()).await;
+    let close: Close = loop {
+        let frame = link.recv().await;
+        if frame.channel() == ch(3) {
+            break frame.parse().unwrap();
+        }
+    };
+    assert_eq!(close.reason, CloseReason::NotFound);
+    assert!(close.message.unwrap_or_default().contains("does not exist"));
 }
 
 #[tokio::test]

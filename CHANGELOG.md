@@ -19,6 +19,9 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 - Press Alt+Shift with an arrow key to go to the next pane. Drag the border between two panes to change their size, and double-click it to make the two panes equal again.
 - To close a pane, type `exit` in its shell, or right-click it and select Close pane. The panes and their sizes stay after a reload.
 - Settings > Terminal can dim the panes that do not have the focus, and can give the focus to the pane under the pointer.
+- A bookmark can open a terminal window. Select Terminal on the host as the browser of the bookmark, and type an ssh URL, for example `ssh://admin@192.0.2.1:2323`, or a folder, for example `~/src/project`.
+- An ssh bookmark starts `ssh` to the host, with the user and the port of the URL. When `ssh` stops, press Enter in the terminal to connect again.
+- A folder bookmark starts your shell in that folder. If the folder does not exist on the host, the Bookmarks app shows the problem on the bookmark.
 
 ### Changed
 - The rows of the Bookmarks app no longer show Edit and Delete buttons. Select Edit at the top to show them, and select Done to hide them again.

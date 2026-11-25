@@ -3,15 +3,26 @@
  *
  * The agent reads and writes the file, finds the browsers of the host and their
  * profiles, and starts the browser of a bookmark. A bookmark of the client
- * browser opens here, in a new tab, because only a click can open a tab.
+ * browser opens here, in a new tab, because only a click can open a tab. A terminal
+ * bookmark opens a terminal window of the shell (F110).
  */
 
 import { createSignal } from "solid-js";
 import { openInClient } from "../links";
-import type { Bookmark, BookmarkBrowser, BookmarkFile, BookmarkProblem, BookmarksEvent, BookmarksRequest, Channel, Connection } from "../proto";
+import type { Bookmark, BookmarkBrowser, BookmarkFile, BookmarkProblem, BookmarksEvent, BookmarksRequest, Channel, Connection, PtyStart } from "../proto";
 
 /** The browser value of a bookmark that opens in a tab of the client browser. */
 export const CLIENT = "client";
+/** The browser value of a bookmark that opens in a terminal window of the shell (F110): an ssh URL or a folder. */
+export const TERMINAL = "terminal";
+
+/** Returns the start of the terminal of a terminal bookmark. The agent checks it when the terminal starts. */
+export function terminalStart(url: string): PtyStart {
+  return url.startsWith("ssh:") ? { type: "ssh", url } : { type: "folder", path: url };
+}
+
+/** Opens a terminal window with a start, for a terminal bookmark. `name` is the first title of the window. */
+export type TerminalOpener = (start: PtyStart, name: string) => void;
 
 /** The state of the file in the agent. */
 export interface BookmarksState {
@@ -32,8 +43,10 @@ export class Bookmarks {
   readonly #closed = createSignal<string | null>(null);
   #saves: Waiter[] = [];
   readonly #opens = new Map<string, Waiter[]>();
+  readonly #openTerminal: TerminalOpener | undefined;
 
-  constructor(connection: Connection) {
+  constructor(connection: Connection, openTerminal?: TerminalOpener) {
+    this.#openTerminal = openTerminal;
     this.#channel = connection.openChannel(
       { kind: "bookmarks" },
       {
@@ -95,6 +108,11 @@ export class Bookmarks {
    * client browser opens a tab at once. Any other bookmark opens on the host.
    */
   open(bookmark: Bookmark): Promise<void> {
+    if (bookmark.browser === TERMINAL) {
+      if (!this.#openTerminal) return Promise.reject("The desktop cannot open a terminal window.");
+      this.#openTerminal(terminalStart(bookmark.url), bookmark.name);
+      return Promise.resolve();
+    }
     if (bookmark.browser === CLIENT) {
       return openInClient(bookmark.url) ? Promise.resolve() : Promise.reject(`${bookmark.url} is not an http or https URL.`);
     }
@@ -130,11 +148,15 @@ export class Bookmarks {
 /** Returns the label of the browser of `bookmark`: the name of the desktop entry, or the key. */
 export function browserLabel(state: BookmarksState | null, browser: string): string {
   if (browser === CLIENT) return "This computer";
+  if (browser === TERMINAL) return "Terminal";
   return state?.browsers.find((each) => each.id === browser)?.name ?? browser;
 }
 
 /** Returns a short line about `bookmark` for a list: the browser, the profile, private, and the host of the URL. */
 export function describe(state: BookmarksState | null, bookmark: Bookmark): string {
+  if (bookmark.browser === TERMINAL) {
+    return [browserLabel(state, bookmark.browser), bookmark.url.startsWith("ssh:") ? `ssh ${bookmark.url.replace(/^ssh:\/\//, "").replace(/\/$/, "")}` : bookmark.url].join(" · ");
+  }
   let host = bookmark.url;
   try {
     host = new URL(bookmark.url).host;
@@ -153,8 +175,8 @@ export function bookmarks(): Bookmarks | undefined {
 }
 
 /** Starts the bookmarks for `connection`. Returns the function that stops them. */
-export function startBookmarks(connection: Connection): () => void {
-  const each = new Bookmarks(connection);
+export function startBookmarks(connection: Connection, openTerminal?: TerminalOpener): () => void {
+  const each = new Bookmarks(connection, openTerminal);
   active = each;
   return () => {
     each.close();

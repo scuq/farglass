@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use bytes::Bytes;
+use farglass_proto::message::PtyStart;
 use farglass_proto::{PTY_SCROLLBACK, PTY_WINDOW};
 use nix::sys::signal::{Signal, killpg};
 use nix::unistd::Pid;
@@ -127,6 +128,104 @@ pub enum AttachError {
     /// The terminal did not start.
     #[error("the terminal did not start: {0}")]
     Spawn(#[from] io::Error),
+    /// The start of the terminal is not valid, for example a folder that does not exist (F110).
+    #[error("{0}")]
+    Start(String),
+}
+
+/// Returns the arguments of `ssh` for a URL `ssh://[user@]host[:port]` (F110).
+///
+/// The destination comes after `--`, and a user or a host that starts with `-` is refused.
+/// Thus the URL cannot give `ssh` an option or a command.
+///
+/// # Errors
+///
+/// A message for the user if the URL is not valid.
+pub fn ssh_args(url: &str) -> Result<Vec<String>, String> {
+    let parsed = url::Url::parse(url).map_err(|_| format!("{url} is not a URL."))?;
+    if parsed.scheme() != "ssh" {
+        return Err(format!("{url} is not an ssh URL."));
+    }
+    if parsed.password().is_some() {
+        return Err("An ssh URL must not contain a password. Use a key or type the password in the terminal.".to_owned());
+    }
+    if !matches!(parsed.path(), "" | "/") || parsed.query().is_some() || parsed.fragment().is_some()
+    {
+        return Err(format!("{url} must have only a user, a host, and a port."));
+    }
+    let host = match parsed.host() {
+        Some(url::Host::Domain(name)) => name.to_owned(),
+        Some(url::Host::Ipv4(address)) => address.to_string(),
+        Some(url::Host::Ipv6(address)) => address.to_string(),
+        None => return Err(format!("{url} has no host.")),
+    };
+    let user = parsed.username();
+    let unsafe_part = |part: &str| part.starts_with('-') || part.contains(['%', ' ', '@']);
+    if host.is_empty() || unsafe_part(&host) || unsafe_part(user) {
+        return Err(format!("{url} has a user or a host that ssh cannot use."));
+    }
+    let mut args = Vec::new();
+    if let Some(port) = parsed.port() {
+        args.extend(["-p".to_owned(), port.to_string()]);
+    }
+    args.push("--".to_owned());
+    args.push(if user.is_empty() {
+        host
+    } else {
+        format!("{user}@{host}")
+    });
+    Ok(args)
+}
+
+/// Returns the home folder for `~` in a folder of a terminal: `$HOME`, or the home folder of the account.
+#[must_use]
+pub fn home_dir() -> PathBuf {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| {
+            nix::unistd::User::from_uid(nix::unistd::getuid())
+                .ok()
+                .flatten()
+                .map(|user| user.dir)
+        })
+        .unwrap_or_else(|| PathBuf::from("/"))
+}
+
+/// Returns the folder of a terminal (F110): an absolute path, `~`, `~/path`, or `file:///path`.
+/// `home` is the home folder of the user.
+///
+/// # Errors
+///
+/// A message for the user if the path is not absolute or is not a folder.
+pub fn folder(path: &str, home: &std::path::Path) -> Result<PathBuf, String> {
+    let local = match path.strip_prefix("file://") {
+        Some(_) => url::Url::parse(path)
+            .ok()
+            .filter(|url| {
+                url.host_str()
+                    .is_none_or(|host| host.is_empty() || host == "localhost")
+            })
+            .and_then(|url| url.to_file_path().ok())
+            .ok_or_else(|| format!("{path} is not a file URL of this host."))?,
+        None if path == "~" => home.to_path_buf(),
+        None => match path.strip_prefix("~/") {
+            Some(rest) => home.join(rest),
+            None => PathBuf::from(path),
+        },
+    };
+    if !local.is_absolute() {
+        return Err(format!(
+            "The folder {path} must be an absolute path, or start with ~/."
+        ));
+    }
+    if !local.is_dir() {
+        return Err(format!(
+            "The folder {} does not exist on the host.",
+            local.display()
+        ));
+    }
+    Ok(local)
 }
 
 /// The terminals of the session. They live as long as the agent, also when
@@ -152,9 +251,10 @@ impl Terminals {
         }
     }
 
-    /// Attaches a channel to the terminal `id`, or starts the terminal.
+    /// Attaches a channel to the terminal `id`, or starts the terminal with `start`.
     ///
     /// The terminal sends its output to `sink`. Dropping the returned link detaches the channel.
+    /// A terminal that runs already ignores `start`.
     ///
     /// # Errors
     ///
@@ -165,6 +265,7 @@ impl Terminals {
         rows: u16,
         cols: u16,
         sink: Sink,
+        start: Option<&PtyStart>,
     ) -> Result<TerminalLink, AttachError> {
         self.tasks.retain(|_, task| !task.is_closed());
         let viewer = NEXT_VIEWER.fetch_add(1, Ordering::Relaxed);
@@ -189,7 +290,7 @@ impl Terminals {
         if self.tasks.len() >= MAX_TERMINALS {
             return Err(AttachError::Limit);
         }
-        let (child, pty, unit) = spawn(&self.options, rows, cols)?;
+        let (child, pty, unit) = spawn(&self.options, rows, cols, start)?;
         if let Some(pid) = child.id() {
             self.pids
                 .lock()
@@ -326,11 +427,8 @@ fn spawn(
     options: &TerminalOptions,
     rows: u16,
     cols: u16,
-) -> io::Result<(Child, pty_process::Pty, Option<String>)> {
-    let (pty, pts) = pty_process::open().map_err(io::Error::other)?;
-    pty.resize(pty_process::Size::new(rows, cols))
-        .map_err(io::Error::other)?;
-
+    start: Option<&PtyStart>,
+) -> Result<(Child, pty_process::Pty, Option<String>), AttachError> {
     let account = nix::unistd::User::from_uid(nix::unistd::getuid())
         .ok()
         .flatten();
@@ -341,6 +439,22 @@ fn spawn(
         .filter(|shell| !shell.as_os_str().is_empty())
         .unwrap_or_else(|| PathBuf::from("/bin/sh"));
     let home = account.map_or_else(|| PathBuf::from("/"), |user| user.dir);
+    // The login shell in the home folder, the login shell in a folder, or ssh (F110).
+    let (program, args, dir) = match start {
+        None => (shell, vec!["-l".to_owned()], home),
+        Some(PtyStart::Folder { path }) => {
+            let dir = folder(path, &home_dir()).map_err(AttachError::Start)?;
+            (shell, vec!["-l".to_owned()], dir)
+        }
+        Some(PtyStart::Ssh { url }) => (
+            PathBuf::from("ssh"),
+            ssh_args(url).map_err(AttachError::Start)?,
+            home,
+        ),
+    };
+    let (pty, pts) = pty_process::open().map_err(io::Error::other)?;
+    pty.resize(pty_process::Size::new(rows, cols))
+        .map_err(io::Error::other)?;
 
     let unit = options
         .scope
@@ -351,9 +465,9 @@ fn spawn(
             .arg(format!("--unit={unit}"))
             .arg("--description=farglass terminal")
             .arg("--")
-            .arg(&shell)
-            .arg("-l"),
-        None => pty_process::Command::new(&shell).arg("-l"),
+            .arg(&program)
+            .args(&args),
+        None => pty_process::Command::new(&program).args(&args),
     };
     // The Wayland apps of a terminal show in the shell (F024).
     let command = match options.wayland.as_deref().filter(|path| path.exists()) {
@@ -367,10 +481,10 @@ fn spawn(
         .env("TERM", "xterm-256color")
         .env("COLORTERM", "truecolor")
         .env_remove("FARGLASS_AGENT_SOCKET")
-        .current_dir(home)
+        .current_dir(dir)
         .spawn(pts)
         .map_err(io::Error::other)?;
-    tracing::info!(shell = %shell.display(), scope = ?unit, pid = child.id(), "started a terminal");
+    tracing::info!(program = %program.display(), scope = ?unit, pid = child.id(), "started a terminal");
     Ok((child, pty, unit))
 }
 
@@ -554,6 +668,48 @@ async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_ssh_url_gives_the_arguments_of_ssh() {
+        assert_eq!(
+            ssh_args("ssh://admin@192.0.2.1:2323").unwrap(),
+            ["-p", "2323", "--", "admin@192.0.2.1"]
+        );
+        assert_eq!(
+            ssh_args("ssh://fw01.cyberdyne.example").unwrap(),
+            ["--", "fw01.cyberdyne.example"]
+        );
+        assert_eq!(
+            ssh_args("ssh://alice@[2001:db8::1]/").unwrap(),
+            ["--", "alice@2001:db8::1"]
+        );
+    }
+
+    #[test]
+    fn an_ssh_url_cannot_add_an_option_or_a_command() {
+        for bad in [
+            "ssh://-oProxyCommand=touch%20x@host",
+            "ssh://alice:secret@host",
+            "ssh://host/uptime",
+            "ssh://host?x=1",
+            "ssh://a%20b@host",
+            "https://host",
+            "ssh://",
+        ] {
+            assert!(ssh_args(bad).is_err(), "{bad} is not valid");
+        }
+    }
+
+    #[test]
+    fn a_folder_is_absolute_or_in_the_home_folder_and_must_exist() {
+        let home = std::env::temp_dir();
+        assert_eq!(folder("~", &home).unwrap(), home);
+        assert_eq!(folder("/", &home).unwrap(), PathBuf::from("/"));
+        assert_eq!(folder("file:///", &home).unwrap(), PathBuf::from("/"));
+        assert!(folder("relative/path", &home).is_err());
+        assert!(folder("/no/such/folder/farglass", &home).is_err());
+        assert!(folder("file://other.example/", &home).is_err());
+    }
 
     #[test]
     fn scrollback_keeps_the_last_bytes() {

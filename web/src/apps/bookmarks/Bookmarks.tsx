@@ -1,5 +1,5 @@
 import { createSignal, For, Show } from "solid-js";
-import { bookmarks as activeBookmarks, browserLabel, CLIENT, describe } from "../../launcher/bookmarks";
+import { bookmarks as activeBookmarks, browserLabel, CLIENT, describe, TERMINAL } from "../../launcher/bookmarks";
 import type { Bookmark, BookmarkFile } from "../../proto";
 import { ConfirmDialog, type Outcome, OutcomeLine } from "../settings/common";
 import "../settings/settings.css";
@@ -23,14 +23,17 @@ function draftOf(bookmark: Bookmark): Draft {
 
 function bookmarkOf(draft: Draft): Bookmark {
   const bookmark: Bookmark = { name: draft.name.trim(), url: draft.url.trim(), browser: draft.browser };
-  if (draft.profile && draft.browser !== CLIENT) bookmark.profile = draft.profile;
-  if (draft.private && draft.browser !== CLIENT) bookmark.private = true;
+  const browser = draft.browser !== CLIENT && draft.browser !== TERMINAL;
+  if (draft.profile && browser) bookmark.profile = draft.profile;
+  if (draft.private && browser) bookmark.private = true;
   return bookmark;
 }
 
 /**
  * The bookmarks app (F100): URLs with short names that open in a browser of the
  * host, in a profile of it, or in a private window, or in a tab of this browser.
+ *
+ * A terminal bookmark (F110) opens a terminal window: ssh to a host, or the shell in a folder.
  *
  * The file bookmarks.toml in the agent holds the bookmarks. A change by hand
  * shows when the window gets the focus. A save keeps the comments of the file.
@@ -79,7 +82,15 @@ export default function BookmarksApp(props: { context: AppContext }) {
     client.open(bookmark).then(
       () => {
         setOpening(null);
-        setOutcome({ kind: "ok", text: bookmark.browser === CLIENT ? `${bookmark.name} opened in a new tab of this browser.` : `${bookmark.name} opened in ${browserLabel(state(), bookmark.browser)}.` });
+        setOutcome({
+          kind: "ok",
+          text:
+            bookmark.browser === CLIENT
+              ? `${bookmark.name} opened in a new tab of this browser.`
+              : bookmark.browser === TERMINAL
+                ? `${bookmark.name} opened in a terminal window.`
+                : `${bookmark.name} opened in ${browserLabel(state(), bookmark.browser)}.`,
+        });
       },
       (message: string) => {
         setOpening(null);
@@ -117,7 +128,7 @@ export default function BookmarksApp(props: { context: AppContext }) {
   /** The browsers of the form: the installed ones, the client browser, and the value of the bookmark if it is not installed. */
   const browserChoices = () => {
     const installed = (state()?.browsers ?? []).map((browser) => ({ id: browser.id, label: browser.name }));
-    const choices = [...installed, { id: CLIENT, label: "This computer (a new tab of this browser)" }];
+    const choices = [...installed, { id: CLIENT, label: "This computer (a new tab of this browser)" }, { id: TERMINAL, label: "Terminal on the host (ssh or a folder)" }];
     const current = draft().browser;
     if (!choices.some((choice) => choice.id === current)) choices.push({ id: current, label: `${current} (not installed)` });
     return choices;
@@ -158,13 +169,37 @@ export default function BookmarksApp(props: { context: AppContext }) {
         <form class="bookmarks-form" onSubmit={submit} aria-label={editing() === -1 ? "New bookmark" : "Edit bookmark"}>
           <label for="bookmark-name">Short name</label>
           <input id="bookmark-name" required value={draft().name} autocomplete="off" spellcheck={false} ref={(el) => queueMicrotask(() => el.focus())} onInput={(event) => change({ name: event.currentTarget.value })} />
-          <label for="bookmark-url">URL</label>
-          <input id="bookmark-url" type="url" required pattern="https?://.+" value={draft().url} autocomplete="off" spellcheck={false} onInput={(event) => change({ url: event.currentTarget.value })} />
+          <label for="bookmark-url">{draft().browser === TERMINAL ? "ssh URL or folder" : "URL"}</label>
+          <input
+            id="bookmark-url"
+            type={draft().browser === TERMINAL ? "text" : "url"}
+            required
+            pattern={draft().browser === TERMINAL ? "(ssh://.+|/.*|~|~/.*|file:///.*)" : "https?://.+"}
+            title={draft().browser === TERMINAL ? "ssh://user@host:port, or a folder: /path, ~/path, or file:///path" : undefined}
+            placeholder={draft().browser === TERMINAL ? "ssh://admin@192.0.2.1:22 or ~/src/project" : undefined}
+            value={draft().url}
+            autocomplete="off"
+            spellcheck={false}
+            onInput={(event) => change({ url: event.currentTarget.value })}
+          />
           <label for="bookmark-browser">Browser</label>
-          <select id="bookmark-browser" value={draft().browser} onChange={(event) => change({ browser: event.currentTarget.value, profile: "" })}>
+          <select
+            id="bookmark-browser"
+            value={draft().browser}
+            onChange={(event) => {
+              const browser = event.currentTarget.value;
+              // An http URL is no terminal start, and a terminal start is no http URL. The updater
+              // reads the draft of this tick: a change of the URL in the same tick stays.
+              setDraft((current) => {
+                const http = /^https?:/.test(current.url);
+                const fits = browser === TERMINAL ? !http : http;
+                return { ...current, browser, profile: "", url: fits ? current.url : browser === TERMINAL ? "ssh://" : "https://" };
+              });
+            }}
+          >
             <For each={browserChoices()}>{(choice) => <option value={choice.id} selected={choice.id === draft().browser}>{choice.label}</option>}</For>
           </select>
-          <Show when={draft().browser !== CLIENT}>
+          <Show when={draft().browser !== CLIENT && draft().browser !== TERMINAL}>
             <label for="bookmark-profile">Profile</label>
             <select id="bookmark-profile" value={draft().profile} onChange={(event) => change({ profile: event.currentTarget.value })}>
               <option value="" selected={draft().profile === ""}>
@@ -181,6 +216,10 @@ export default function BookmarksApp(props: { context: AppContext }) {
           <Show when={draft().browser === CLIENT}>
             <span />
             <p class="bookmarks-note">The URL opens on this computer, not on the host.</p>
+          </Show>
+          <Show when={draft().browser === TERMINAL}>
+            <span />
+            <p class="bookmarks-note">A new terminal window opens on the host. An ssh URL starts ssh to the host. A folder starts your shell in that folder.</p>
           </Show>
           <div class="settings-buttons bookmarks-form-buttons">
             <button type="button" onClick={() => setEditing(null)}>

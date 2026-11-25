@@ -14,14 +14,22 @@
 //! browser = "firefox"
 //! profile = "work"
 //! private = false
+//!
+//! [[bookmark]]
+//! name = "fw01"
+//! url = "ssh://admin@fw01.cyberdyne.example:2323"
+//! browser = "terminal"
 //! ```
+//!
+//! A bookmark with the browser `terminal` opens a terminal window of the shell (F110):
+//! `ssh` to the host of an `ssh://` URL, or the login shell in a folder.
 
 use std::collections::HashSet;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use farglass_proto::message::{Bookmark, BookmarkFile, BookmarkProblem, BookmarksEvent};
+use farglass_proto::message::{Bookmark, BookmarkFile, BookmarkProblem, BookmarksEvent, PtyStart};
 use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, TableLike, Value};
 
 use crate::browsers::{self, KEYS};
@@ -42,6 +50,32 @@ pub fn default_path() -> PathBuf {
                 .join(".config")
         });
     config.join("farglass").join("bookmarks.toml")
+}
+
+/// The browser value of a bookmark that opens in a terminal window of the shell (F110).
+pub const TERMINAL: &str = "terminal";
+
+/// Returns the start of a terminal bookmark: an `ssh://` URL, or a folder that is an absolute
+/// path, `~`, a path that starts with `~/`, or a `file://` URL. The folder can be missing.
+///
+/// # Errors
+///
+/// A message for the user.
+pub fn terminal_start(url: &str) -> Result<PtyStart, String> {
+    if url.starts_with("ssh:") {
+        crate::terminal::ssh_args(url)?;
+        return Ok(PtyStart::Ssh {
+            url: url.to_owned(),
+        });
+    }
+    if url.starts_with('/') || url == "~" || url.starts_with("~/") || url.starts_with("file:///") {
+        return Ok(PtyStart::Folder {
+            path: url.to_owned(),
+        });
+    }
+    Err(format!(
+        "{url} is not an ssh URL or a folder. Use ssh://user@host:port or /path/to/folder."
+    ))
 }
 
 /// Checks a URL of a bookmark: `http` or `https` with a host.
@@ -118,7 +152,11 @@ pub fn check(file: &BookmarkFile) -> Result<(), String> {
         if !names.insert(name) {
             return Err(format!("Two bookmarks have the name {name}."));
         }
-        check_url(&bookmark.url).map_err(|error| format!("{name}: {error}"))?;
+        if bookmark.browser == TERMINAL {
+            terminal_start(&bookmark.url).map_err(|error| format!("{name}: {error}"))?;
+        } else {
+            check_url(&bookmark.url).map_err(|error| format!("{name}: {error}"))?;
+        }
         if bookmark.browser.trim().is_empty() {
             return Err(format!("{name}: select a browser."));
         }
@@ -276,6 +314,13 @@ impl Bookmarks {
         if bookmark.name.trim().is_empty() {
             return Err("The bookmark has no name.".to_owned());
         }
+        if bookmark.browser == TERMINAL {
+            // A folder must exist on this host. The shell opens the terminal window.
+            if let PtyStart::Folder { path } = terminal_start(&bookmark.url)? {
+                crate::terminal::folder(&path, &crate::terminal::home_dir())?;
+            }
+            return Ok(None);
+        }
         check_url(&bookmark.url)?;
         if bookmark.browser == "client" {
             return Ok(None);
@@ -334,7 +379,11 @@ impl Bookmarks {
             .find(|b| b.name == name)
             .ok_or_else(|| format!("No bookmark has the name {name}."))?;
         let (id, args) = self.target(bookmark)?.ok_or_else(|| {
-            format!("{name} opens in the browser of this computer, not on the host.")
+            if bookmark.browser == TERMINAL {
+                format!("{name} opens in a terminal window of the desktop.")
+            } else {
+                format!("{name} opens in the browser of this computer, not on the host.")
+            }
         })?;
         self.launcher
             .launch_with(&id, Some(&args))
@@ -393,6 +442,34 @@ mod tests {
         ] {
             assert!(check_url(bad).is_err(), "{bad} is not valid");
         }
+    }
+
+    #[test]
+    fn a_terminal_bookmark_has_an_ssh_url_or_a_folder() {
+        assert_eq!(
+            terminal_start("ssh://admin@192.0.2.1:2323"),
+            Ok(PtyStart::Ssh {
+                url: "ssh://admin@192.0.2.1:2323".into()
+            })
+        );
+        for folder in ["/srv/www", "~", "~/src", "file:///etc"] {
+            assert_eq!(
+                terminal_start(folder),
+                Ok(PtyStart::Folder {
+                    path: folder.into()
+                })
+            );
+        }
+        for bad in ["https://example.com/", "src", "ssh://-oProxyCommand=x@host"] {
+            assert!(terminal_start(bad).is_err(), "{bad} is not valid");
+        }
+        let mut file = BookmarkFile::default();
+        let mut fw = bookmark("fw", "ssh://admin@fw01.cyberdyne.example");
+        fw.browser = TERMINAL.into();
+        file.bookmarks.push(fw);
+        assert!(check(&file).is_ok());
+        file.bookmarks[0].url = "https://example.com/".into();
+        assert!(check(&file).is_err());
     }
 
     #[test]

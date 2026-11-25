@@ -1,5 +1,6 @@
 import { createSignal, For, Show } from "solid-js";
 import type { MenuItem } from "../../menu/menu";
+import type { PtyStart } from "../../proto";
 import type { AppContext } from "../types";
 import { Pane, type PaneHandle } from "./Pane";
 import { parseTerminal, TERMINAL_KEY, type TerminalSettings } from "./settings";
@@ -12,12 +13,15 @@ import {
   closeTab,
   focusPane,
   geometry,
+  initialLayout,
   paneInDirection,
   panesOf,
   parseLayout,
+  parseStart,
   resizeSplit,
   selectTab,
   splitPane,
+  startOf,
   stepTab,
   type Tab,
   type TabLayout,
@@ -46,11 +50,36 @@ export default function TerminalApp(props: { context: AppContext }) {
   const layoutKey = context.state.key("terminal.tabs");
   /** The tabs, or null before the state store answers. */
   const [layout, setLayout] = createSignal<TabLayout | null>(null);
-  context.state.watch(layoutKey, (value) => setLayout(parseLayout(value, windowId)));
+  const [titles, setTitles] = createSignal<Readonly<Record<string, string>>>({});
+  // A terminal bookmark opens the window with a start for its first pane (F110). The layout
+  // waits for both keys: a new window has no layout, and then the first pane gets the start.
+  let stored: unknown;
+  let opened: { start?: PtyStart; name?: string } | null | undefined;
+  const settle = () => {
+    if (stored === undefined || opened === undefined) return;
+    if (stored === null && opened?.start) {
+      const first = initialLayout(windowId, opened.start);
+      if (opened.name) setTitles((old) => ({ ...old, [windowId]: opened!.name! }));
+      setLayout(first);
+      context.state.set(layoutKey, first);
+      context.setTitle(opened.name || "Terminal");
+      return;
+    }
+    setLayout(parseLayout(stored, windowId));
+  };
+  context.state.watch(context.state.key("start"), (value) => {
+    const record = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
+    const start = parseStart(record?.start);
+    opened = record && start ? { start, ...(typeof record.name === "string" ? { name: record.name } : {}) } : null;
+    settle();
+  });
+  context.state.watch(layoutKey, (value) => {
+    stored = value ?? null;
+    settle();
+  });
   /** The settings of Settings > Terminal (F107). A change applies at once. */
   const [settings, setSettings] = createSignal<TerminalSettings | undefined>(undefined);
   context.state.watchShared(TERMINAL_KEY, (value) => setSettings(parseTerminal(value)));
-  const [titles, setTitles] = createSignal<Readonly<Record<string, string>>>({});
   const panes = new Map<string, PaneHandle>();
   let area: HTMLDivElement | undefined;
 
@@ -248,6 +277,7 @@ export default function TerminalApp(props: { context: AppContext }) {
                 <Pane
                   context={context}
                   terminal={pane}
+                  start={layout() ? startOf(layout()!, pane) : undefined}
                   visible={() => box() !== undefined}
                   settings={settings}
                   onReady={(handle) => {

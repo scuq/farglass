@@ -14,11 +14,11 @@
 //
 // Exit status: 0 if all steps pass, 1 if a step fails.
 
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, realpathSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
-import { buildAll, launch, start, TIMEOUT_MS } from "./lib.mjs";
+import { buildAll, launch, raise, start, TIMEOUT_MS } from "./lib.mjs";
 
 const SHOTS = process.env.FARGLASS_SHOTS;
 const state = mkdtempSync(join(tmpdir(), "farglass-e2e-"));
@@ -70,6 +70,7 @@ try {
     chmodSync(script, 0o755);
     writeFileSync(join(data, "applications", `${id}.desktop`), ["[Desktop Entry]", "Type=Application", `Name=${name}`, `Exec=${script} %u`, ""].join("\n"));
   }
+  mkdirSync(join(home, "proj"), { recursive: true });
   const file = join(config, "farglass/bookmarks.toml");
   writeFileSync(
     file,
@@ -91,6 +92,21 @@ try {
       'name = "bravely"',
       'url = "https://brave.example/"',
       'browser = "brave"',
+      "",
+      "[[bookmark]]",
+      'name = "proj"',
+      'url = "~/proj"',
+      'browser = "terminal"',
+      "",
+      "[[bookmark]]",
+      'name = "fw"',
+      'url = "ssh://nobody@127.0.0.1:1"',
+      'browser = "terminal"',
+      "",
+      "[[bookmark]]",
+      'name = "gone"',
+      'url = "/no/such/folder/farglass"',
+      'browser = "terminal"',
       "",
     ].join("\n"),
   );
@@ -147,6 +163,37 @@ try {
   check(await tab.evaluate(() => window.opener === null), "the new tab has no handle to the shell");
   await tab.close();
 
+  // 3b. A terminal bookmark of a folder opens a terminal window with the shell in that folder (F110).
+  const terminalText = (name) => page.locator(`.wm-window[aria-label="${name}"] .term-app`).evaluate((el) => el.farglassTerminal.text());
+  const terminalShows = async (name, pattern) => {
+    const end = Date.now() + TIMEOUT_MS;
+    for (;;) {
+      const text = await terminalText(name).catch(() => "");
+      if (pattern.test(text)) return text;
+      if (Date.now() > end) throw new Error(`The terminal ${name} does not show ${pattern}:\n${text}`);
+      await page.waitForTimeout(100);
+    }
+  };
+  check((await row("proj").locator(".bookmarks-line").first().textContent()) === "Terminal · ~/proj", "a folder bookmark shows Terminal and the folder");
+  await row("proj").locator(".bookmarks-open").click();
+  const proj = page.locator('.wm-window[aria-label="proj"] .term-app[data-status="running"]');
+  await proj.waitFor({ timeout: TIMEOUT_MS });
+  await proj.click();
+  await page.keyboard.type("echo at-$(pwd -P)");
+  await page.keyboard.press("Enter");
+  await terminalShows("proj", new RegExp(`at-${realpathSync(join(home, "proj"))}`));
+  check(true, "the folder bookmark opens a terminal in that folder");
+
+  // 3c. An ssh bookmark starts ssh with the user, the host, and the port of the URL.
+  // The new terminal window is on top: the Bookmarks window comes back to the front.
+  await raise(page, app);
+  check((await row("fw").locator(".bookmarks-line").first().textContent()) === "Terminal · ssh nobody@127.0.0.1:1", "an ssh bookmark shows the destination");
+  await row("fw").locator(".bookmarks-open").click();
+  await terminalShows("fw", /port 1: Connection refused[\s\S]*ssh stopped with exit code 255\. Press Enter to connect again\./);
+  check(true, "the ssh bookmark starts ssh to 127.0.0.1 port 1, and tells that ssh stopped");
+  await raise(page, app);
+  check((await row("gone").locator(".bookmarks-problem").textContent()).includes("does not exist on the host"), "a folder that does not exist shows the problem");
+
   // 4. The form adds a Chromium bookmark with the profile Work. The file keeps its comments.
   await app.getByRole("button", { name: "Add" }).click();
   await app.locator("#bookmark-name").fill("mail");
@@ -188,7 +235,9 @@ try {
   await row("handbook").waitFor({ timeout: TIMEOUT_MS });
   check(true, "a change by hand shows in the app");
 
-  // 7. Delete asks first, then removes the bookmark from the file.
+  // 7. Edit shows the buttons of each row (F106). Delete asks first, then removes the bookmark from the file.
+  check((await app.getByRole("button", { name: "Delete bravely" }).count()) === 0, "the rows have no Delete button before Edit");
+  await app.getByRole("button", { name: "Edit", exact: true }).click();
   await row("bravely").getByRole("button", { name: "Delete bravely" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
   await row("bravely").waitFor({ state: "detached", timeout: TIMEOUT_MS });

@@ -1,6 +1,6 @@
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import type { MenuItem } from "../../menu/menu";
-import type { Channel, PtyEvent, PtyRequest } from "../../proto";
+import type { Channel, PtyEvent, PtyRequest, PtyStart } from "../../proto";
 import type { AppContext } from "../types";
 import type { TerminalEngine } from "./engine";
 import { AckCounter, EchoProbe } from "./flow";
@@ -23,6 +23,8 @@ export interface PaneProps {
   readonly context: AppContext;
   /** The id of the terminal in the agent. */
   readonly terminal: string;
+  /** What a new terminal starts (F110): ssh or the shell in a folder. Undefined: the shell in the home folder. */
+  readonly start?: PtyStart | undefined;
   /** Reports whether the pane shows: a pane of a tab in the background does not. */
   readonly visible: () => boolean;
   /** The settings of Settings > Terminal, or undefined before they arrive. */
@@ -74,7 +76,7 @@ export function Pane(props: PaneProps) {
     acks = counter;
     setStatus("starting");
     channel = context.openChannel(
-      { kind: "pty", terminal: props.terminal, cols: term.cols, rows: term.rows },
+      { kind: "pty", terminal: props.terminal, cols: term.cols, rows: term.rows, ...(props.start ? { start: props.start } : {}) },
       {
         ondata: (bytes) => {
           term.write(bytes, () => {
@@ -97,7 +99,8 @@ export function Pane(props: PaneProps) {
             setStatus("exited");
             if (props.onExit()) return;
             const cause = event.signal !== undefined ? `signal ${event.signal}` : `exit code ${event.code ?? "unknown"}`;
-            term.write(`\r\n\x1b[2m[The shell stopped with ${cause}. Press Enter to start a new shell.]\x1b[0m\r\n`);
+            const text = props.start?.type === "ssh" ? `ssh stopped with ${cause}. Press Enter to connect again.` : `The shell stopped with ${cause}. Press Enter to start a new shell.`;
+            term.write(`\r\n\x1b[2m[${text}]\x1b[0m\r\n`);
           }
         },
         onclose: (close) => {

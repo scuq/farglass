@@ -83,7 +83,8 @@ export function Desktop(props: { connection: Connection; user: string; onlogout:
   // The desktop entries of the host for the launcher, and the icons of their windows (F031).
   onCleanup(startHostApps(props.connection));
   // The bookmarks file for the bookmarks app and the launcher (F100).
-  onCleanup(startBookmarks(props.connection));
+  // A terminal bookmark opens a new terminal window that starts ssh or a shell in a folder (F110).
+  onCleanup(startBookmarks(props.connection, (start, name) => controller.openApp("terminal", { start: { start, name } }, { newWindow: true })));
   // The system tray: the items of the programs that stay in a tray (F102).
   onCleanup(startTray(props.connection));
   // The tour of the shortcuts starts from the settings (F044).

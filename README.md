@@ -775,6 +775,7 @@ Each change of the host goes through polkit, thus the host can ask for an admini
 The Bookmarks app opens URLs by their short names.
 Each bookmark opens in a browser of the host, in a profile of that browser, or in a private window.
 A bookmark of `client` opens in a new tab of the browser that shows farglass, not on the host.
+A bookmark of `terminal` opens a new terminal window on the host: `ssh` to a host, or your shell in a folder.
 
 The bookmarks are in `$XDG_CONFIG_HOME/farglass/bookmarks.toml`, by default `~/.config/farglass/bookmarks.toml`.
 You can edit the file in the app or by hand.
@@ -789,14 +790,25 @@ launcher = false            # show the bookmarks in the launcher search
 [[bookmark]]
 name = "gh"                 # the short name, unique in the file
 url = "https://github.com/" # http or https only
-browser = "firefox"         # firefox, chromium, chrome, brave, client, or a desktop file id
+browser = "firefox"         # firefox, chromium, chrome, brave, client, terminal, or a desktop file id
 profile = "work"            # optional: the name of the profile that the browser shows
 private = true              # optional: a private window
+
+[[bookmark]]
+name = "fw01"
+url = "ssh://admin@fw01.cyberdyne.example:2323" # starts ssh -p 2323 -- admin@fw01.cyberdyne.example
+browser = "terminal"
+
+[[bookmark]]
+name = "web"
+url = "~/src/web"           # starts your shell in this folder
+browser = "terminal"
 ```
 
 - `browser`: Firefox, Chromium, Chrome, and Brave can be installed as packages or as Flatpak apps. A different desktop file id opens the URL with no profile and no private window.
 - `profile`: the name that the browser shows, not the directory of the profile. Thus the file works on a host where the directory has a different name. With no profile, the browser uses its default profile.
-- If the host does not have the browser or the profile of a bookmark, the app shows the problem on that bookmark.
+- `terminal`: the `url` is `ssh://[user@]host[:port]`, or a folder: an absolute path, `~/path`, or `file:///path`. An ssh URL must not contain a password, a path, or a command. farglass gives the user, the host, and the port to `ssh` as arguments, not as a shell command. When `ssh` stops, press Enter in the terminal to connect again.
+- If the host does not have the browser or the profile of a bookmark, or the folder of a terminal bookmark, the app shows the problem on that bookmark.
 - `launcher`: with `true`, the launcher finds each bookmark by its short name. The default is `false`.
 
 ## Lock screen

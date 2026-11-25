@@ -13,7 +13,7 @@ use crate::message::{
     BookmarksEvent, BookmarksRequest, Bus, ClipboardMessage, ClipboardMime, Close, CloseReason,
     ConnectionMessage, DbusEvent, DbusRequest, HostApp, HostUsage, MAX_CLIPBOARD_LEN, Notification,
     NotifyAction, NotifyEvent, NotifyReply, Open, PasskeyEvent, PasskeyInfo, PasskeyRequest,
-    PolkitEvent, PolkitReply, PtyEvent, PtyRequest, Ready, RedirectEvent, RedirectRect,
+    PolkitEvent, PolkitReply, PtyEvent, PtyRequest, PtyStart, Ready, RedirectEvent, RedirectRect,
     RedirectRequest, StateEvent, StateRequest, StatsEvent, SurfaceAck, SurfaceEvent, SurfaceInput,
     SurfaceRect, SurfaceRequest, TrayEvent, TrayItem, TrayMenuItem, TrayRequest, TrayStatus,
     TrayToggle, Urgency, Usage, WindowUsage,
@@ -139,6 +139,7 @@ fn messages() -> String {
     declare::<SurfaceInput>(&cfg, &mut out);
     declare::<PolkitEvent>(&cfg, &mut out);
     declare::<PolkitReply>(&cfg, &mut out);
+    declare::<PtyStart>(&cfg, &mut out);
     declare::<PtyRequest>(&cfg, &mut out);
     declare::<PtyEvent>(&cfg, &mut out);
     declare::<StateRequest>(&cfg, &mut out);

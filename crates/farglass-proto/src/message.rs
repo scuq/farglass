@@ -121,6 +121,10 @@ pub enum Open {
         cols: u16,
         /// The number of rows.
         rows: u16,
+        /// What a new terminal starts (F110). The agent ignores it if the terminal runs already.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        start: Option<PtyStart>,
     },
     /// A D-Bus connection of the agent, as the user.
     ///
@@ -1238,6 +1242,23 @@ pub enum PolkitReply {
     Cancel {
         /// The number of the request.
         request: u32,
+    },
+}
+
+/// What a new terminal starts (F110): the login shell in a folder, or `ssh` to a host.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum PtyStart {
+    /// The login shell of the user, in the folder `path`. `~` at the start is the home folder.
+    Folder {
+        /// An absolute path, `~`, or a path that starts with `~/`.
+        path: String,
+    },
+    /// `ssh` to the host of `url`: `ssh://[user@]host[:port]`. The agent starts `ssh` with
+    /// arguments, not a shell command, thus the URL cannot add a command or an option.
+    Ssh {
+        /// The URL.
+        url: String,
     },
 }
 

@@ -1125,11 +1125,13 @@ fn open(
             terminal,
             cols,
             rows,
-        }) => match terminals.attach(&terminal, rows, cols, sink.clone()) {
+            start,
+        }) => match terminals.attach(&terminal, rows, cols, sink.clone(), start.as_ref()) {
             Ok(link) => accept(Kind::Pty(link)),
             Err(error @ AttachError::Limit) => {
                 refuse(CloseReason::ResourceLimit, error.to_string())
             }
+            Err(AttachError::Start(message)) => refuse(CloseReason::NotFound, message),
             Err(error) => {
                 tracing::error!(%error, "a terminal did not start");
                 refuse(CloseReason::InternalError, error.to_string())

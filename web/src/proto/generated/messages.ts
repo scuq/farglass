@@ -52,7 +52,11 @@ cols: number,
 /**
  * The number of rows.
  */
-rows: number, } | { "kind": "dbus", 
+rows: number, 
+/**
+ * What a new terminal starts (F110). The agent ignores it if the terminal runs already.
+ */
+start?: PtyStart, } | { "kind": "dbus", 
 /**
  * The bus.
  */
@@ -1316,6 +1320,19 @@ text: string, } | { "type": "cancel",
  * The number of the request.
  */
 request: number, };
+
+/**
+ * What a new terminal starts (F110): the login shell in a folder, or `ssh` to a host.
+ */
+export type PtyStart = { "type": "folder", 
+/**
+ * An absolute path, `~`, or a path that starts with `~/`.
+ */
+path: string, } | { "type": "ssh", 
+/**
+ * The URL.
+ */
+url: string, };
 
 /**
  * A control message of the shell on a pty channel.

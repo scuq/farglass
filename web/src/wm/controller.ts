@@ -81,7 +81,11 @@ export interface DesktopController {
    * window before the app starts, for example the page of the settings (F042). With `state`, an
    * open window of the app gets the values and the focus instead of a new window.
    */
-  openApp(appId: string, state?: Readonly<Record<string, unknown>>): void;
+  /**
+   * Opens a window of the app `appId` with the names and values of `state` in its state.
+   * With `state`, an open window of the app gets the state and the focus, unless `newWindow` is set.
+   */
+  openApp(appId: string, state?: Readonly<Record<string, unknown>>, options?: { readonly newWindow?: boolean }): void;
   /**
    * Opens a window with the id `id` for the app `linux`, if no window has the id. With focus
    * protection, it gets the focus only if the user asked for it (F041): `hint` names its app and the window that it belongs to.
@@ -284,10 +288,10 @@ export function createDesktopController(connection: Connection): DesktopControll
         zone ? snapWindow(placeWindow(state, id, rect), id, zone) : placeWindow(state, id, clampRect(rect, area())),
       ),
     setPreview,
-    openApp(appId, state) {
+    openApp(appId, state, options) {
       if (state) {
         // The key of a name in the state of a window, as AppHost makes it.
-        const existing = desktop().recent.find((id) => windowById(desktop(), id)?.app === appId);
+        const existing = options?.newWindow ? undefined : desktop().recent.find((id) => windowById(desktop(), id)?.app === appId);
         const id = existing ?? crypto.randomUUID();
         for (const [name, value] of Object.entries(state)) {
           store.set(`${appId}.${name}.${id}`, value, { local: true });

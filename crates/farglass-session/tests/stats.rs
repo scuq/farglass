@@ -34,6 +34,7 @@ async fn a_busy_terminal_shows_its_cpu_and_the_agent_shows_its_own() {
                 terminal: "window-t1".into(),
                 cols: 80,
                 rows: 24,
+                start: None,
             },
         )
         .unwrap(),
