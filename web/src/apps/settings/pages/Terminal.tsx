@@ -1,7 +1,11 @@
 import { createSignal, createUniqueId, For, Show } from "solid-js";
-import { DEFAULT_TERMINAL, FONT_SIZES, FONTS, fontFamily, PROFILE_IDS, paletteOf, parseTerminal, profileLabel, SCROLLBACKS, TERMINAL_KEY, type TerminalSettings } from "../../terminal/settings";
+import { DEFAULT_TERMINAL, FONT_SIZES, FONTS, fontFamily, NEW_TABS, ON_EXITS, PROFILE_IDS, paletteOf, parseTerminal, profileLabel, SCROLLBACKS, TAB_BARS, TERMINAL_KEY, type TerminalSettings } from "../../terminal/settings";
 import type { AppContext } from "../../types";
 import { Section } from "../common";
+
+const TAB_BAR_LABELS: Record<TerminalSettings["tabBar"], string> = { auto: "Show the tab bar when the window has two or more tabs", always: "Always show the tab bar" };
+const ON_EXIT_LABELS: Record<TerminalSettings["onExit"], string> = { close: "Close the tab when its shell stops. The last tab stays open.", keep: "Keep the tab open when its shell stops. Press Enter to start a new shell." };
+const NEW_TAB_LABELS: Record<TerminalSettings["newTab"], string> = { end: "Open a new tab at the end", next: "Open a new tab after the active tab" };
 
 /** The settings of the terminal app (F107). The value is in the state store, thus each terminal gets a change at once. */
 export function TerminalPage(props: { context: AppContext }) {
@@ -85,6 +89,39 @@ export function TerminalPage(props: { context: AppContext }) {
           </For>
         </div>
         <p class="settings-note">The number of lines that you can scroll back in a terminal. More lines use more memory in this browser.</p>
+      </Section>
+      <Section id="terminal-tabs" group>
+        <p class="settings-note">To open a tab, select + in the tab bar, or press Alt+Shift+Enter. To go to the next or the previous tab, press Alt+PageDown or Alt+PageUp.</p>
+        <div class="settings-choices">
+          <For each={TAB_BARS}>
+            {(tabBar) => (
+              <label class="settings-choice">
+                <input type="radio" name={`${group}-tab-bar`} value={tabBar} checked={value().tabBar === tabBar} onChange={() => change({ tabBar })} />
+                {TAB_BAR_LABELS[tabBar]}
+              </label>
+            )}
+          </For>
+        </div>
+        <div class="settings-choices">
+          <For each={NEW_TABS}>
+            {(newTab) => (
+              <label class="settings-choice">
+                <input type="radio" name={`${group}-new-tab`} value={newTab} checked={value().newTab === newTab} onChange={() => change({ newTab })} />
+                {NEW_TAB_LABELS[newTab]}
+              </label>
+            )}
+          </For>
+        </div>
+        <div class="settings-choices">
+          <For each={ON_EXITS}>
+            {(onExit) => (
+              <label class="settings-choice">
+                <input type="radio" name={`${group}-on-exit`} value={onExit} checked={value().onExit === onExit} onChange={() => change({ onExit })} />
+                {ON_EXIT_LABELS[onExit]}
+              </label>
+            )}
+          </For>
+        </div>
       </Section>
     </div>
   );

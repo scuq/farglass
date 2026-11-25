@@ -1,4 +1,83 @@
-/* The terminal fills the content area of its window. */
+/* The tabs and the terminals fill the content area of the window (F108). */
+.term-window {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+.term-panes {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.term-tabs {
+  display: flex;
+  flex: none;
+  align-items: stretch;
+  gap: 2px;
+  padding: 3px 4px 0;
+  overflow-x: auto;
+  background: var(--bar);
+  border-bottom: 1px solid var(--line);
+  font: 12px system-ui, sans-serif;
+  scrollbar-width: thin;
+}
+.term-tab {
+  display: flex;
+  flex: 0 1 12rem;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 5rem;
+  padding: 0.2rem 0.3rem 0.2rem 0.6rem;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 5px 5px 0 0;
+  color: var(--fg);
+  opacity: 0.7;
+  cursor: default;
+  user-select: none;
+}
+.term-tab:hover {
+  opacity: 1;
+}
+.term-tab[aria-selected="true"] {
+  border-color: var(--line);
+  background: var(--term-tab-bg, var(--bg));
+  opacity: 1;
+}
+.term-tab:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.term-tab-title {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.term-tab-close,
+.term-tab-new {
+  flex: none;
+  padding: 0 0.35rem;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+}
+.term-tab-close:hover,
+.term-tab-new:hover {
+  background: var(--line);
+}
+.term-tab-new {
+  align-self: center;
+  margin-left: 2px;
+  padding: 0.15rem 0.45rem;
+}
+
+/* A terminal fills its pane. */
 .term-app {
   position: absolute;
   inset: 0;
@@ -16,7 +95,7 @@
 .term-app .xterm {
   height: 100%;
 }
-.wm-content:has(> .term-app) {
+.wm-content:has(> .term-window) {
   position: relative;
   padding: 0;
   overflow: hidden;

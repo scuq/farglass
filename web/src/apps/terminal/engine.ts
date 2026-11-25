@@ -41,6 +41,11 @@ export interface TerminalEngine {
   onResize(handler: (cols: number, rows: number) => void): void;
   /** A program asked to write the clipboard (OSC 52) with no recent key or click of the user (F055). */
   onBlockedCopy(handler: (text: string) => void): void;
+  /**
+   * A key press before the emulator gets it. If `handler` returns true, the app used the
+   * key: the emulator and the program do not get it.
+   */
+  onShortcut(handler: (event: KeyboardEvent) => boolean): void;
   /** A new title from the program (OSC 0 or OSC 2). */
   onTitle(handler: (title: string) => void): void;
   dispose(): void;

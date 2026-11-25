@@ -138,9 +138,14 @@ export function createXterm(element: HTMLElement, initial: TerminalSettings = DE
   };
 
   // Copy and paste with the keys of a terminal: Ctrl+Shift+C, Ctrl+Shift+V, and Shift+Insert.
+  const shortcutHandlers: ((event: KeyboardEvent) => boolean)[] = [];
   terminal.attachCustomKeyEventHandler((event) => {
     if (event.type !== "keydown") {
       return true;
+    }
+    if (shortcutHandlers.some((handler) => handler(event))) {
+      event.preventDefault();
+      return false;
     }
     const key = event.key.toLowerCase();
     if (event.ctrlKey && event.shiftKey && !event.altKey && key === "c") {
@@ -214,6 +219,7 @@ export function createXterm(element: HTMLElement, initial: TerminalSettings = DE
     },
     onInput: (handler) => void inputHandlers.push(handler),
     onResize: (handler) => void terminal.onResize(({ cols, rows }) => handler(cols, rows)),
+    onShortcut: (handler) => void shortcutHandlers.push(handler),
     onTitle: (handler) => void terminal.onTitleChange(handler),
     dispose: () => {
       stopTheme();

@@ -11,6 +11,10 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 ### Added
 - Settings > Terminal sets the color profile, the font, the font size, and the scrollback of the terminal. The color profiles are Solarized dark, Solarized light, Gruvbox dark, Dracula, Nord, and Tango light. The default follows the desktop theme.
 - A change in Settings > Terminal applies at once to each open terminal in each tab of your session.
+- A terminal window can have tabs, and each tab has its own shell. To open a tab, select + in the tab bar, or press Alt+Shift+Enter. Press Alt+PageDown or Alt+PageUp to go to the next or the previous tab.
+- To close a tab, select × on the tab, middle-click the tab, or type `exit` in its shell. Closing the window stops the shells of all its tabs.
+- The tabs and their scrollback stay after a reload and show the same in each browser tab.
+- Settings > Terminal sets when the tab bar shows, where a new tab opens, and if a tab closes when its shell stops.
 
 ### Changed
 - The rows of the Bookmarks app no longer show Edit and Delete buttons. Select Edit at the top to show them, and select Done to hide them again.

@@ -5,7 +5,7 @@
  */
 
 import { createSignal } from "solid-js";
-import type { Connection, HostUsage, StatsEvent, Usage } from "./proto";
+import type { Connection, HostUsage, StatsEvent, Usage, WindowUsage } from "./proto";
 
 /** The CPU in percent of one core from which an app counts as busy. */
 export const BUSY_CPU = 5;
@@ -57,6 +57,26 @@ export interface StatsPoint {
   readonly rate: DataRate;
 }
 
+/**
+ * Returns the use of each window. The terminals of the tabs of a terminal window
+ * (`<window id>/<n>`, F108) count for their window.
+ */
+export function byWindow(windows: readonly WindowUsage[]): WindowUsage[] {
+  const sums = new Map<string, Usage>();
+  for (const { window, usage } of windows) {
+    const id = window.startsWith("surface-") ? window : window.split("/")[0]!;
+    const sum = sums.get(id);
+    if (!sum) {
+      sums.set(id, usage);
+      continue;
+    }
+    const total: Usage = { cpu: sum.cpu + usage.cpu, memory: sum.memory + usage.memory };
+    if (sum.net !== undefined || usage.net !== undefined) total.net = (sum.net ?? 0) + (usage.net ?? 0);
+    sums.set(id, total);
+  }
+  return [...sums].map(([window, usage]) => ({ window, usage }));
+}
+
 export class StatsClient {
   readonly #sample = createSignal<Sample | null>(null);
   readonly #history = createSignal<readonly StatsPoint[]>([]);
@@ -76,7 +96,7 @@ export class StatsClient {
     const seconds = Math.max(0.001, (now.at - this.#last.at) / 1000);
     const rate = { received: (now.received - this.#last.received) / seconds, sent: (now.sent - this.#last.sent) / seconds };
     this.#last = now;
-    this.#sample[1](sample);
+    this.#sample[1]({ ...sample, windows: byWindow(sample.windows) });
     this.#history[1]((old) => [...old, { agent: sample.agent, server: sample.server, host: sample.host, rate }].slice(-HISTORY_LENGTH));
   }
 

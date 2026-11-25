@@ -13,6 +13,7 @@
     "wm": "node wm.mjs",
     "test": "node echo.mjs && node login.mjs && node wm.mjs && node term.mjs && node notify.mjs && node tray.mjs && node settings.mjs && node transport.mjs && node surface.mjs && node apps.mjs && node clipboard.mjs && node launcher.mjs && node bookmarks.mjs && node video.mjs && node sound.mjs && node redirect.mjs && node popups.mjs && node resize.mjs && node pace.mjs && node passkey.mjs && node browsers.mjs",
     "term": "node term.mjs",
+    "tabs": "node tabs.mjs",
     "notify": "node notify.mjs",
     "tray": "node tray.mjs",
     "settings": "node settings.mjs",

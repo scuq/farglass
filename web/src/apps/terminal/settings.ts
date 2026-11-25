@@ -53,14 +53,24 @@ export const FONT_SIZES = [11, 12, 13, 14, 15, 16, 18, 20, 24] as const;
 /** The number of lines that the terminal keeps above the screen. */
 export const SCROLLBACKS = [1_000, 5_000, 10_000, 50_000, 100_000] as const;
 
+/** When the tab bar shows (F108): with two or more tabs, or always. */
+export const TAB_BARS = ["auto", "always"] as const;
+/** What a tab does when its shell stops: it closes if the window has other tabs, or it stays with a message. */
+export const ON_EXITS = ["close", "keep"] as const;
+/** Where a new tab opens: after the active tab, or at the end. */
+export const NEW_TABS = ["next", "end"] as const;
+
 export interface TerminalSettings {
   readonly colors: ProfileId;
   readonly font: (typeof FONTS)[number];
   readonly fontSize: (typeof FONT_SIZES)[number];
   readonly scrollback: (typeof SCROLLBACKS)[number];
+  readonly tabBar: (typeof TAB_BARS)[number];
+  readonly onExit: (typeof ON_EXITS)[number];
+  readonly newTab: (typeof NEW_TABS)[number];
 }
 
-export const DEFAULT_TERMINAL: TerminalSettings = { colors: "theme", font: "default", fontSize: 14, scrollback: 10_000 };
+export const DEFAULT_TERMINAL: TerminalSettings = { colors: "theme", font: "default", fontSize: 14, scrollback: 10_000, tabBar: "auto", onExit: "close", newTab: "end" };
 
 const oneOf = <T>(list: readonly T[], value: unknown, fallback: T): T => (list.includes(value as T) ? (value as T) : fallback);
 
@@ -72,6 +82,9 @@ export function parseTerminal(value: unknown): TerminalSettings {
     font: oneOf(FONTS, record.font, DEFAULT_TERMINAL.font),
     fontSize: oneOf(FONT_SIZES, record.fontSize, DEFAULT_TERMINAL.fontSize),
     scrollback: oneOf(SCROLLBACKS, record.scrollback, DEFAULT_TERMINAL.scrollback),
+    tabBar: oneOf(TAB_BARS, record.tabBar, DEFAULT_TERMINAL.tabBar),
+    onExit: oneOf(ON_EXITS, record.onExit, DEFAULT_TERMINAL.onExit),
+    newTab: oneOf(NEW_TABS, record.newTab, DEFAULT_TERMINAL.newTab),
   };
 }
 

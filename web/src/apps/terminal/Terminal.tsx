@@ -1,183 +1,158 @@
-import { createSignal, onCleanup, Show } from "solid-js";
-import type { Channel, PtyEvent, PtyRequest } from "../../proto";
+import { createSignal, For, Show } from "solid-js";
 import type { AppContext } from "../types";
-import type { TerminalEngine } from "./engine";
-import { AckCounter, EchoProbe } from "./flow";
+import { Pane, type PaneHandle } from "./Pane";
 import { parseTerminal, TERMINAL_KEY, type TerminalSettings } from "./settings";
-import { createXterm } from "./xterm";
+import { addTab, closeTab, parseLayout, selectTab, stepTab, type TabLayout } from "./tabs";
 import "./terminal.css";
 
-const encoder = new TextEncoder();
-
-/** The state of the terminal, as the window shows it. */
-type Status = "starting" | "running" | "exited" | "failed";
-
 /**
- * The terminal app: a shell on the host in an xterm.js terminal.
+ * The terminal app: shells on the host, one in each tab of the window (F108).
  *
- * The terminal in the agent has the id of the window. Thus a reload, a break
- * of the connection, and a second tab attach to the same shell, with its scrollback.
- * Closing the window ends the shell.
+ * Each tab has its own terminal in the agent. The first tab has the id of the window.
+ * Thus a reload, a break of the connection, and a second browser tab attach to the same
+ * shells, with their scrollback. Closing a tab ends its shell. Closing the window ends all.
  */
 export default function TerminalApp(props: { context: AppContext }) {
   const context = props.context;
-  const [status, setStatus] = createSignal<Status>("starting");
-  let engine: TerminalEngine | undefined;
-  let channel: Channel | undefined;
-  let acks: AckCounter | undefined;
-  const probe = new EchoProbe();
-  /** A clipboard write of a program that waits for the user (F055). */
-  const [copy, setCopy] = createSignal<string | null>(null);
-  /** The bytes of the scrollback replay that the emulator did not parse yet. */
-  let replaying = 0;
+  const windowId = context.windowId;
+  const layoutKey = context.state.key("terminal.tabs");
+  /** The tabs, or null before the state store answers. */
+  const [layout, setLayout] = createSignal<TabLayout | null>(null);
+  context.state.watch(layoutKey, (value) => setLayout(parseLayout(value, windowId)));
   /** The settings of Settings > Terminal (F107). A change applies at once. */
-  let settings: TerminalSettings | undefined;
-  context.state.watchShared(TERMINAL_KEY, (value) => {
-    settings = parseTerminal(value);
-    engine?.configure(settings);
+  const [settings, setSettings] = createSignal<TerminalSettings | undefined>(undefined);
+  context.state.watchShared(TERMINAL_KEY, (value) => setSettings(parseTerminal(value)));
+  const [titles, setTitles] = createSignal<Readonly<Record<string, string>>>({});
+  const panes = new Map<string, PaneHandle>();
+
+  const tabs = () => layout()?.tabs ?? [];
+  const active = () => layout()?.active ?? windowId;
+  const titleOf = (id: string) => titles()[id] || "Terminal";
+  const showBar = () => tabs().length > 1 || settings()?.tabBar === "always";
+
+  const change = (next: TabLayout) => {
+    const before = layout();
+    setLayout(next);
+    context.state.set(layoutKey, next);
+    context.setTitle(titleOf(next.active));
+    if (before?.active !== next.active) queueMicrotask(() => panes.get(next.active)?.focus());
+  };
+
+  const newTab = () => {
+    const current = layout();
+    if (current) change(addTab(current, windowId, settings()?.newTab === "next"));
+  };
+  const close = (id: string) => {
+    const current = layout();
+    if (!current || current.tabs.length === 1) return;
+    panes.get(id)?.terminate();
+    panes.delete(id);
+    change(closeTab(current, id));
+  };
+  const select = (id: string) => {
+    const current = layout();
+    if (current) change(selectTab(current, id));
+  };
+  const step = (by: number) => {
+    const current = layout();
+    if (current && current.tabs.length > 1) change(stepTab(current, by));
+  };
+
+  /** The keys of the tabs. The browser keeps Ctrl+Shift+T and Ctrl+PageDown, thus the tabs use Alt. */
+  const shortcut = (event: KeyboardEvent) => {
+    const plain = !event.ctrlKey && !event.metaKey;
+    if (plain && event.altKey && event.shiftKey && event.key === "Enter") {
+      newTab();
+      return true;
+    }
+    if (plain && event.altKey && !event.shiftKey && (event.key === "PageDown" || event.key === "PageUp")) {
+      step(event.key === "PageDown" ? 1 : -1);
+      return true;
+    }
+    return false;
+  };
+
+  const menuItems = (id: string) => [
+    { separator: true as const },
+    { label: "New tab", shortcut: "Alt+Shift+Enter", action: newTab },
+    { label: "Close tab", disabled: tabs().length === 1, action: () => close(id) },
+  ];
+
+  context.onFocus(() => panes.get(active())?.focus());
+  // Closing the window ends each shell. A reload or a break of the connection does not.
+  context.onClose(() => {
+    for (const pane of panes.values()) pane.terminate();
   });
 
-  const control = (request: PtyRequest) => channel?.control(request);
-
-  /** Opens the pty channel: attaches to the terminal of the window, or starts it. */
-  const attach = () => {
-    const term = engine;
-    if (!term) {
-      return;
-    }
-    acks?.dispose();
-    const counter = new AckCounter((bytes) => control({ type: "ack", bytes }));
-    acks = counter;
-    setStatus("starting");
-    channel = context.openChannel(
-      { kind: "pty", terminal: context.windowId, cols: term.cols, rows: term.rows },
-      {
-        ondata: (bytes) => {
-          term.write(bytes, () => {
-            counter.parsed(bytes.byteLength);
-            probe.output();
-            replaying = Math.max(0, replaying - bytes.byteLength);
-          });
-        },
-        oncontrol: (message) => {
-          const event = message as PtyEvent;
-          if (event.type === "attached") {
-            setStatus("running");
-            // An old clipboard write in the scrollback asks nothing: the program wrote it before.
-            replaying = event.replay;
-            if (event.replay > 0) {
-              // The scrollback can start in the middle of an escape sequence. Start from a clean terminal.
-              term.reset();
-            }
-          } else {
-            const cause = event.signal !== undefined ? `signal ${event.signal}` : `exit code ${event.code ?? "unknown"}`;
-            term.write(`\r\n\x1b[2m[The shell stopped with ${cause}. Press Enter to start a new shell.]\x1b[0m\r\n`);
-            setStatus("exited");
-          }
-        },
-        onclose: (close) => {
-          if (status() === "starting") {
-            term.write(`\r\n[The terminal did not start: ${close.message ?? close.reason}]\r\n`);
-            setStatus("failed");
-          }
-        },
-      },
-    );
-  };
-
-  const mount = (element: HTMLDivElement) => {
-    const term = createXterm(element, settings);
-    engine = term;
-    element.dataset.renderer = term.renderer;
-    // The text of the terminal for end-to-end tests and assistive tools: the canvas has no text.
-    Object.defineProperty(element, "farglassTerminal", { value: { text: () => term.text() } });
-
-    term.onInput((data) => {
-      if (status() === "exited") {
-        if (data === "\r") {
-          term.reset();
-          attach();
-        }
-        return;
-      }
-      probe.input();
-      channel?.send(encoder.encode(data));
-    });
-    term.onResize((cols, rows) => control({ type: "resize", cols, rows }));
-    term.onTitle((title) => context.setTitle(title.trim() || "Terminal"));
-    term.onBlockedCopy((text) => {
-      if (replaying === 0) setCopy(text);
-    });
-
-    // The size of the window decides the number of columns and rows.
-    let frame = 0;
-    const observer =
-      typeof ResizeObserver === "undefined"
-        ? undefined
-        : new ResizeObserver(() => {
-            cancelAnimationFrame(frame);
-            frame = requestAnimationFrame(() => term.fit());
-          });
-    observer?.observe(element);
-    term.fit();
-
-    context.onFocus(() => term.focus());
-    context.contextMenu(element, () => {
-      const selection = term.selection();
-      return [
-        {
-          label: "Copy",
-          shortcut: "Ctrl+Shift+C",
-          disabled: selection === "",
-          action: () => void navigator.clipboard?.writeText(selection),
-        },
-        { label: "Paste", shortcut: "Ctrl+Shift+V", action: () => term.pasteClipboard() },
-        { separator: true },
-        { label: "Select all", action: () => term.selectAll() },
-        { label: "Clear the scrollback", action: () => term.clear() },
-      ];
-    });
-    // Closing the window ends the shell. A reload or a break of the connection does not.
-    context.onClose(() => control({ type: "terminate" }));
-    if (context.isFocused()) {
-      term.focus();
-    }
-    attach();
-
-    onCleanup(() => {
-      observer?.disconnect();
-      cancelAnimationFrame(frame);
-      acks?.dispose();
-      term.dispose();
-    });
-  };
-
-  const answerCopy = (accept: boolean) => {
-    const text = copy();
-    setCopy(null);
-    // The click is the action of the user that the clipboard write needs.
-    if (accept && text !== null) void navigator.clipboard?.writeText(text);
-    engine?.focus();
-  };
-
-  // xterm.js uses the class "terminal" for its own element.
   return (
-    <div class="term-app" data-status={status()} ref={mount}>
-      <Show when={copy()}>
-        {(text) => (
-          <div class="term-copy" role="alertdialog" aria-label="Clipboard write">
-            <span>
-              A program in this terminal wants to copy {text().length === 1 ? "1 character" : `${text().length} characters`} to your clipboard.
-            </span>
-            <button type="button" onClick={() => answerCopy(true)}>
-              Copy
-            </button>
-            <button type="button" onClick={() => answerCopy(false)}>
-              Ignore
-            </button>
-          </div>
-        )}
+    <div class="term-window" data-tabs={showBar() ? "true" : undefined}>
+      <Show when={showBar()}>
+        <div class="term-tabs" role="tablist" aria-label="Terminal tabs">
+          <For each={tabs()}>
+            {(id) => (
+              <div
+                class="term-tab"
+                role="tab"
+                tabindex={id === active() ? 0 : -1}
+                aria-selected={id === active() ? "true" : "false"}
+                title={titleOf(id)}
+                onClick={() => select(id)}
+                onAuxClick={(event) => {
+                  if (event.button === 1) close(id);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") select(id);
+                }}
+              >
+                <span class="term-tab-title">{titleOf(id)}</span>
+                <Show when={tabs().length > 1}>
+                  <button
+                    type="button"
+                    class="term-tab-close"
+                    aria-label={`Close ${titleOf(id)}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      close(id);
+                    }}
+                  >
+                    ×
+                  </button>
+                </Show>
+              </div>
+            )}
+          </For>
+          <button type="button" class="term-tab-new" aria-label="New tab" title="New tab (Alt+Shift+Enter)" onClick={newTab}>
+            +
+          </button>
+        </div>
       </Show>
+      <div class="term-panes">
+        <For each={tabs()}>
+          {(id) => (
+            <Pane
+              context={context}
+              terminal={id}
+              visible={() => id === active()}
+              settings={settings}
+              onReady={(handle) => {
+                panes.set(id, handle);
+                if (id === active() && context.isFocused()) handle.focus();
+              }}
+              onTitle={(title) => {
+                setTitles((old) => ({ ...old, [id]: title }));
+                if (id === active()) context.setTitle(titleOf(id));
+              }}
+              onExit={() => {
+                if (settings()?.onExit === "keep" || tabs().length === 1) return false;
+                close(id);
+                return true;
+              }}
+              onShortcut={shortcut}
+              menuItems={() => menuItems(id)}
+            />
+          )}
+        </For>
+      </div>
     </div>
   );
 }
