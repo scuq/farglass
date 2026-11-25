@@ -10,7 +10,7 @@ Each user logs in with the PAM stack of the host and gets a real logind session.
 
 - Login: PAM, passkeys as a second factor, a machine PIN, and a lock screen.
 - Shell: a window manager, a panel with a system tray, a launcher, workspaces, an overview, a layout picker, context menus, and keyboard shortcuts with a tour.
-- Shell apps: a terminal, settings, bookmarks, notifications, and the polkit password dialog.
+- Shell apps: a terminal, settings, bookmarks, a network check, notifications, and the polkit password dialog.
 - Linux apps of the host: a headless Wayland compositor sends their windows as tiles and video, with sound and the clipboard. X11 apps can show through Xwayland, off by default.
 - Video redirection: a video in the host Chromium plays in the client browser.
 - Transport: WebSocket, or WebTransport over HTTP/3.
@@ -750,7 +750,7 @@ The settings app has these pages:
 - Focus: the rules of focus protection, each on or off. See [Focus protection](#focus-protection).
 - Date and time: the hour format and the crockford timestamp of the clock in the panel, the time of the host, the timezone, and the network time (timedate1).
 - System: the hostname, the display name, and the facts of the host (hostname1).
-- Network: the devices of NetworkManager with their state and addresses. The page does not change the network, because a change can stop the connection to farglass.
+- Network: the devices of NetworkManager with their state and addresses. The page does not change the network, because a change can stop the connection to farglass. Check connections opens the Network check app.
 - Users and sessions: the sessions of logind. End stops a session after a confirm step.
 - Resources: the use of the host, and what the desktop costs.
   The host has the CPU in percent of all cores, the memory, and the network of its hardware devices, for all users and programs.
@@ -810,6 +810,56 @@ browser = "terminal"
 - `terminal`: the `url` is `ssh://[user@]host[:port]`, or a folder: an absolute path, `~/path`, or `file:///path`. An ssh URL must not contain a password, a path, or a command. farglass gives the user, the host, and the port to `ssh` as arguments, not as a shell command. When `ssh` stops, press Enter in the terminal to connect again.
 - If the host does not have the browser or the profile of a bookmark, or the folder of a terminal bookmark, the app shows the problem on that bookmark.
 - `launcher`: with `true`, the launcher finds each bookmark by its short name. The default is `false`.
+
+## Network check
+
+The Network check app shows if the host reaches the internet, DNS, and the hosts and ports that you need.
+The agent runs each check on the host, as your user.
+Thus a result shows the path of the host, not the path of the computer that shows farglass.
+
+All checks run when the window opens.
+Check again reads the files again and runs all checks.
+Check on a row runs only that check.
+A result older than 5 minutes shows its age and is dim.
+
+The app has these checks:
+
+- Internet: HTTPS to `1.1.1.1` and to `google.com`, with the CA certificates of the host. The internet is available if one of the two checks passes. The timeout is 4000 ms.
+- Proxy: if `https_proxy` or `all_proxy` is set in the session, the same two checks also go through that proxy. The proxy must be an `http://` URL.
+- DNS: a lookup of `google.com` with the resolver of the host. The row shows the name servers of `/etc/resolv.conf`. The timeout is 3000 ms.
+- Administrator checks: the checks of `/etc/farglass/netchecks.toml`. The app shows them and does not change them.
+- Your checks: the checks of `$XDG_CONFIG_HOME/farglass/netchecks.toml`, by default `~/.config/farglass/netchecks.toml`. You can edit them in the app or in the file.
+
+Each check has one of these states:
+
+- Available: the host answered. The row shows the time in ms.
+- Failed: the connection failed, for example the host refused it, or no route goes to the host.
+- No answer: no answer came before the timeout. A firewall that drops the packets gives this state.
+
+A TCP check that the host refuses tells that the host is reachable but the port is closed.
+If DNS fails, each check of a host name can also fail for this cause.
+
+Both files have the same format.
+A save from the app keeps the comments of the file.
+If the file is not valid TOML, the app shows the error and does not change the file.
+
+```toml
+[[check]]
+name = "Firewall"                   # unique in the file
+kind = "icmp"                       # icmp (a ping) or tcp (a connection to the port)
+host = "fw01.cyberdyne.example"     # a hostname or an IP address
+
+[[check]]
+name = "Git over SSH"
+kind = "tcp"
+host = "git.cyberdyne.example"
+port = 22                           # necessary for tcp
+timeout = 1500                      # optional: 100 to 10000 ms, the default is 2000
+```
+
+An ICMP check uses the ping socket of the kernel.
+If `net.ipv4.ping_group_range` does not include the group of the user, the agent runs the `ping` program.
+A file can have at most 64 checks.
 
 ## Lock screen
 
@@ -1134,6 +1184,11 @@ It passes if each tab gets only its own echo.
 
 `npm --prefix spikes/e2e run transport` tests WebTransport, a terminal on it, and the fallback to the WebSocket.
 It shows the echo round trip during terminal output on each transport.
+
+`npm --prefix spikes/e2e run netcheck` opens the Network check app.
+It adds a TCP check of an open port and a TCP check of a closed port.
+It also adds an ICMP check of `127.0.0.1`, then reads the result of each check.
+The internet checks need no internet: the test waits only for a result.
 
 `npm --prefix spikes/e2e run login` starts farglass-login with a PAM stack that accepts the password `secret`.
 It logs in through the login screen, first with a wrong password and then with `secret`.

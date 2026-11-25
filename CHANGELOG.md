@@ -6,6 +6,16 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ---
 
+## Unreleased
+
+### Added
+- The Network check app shows at a glance if the host reaches the internet and DNS. It also shows if the hosts and ports that you need are available or blocked.
+- The internet check uses HTTPS to `1.1.1.1` and `google.com`. If the session has `https_proxy`, the app also checks the internet through that proxy.
+- You can add ICMP and TCP checks to the app, each with its own timeout. The app keeps them in `~/.config/farglass/netchecks.toml`.
+- An administrator can give checks to all users in `/etc/farglass/netchecks.toml`. The app shows them read-only.
+- All checks run when the app opens. Select Check again to run them again, or Check on a row to run one check.
+- Settings > Network has the button Check connections, which opens the Network check app.
+
 ## v0.2.1 — 25 November 2026 — Terminal tabs, split panes, settings, and bookmarks
 
 ### Added

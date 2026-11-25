@@ -68,7 +68,7 @@ id: number,
 /**
  * Reports whether the shell decodes the video messages (F037). A shell before this field sends none and gets tiles only.
  */
-video?: boolean, } | { "kind": "surface-input" } | { "kind": "clipboard" } | { "kind": "audio" } | { "kind": "redirect" } | { "kind": "stats" } | { "kind": "apps" } | { "kind": "bookmarks" } | { "kind": "tray" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" } | { "kind": "passkeys" };
+video?: boolean, } | { "kind": "surface-input" } | { "kind": "clipboard" } | { "kind": "audio" } | { "kind": "redirect" } | { "kind": "stats" } | { "kind": "apps" } | { "kind": "bookmarks" } | { "kind": "netcheck" } | { "kind": "tray" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" } | { "kind": "passkeys" };
 
 /**
  * The payload of a ready frame. The receiver of the open frame accepts the channel.
@@ -1003,6 +1003,150 @@ name: string, } | { "type": "failed",
  * The name of the bookmark, for an open.
  */
 name?: string, 
+/**
+ * The cause, for the user.
+ */
+message: string, };
+
+/**
+ * The kind of a connection check of a file (F111).
+ */
+export type NetcheckKind = "icmp" | "tcp";
+
+/**
+ * A connection check of a checks file (F111).
+ */
+export type NetcheckCheck = { 
+/**
+ * The name, for the user.
+ */
+name: string, 
+/**
+ * The kind.
+ */
+kind: NetcheckKind, 
+/**
+ * The host name or the IP address.
+ */
+host: string, 
+/**
+ * The port of a TCP check.
+ */
+port?: number, 
+/**
+ * The timeout in milliseconds. With none, the agent uses 2000.
+ */
+timeout?: number, };
+
+/**
+ * A group of connection checks (F111).
+ */
+export type NetcheckGroup = "internet" | "dns" | "admin" | "user";
+
+/**
+ * A check that the agent can run (F111).
+ */
+export type NetcheckItem = { 
+/**
+ * The id for [`NetcheckRequest::Run`]: for example `internet:1.1.1.1`, `dns`, `admin:0`, or `user:2`.
+ */
+id: string, 
+/**
+ * The group.
+ */
+group: NetcheckGroup, 
+/**
+ * The name, for the user.
+ */
+name: string, 
+/**
+ * What the check connects to, for the user, for example `1.1.1.1:443` or `ICMP fw01`.
+ */
+target: string, };
+
+/**
+ * A problem of one check of a file.
+ */
+export type NetcheckProblem = { 
+/**
+ * [`NetcheckGroup::Admin`] or [`NetcheckGroup::User`].
+ */
+group: NetcheckGroup, 
+/**
+ * The position of the check in its file.
+ */
+index: number, 
+/**
+ * The problem, for the user.
+ */
+message: string, };
+
+/**
+ * The result of a connection check (F111).
+ */
+export type NetcheckState = "ok" | "failed" | "timeout";
+
+/**
+ * A request of the shell on a netcheck channel.
+ */
+export type NetcheckRequest = { "type": "load" } | { "type": "save", 
+/**
+ * The new checks of the user.
+ */
+checks: Array<NetcheckCheck>, } | { "type": "run", 
+/**
+ * The ids of [`NetcheckItem::id`]. With none, the agent runs all checks.
+ */
+ids?: Array<string>, };
+
+/**
+ * A message of the agent on a netcheck channel.
+ */
+export type NetcheckEvent = { "type": "loaded", 
+/**
+ * The path of the checks file of the user.
+ */
+path: string, 
+/**
+ * The path of the checks file of the administrator.
+ */
+admin_path: string, 
+/**
+ * The checks of the user, in the order of the file.
+ */
+user: Array<NetcheckCheck>, 
+/**
+ * All checks that the agent can run, in the order to show.
+ */
+items: Array<NetcheckItem>, 
+/**
+ * The problems of single checks.
+ */
+problems: Array<NetcheckProblem>, 
+/**
+ * The proxy of `https_proxy`, with no user and password, if it is set.
+ */
+proxy?: string, 
+/**
+ * Why the file of the user is not valid TOML. The agent then does not save over it.
+ */
+error?: string, } | { "type": "result", 
+/**
+ * The id of the check.
+ */
+id: string, 
+/**
+ * The result.
+ */
+state: NetcheckState, 
+/**
+ * The time to the answer in milliseconds, for a check that passed.
+ */
+ms?: number, 
+/**
+ * What the agent saw, for the user.
+ */
+detail: string, } | { "type": "failed", 
 /**
  * The cause, for the user.
  */

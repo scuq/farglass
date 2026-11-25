@@ -1,0 +1,141 @@
+/* The Network check app: a summary, the internet checks, and the checks of the files. */
+.netcheck {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-height: 0;
+}
+.netcheck-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+/* The summary stays in view when the list scrolls. */
+.netcheck-top {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0.25rem 0 0.5rem;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+.netcheck-spacer {
+  flex: 1;
+}
+.netcheck-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  margin: 0;
+}
+.netcheck-summary dt {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.netcheck-summary dd {
+  margin: 0;
+  font-weight: 600;
+}
+.netcheck-heading {
+  margin: 0.4rem 0 0;
+  font-size: 1rem;
+}
+/* A state has a word and a mark. The color only repeats the word. */
+.netcheck-status {
+  white-space: nowrap;
+}
+.netcheck-mark {
+  display: inline-block;
+  width: 1.1em;
+  margin-right: 0.3rem;
+  text-align: center;
+}
+.netcheck-status[data-level="ok"] {
+  color: var(--ok);
+}
+.netcheck-status[data-level="bad"] {
+  color: var(--bad);
+}
+.netcheck-status[data-level="unknown"] {
+  color: var(--muted);
+}
+.netcheck-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.netcheck-row {
+  display: grid;
+  grid-template-columns: 7.5rem minmax(0, 1fr) auto auto;
+  grid-auto-flow: column;
+  align-items: start;
+  gap: 0.5rem;
+  padding: 0.5rem;
+}
+.netcheck-row + .netcheck-row {
+  border-top: 1px solid var(--line);
+}
+/* An old result stays readable but dim, with its age. */
+.netcheck-row[data-stale="true"] > :not(button) {
+  opacity: 0.6;
+}
+.netcheck-what {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.netcheck-name {
+  font-weight: 600;
+}
+.netcheck-target,
+.netcheck-detail,
+.netcheck-age,
+.netcheck-ms {
+  color: var(--muted);
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+.netcheck-ms {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.netcheck-problem,
+.netcheck-alert {
+  color: var(--bad);
+}
+.netcheck-alert,
+.netcheck-note,
+.netcheck-path {
+  margin: 0;
+}
+.netcheck-note,
+.netcheck-path,
+.netcheck-empty {
+  color: var(--muted);
+  font-size: 0.9em;
+}
+.netcheck-path {
+  overflow-wrap: anywhere;
+}
+.netcheck-empty {
+  padding: 0.75rem;
+}
+.netcheck-form {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.5rem 0.75rem;
+  align-items: center;
+  padding: 0.75rem;
+  border: 1px solid var(--focus);
+  border-radius: 8px;
+}
+.netcheck-form-buttons {
+  grid-column: 1 / -1;
+}
+.netcheck button {
+  padding: 0.3rem 0.7rem;
+  font: inherit;
+}

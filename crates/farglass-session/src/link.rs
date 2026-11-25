@@ -11,8 +11,9 @@ use farglass_proto::codec::{CodecError, FrameCodec};
 use farglass_proto::message::{
     AppsEvent, AppsRequest, AudioEvent, BookmarksEvent, BookmarksRequest, Bus, ClipboardMessage,
     ClipboardMime, Close, CloseReason, DbusEvent, DbusRequest, LinkMessage, MAX_CLIPBOARD_LEN,
-    NotifyReply, Open, PolkitReply, PtyEvent, PtyRequest, Ready, RedirectRequest, StateEvent,
-    StateRequest, SurfaceAck, SurfaceInput, SurfaceRequest, TrayRequest,
+    NetcheckEvent, NetcheckRequest, NotifyReply, Open, PolkitReply, PtyEvent, PtyRequest, Ready,
+    RedirectRequest, StateEvent, StateRequest, SurfaceAck, SurfaceInput, SurfaceRequest,
+    TrayRequest,
 };
 use farglass_proto::{ChannelId, Frame, FrameError, FrameType, PROTOCOL_VERSION, Side};
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -26,6 +27,7 @@ use crate::bookmarks::Bookmarks;
 use crate::dbus::{self, Buses, DbusOptions, Filter, Subscriptions};
 use crate::launch::{LaunchOptions, Launcher};
 use crate::logind::Logind;
+use crate::netcheck::{self, Netcheck};
 use crate::notify::{self, Notifications};
 use crate::polkit::{HELPER, Polkit, ViewerGuard};
 use crate::redirect::{Redirect, RedirectGuard};
@@ -85,6 +87,8 @@ pub struct Session {
     pub launcher: Arc<Launcher>,
     /// The bookmarks file and the browsers that open its bookmarks (F100).
     pub bookmarks: Arc<Bookmarks>,
+    /// The connection checks of the host (F111).
+    pub netcheck: Arc<Netcheck>,
     /// The system tray: the status notifier items of the programs (F102).
     pub tray: Arc<Tray>,
     /// The sound of the apps.
@@ -125,6 +129,11 @@ impl Default for Session {
             surfaces,
             bookmarks: Bookmarks::new(crate::bookmarks::default_path(), launcher.clone()),
             launcher,
+            netcheck: Netcheck::new(
+                netcheck::default_path(),
+                netcheck::ADMIN_PATH.into(),
+                netcheck::Proxy::from_env(),
+            ),
             audio: Audio::new(),
             redirect,
         }
@@ -464,7 +473,28 @@ where
                             )),
                         }
                     }
-                    Kind::Apps | Kind::Bookmarks | Kind::Audio { .. } | Kind::Stats { .. } => None,
+                    Kind::Netcheck if frame.frame_type() == FrameType::Control => {
+                        match frame.parse::<NetcheckRequest>() {
+                            Ok(request) => {
+                                netcheck_request(
+                                    session.netcheck.clone(),
+                                    channel,
+                                    request,
+                                    &events,
+                                );
+                                None
+                            }
+                            Err(error) => Some((
+                                CloseReason::ProtocolError,
+                                format!("The netcheck request is not valid: {error}"),
+                            )),
+                        }
+                    }
+                    Kind::Apps
+                    | Kind::Bookmarks
+                    | Kind::Netcheck
+                    | Kind::Audio { .. }
+                    | Kind::Stats { .. } => None,
                     Kind::Redirect { .. } if frame.frame_type() == FrameType::Control => {
                         match frame.parse::<RedirectRequest>() {
                             Ok(request) => {
@@ -601,6 +631,50 @@ fn bookmarks_request(
             let _ = events.send(frame);
         }
     });
+}
+
+/// Serves a request of a netcheck channel (F111). A run sends the result of each check when it ends.
+fn netcheck_request(
+    netcheck: Arc<Netcheck>,
+    channel: ChannelId,
+    request: NetcheckRequest,
+    events: &mpsc::UnboundedSender<Frame>,
+) {
+    let events = events.clone();
+    let send = move |event: &NetcheckEvent| {
+        if let Ok(frame) = Frame::json(channel, FrameType::Control, event) {
+            let _ = events.send(frame);
+        }
+    };
+    match request {
+        NetcheckRequest::Load => {
+            tokio::task::spawn_blocking(move || send(&netcheck.load()));
+        }
+        NetcheckRequest::Save { checks } => {
+            tokio::task::spawn_blocking(move || {
+                send(
+                    &netcheck
+                        .save(&checks)
+                        .unwrap_or_else(|message| NetcheckEvent::Failed { message }),
+                );
+            });
+        }
+        NetcheckRequest::Run { ids } => {
+            tokio::spawn(async move {
+                let plan = netcheck.clone();
+                let Ok(jobs) = tokio::task::spawn_blocking(move || plan.plan(ids.as_deref())).await
+                else {
+                    return;
+                };
+                let send = Arc::new(send);
+                for job in jobs {
+                    let netcheck = netcheck.clone();
+                    let send = send.clone();
+                    tokio::spawn(async move { send(&netcheck.run(job).await) });
+                }
+            });
+        }
+    }
 }
 
 /// A clipboard content of the shell that is not complete yet.
@@ -912,6 +986,8 @@ enum Kind {
     Apps,
     /// Reads and writes the bookmarks file, and opens its bookmarks.
     Bookmarks,
+    /// Reads and writes the checks file, and runs the connection checks.
+    Netcheck,
     /// Gets the use of the host every 2 s. Dropping the channel removes it.
     Stats {
         /// Dropping the guard removes the channel from the agent.
@@ -1095,6 +1171,15 @@ fn open(
                 events,
             );
             accept(Kind::Bookmarks)
+        }
+        Ok(Open::Netcheck) => {
+            netcheck_request(
+                session.netcheck.clone(),
+                channel,
+                NetcheckRequest::Load,
+                events,
+            );
+            accept(Kind::Netcheck)
         }
         Ok(Open::Clipboard) => {
             let events = events.clone();

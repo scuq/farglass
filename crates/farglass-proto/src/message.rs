@@ -186,6 +186,10 @@ pub enum Open {
     ///
     /// The agent sends [`BookmarksEvent::Loaded`] at once. The shell sends [`BookmarksRequest`].
     Bookmarks,
+    /// The connection checks of the host (F111): the internet, DNS, and the checks of the files.
+    ///
+    /// The agent sends [`NetcheckEvent::Loaded`] at once. The shell sends [`NetcheckRequest`].
+    Netcheck,
     /// The system tray of the session (F102): the status notifier items of the programs.
     ///
     /// The agent sends [`TrayEvent::Items`] at once, then each change. The shell sends [`TrayRequest`].
@@ -908,6 +912,151 @@ pub enum BookmarksEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         name: Option<String>,
+        /// The cause, for the user.
+        message: String,
+    },
+}
+
+/// The kind of a connection check of a file (F111).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "kebab-case")]
+pub enum NetcheckKind {
+    /// An ICMP echo request to the host.
+    Icmp,
+    /// A TCP connection to a port of the host.
+    Tcp,
+}
+
+/// A connection check of a checks file (F111).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct NetcheckCheck {
+    /// The name, for the user.
+    pub name: String,
+    /// The kind.
+    pub kind: NetcheckKind,
+    /// The host name or the IP address.
+    pub host: String,
+    /// The port of a TCP check.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub port: Option<u16>,
+    /// The timeout in milliseconds. With none, the agent uses 2000.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub timeout: Option<u32>,
+}
+
+/// A group of connection checks (F111).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "kebab-case")]
+pub enum NetcheckGroup {
+    /// The HTTPS checks to the internet.
+    Internet,
+    /// The check of the name resolution.
+    Dns,
+    /// The checks of the administrator file.
+    Admin,
+    /// The checks of the file of the user.
+    User,
+}
+
+/// A check that the agent can run (F111).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct NetcheckItem {
+    /// The id for [`NetcheckRequest::Run`]: for example `internet:1.1.1.1`, `dns`, `admin:0`, or `user:2`.
+    pub id: String,
+    /// The group.
+    pub group: NetcheckGroup,
+    /// The name, for the user.
+    pub name: String,
+    /// What the check connects to, for the user, for example `1.1.1.1:443` or `ICMP fw01`.
+    pub target: String,
+}
+
+/// A problem of one check of a file.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct NetcheckProblem {
+    /// [`NetcheckGroup::Admin`] or [`NetcheckGroup::User`].
+    pub group: NetcheckGroup,
+    /// The position of the check in its file.
+    pub index: u32,
+    /// The problem, for the user.
+    pub message: String,
+}
+
+/// The result of a connection check (F111).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "kebab-case")]
+pub enum NetcheckState {
+    /// The connection is available.
+    Ok,
+    /// The connection failed: for example refused, no route, or a certificate that is not valid.
+    Failed,
+    /// No answer in the timeout: often a firewall that drops the packets.
+    Timeout,
+}
+
+/// A request of the shell on a netcheck channel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum NetcheckRequest {
+    /// Reads the files again. The agent answers with [`NetcheckEvent::Loaded`].
+    Load,
+    /// Writes the checks file of the user. The agent keeps the comments of the file and
+    /// answers with [`NetcheckEvent::Loaded`], or with [`NetcheckEvent::Failed`] and no change.
+    Save {
+        /// The new checks of the user.
+        checks: Vec<NetcheckCheck>,
+    },
+    /// Runs checks. The agent sends one [`NetcheckEvent::Result`] for each check when it ends.
+    Run {
+        /// The ids of [`NetcheckItem::id`]. With none, the agent runs all checks.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        ids: Option<Vec<String>>,
+    },
+}
+
+/// A message of the agent on a netcheck channel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum NetcheckEvent {
+    /// The checks of the files and the built-in checks.
+    Loaded {
+        /// The path of the checks file of the user.
+        path: String,
+        /// The path of the checks file of the administrator.
+        admin_path: String,
+        /// The checks of the user, in the order of the file.
+        user: Vec<NetcheckCheck>,
+        /// All checks that the agent can run, in the order to show.
+        items: Vec<NetcheckItem>,
+        /// The problems of single checks.
+        problems: Vec<NetcheckProblem>,
+        /// The proxy of `https_proxy`, with no user and password, if it is set.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        proxy: Option<String>,
+        /// Why the file of the user is not valid TOML. The agent then does not save over it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        error: Option<String>,
+    },
+    /// The result of one check.
+    Result {
+        /// The id of the check.
+        id: String,
+        /// The result.
+        state: NetcheckState,
+        /// The time to the answer in milliseconds, for a check that passed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        ms: Option<u32>,
+        /// What the agent saw, for the user.
+        detail: String,
+    },
+    /// A save failed.
+    Failed {
         /// The cause, for the user.
         message: String,
     },

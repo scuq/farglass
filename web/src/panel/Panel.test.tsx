@@ -380,7 +380,7 @@ describe("launcher", () => {
     byText(host, "button", "Apps").click();
     await settle();
     const options = [...host.querySelectorAll("#launcher [role=option]")].map((li) => li.querySelector(".launcher-title")?.textContent);
-    expect(options).toEqual(["About farglass", "Bookmarks", "Echo", "Settings", "Terminal"]);
+    expect(options).toEqual(["About farglass", "Bookmarks", "Echo", "Network check", "Settings", "Terminal"]);
     byText(host, "#launcher [role=option]", "About farglass").click();
     await settle();
     expect(host.querySelector(".wm-window")?.getAttribute("aria-label")).toBe("About farglass");
@@ -394,7 +394,7 @@ describe("launcher", () => {
     const input = host.querySelector<HTMLInputElement>(".launcher-search")!;
     type(input, "ping");
     await settle();
-    expect([...host.querySelectorAll("#launcher [role=option]")].map((li) => li.querySelector(".launcher-title")?.textContent)).toEqual(["Echo"]);
+    expect([...host.querySelectorAll("#launcher [role=option]")].map((li) => li.querySelector(".launcher-title")?.textContent)).toEqual(["Echo", "Network check"]);
     type(input, "nothing here");
     await settle();
     expect(host.querySelector(".launcher-empty")?.textContent).toBe("No app matches.");
@@ -451,7 +451,7 @@ describe("launcher", () => {
     // Alt+P pins the selected app, Echo. The selection stays on it.
     key("keydown", { key: "p", code: "KeyP", altKey: true }, input);
     await settle();
-    expect([sections(), titles()]).toEqual([["Pinned", "All apps"], ["Echo", "About farglass", "Bookmarks", "Settings", "Terminal"]]);
+    expect([sections(), titles()]).toEqual([["Pinned", "All apps"], ["Echo", "About farglass", "Bookmarks", "Network check", "Settings", "Terminal"]]);
     expect(host.querySelector("#launcher [aria-selected=true] .launcher-title")?.textContent).toBe("Echo");
     const sets = () =>
       server
@@ -466,11 +466,11 @@ describe("launcher", () => {
     expect(Object.keys(sets().at(-1)?.value?.used ?? {})).toEqual(["terminal"]);
     byText(host, "button", "Apps").click();
     await settle();
-    expect([sections(), titles()]).toEqual([["Pinned", "Most used", "All apps"], ["Echo", "Terminal", "About farglass", "Bookmarks", "Settings"]]);
+    expect([sections(), titles()]).toEqual([["Pinned", "Most used", "All apps"], ["Echo", "Terminal", "About farglass", "Bookmarks", "Network check", "Settings"]]);
     // The button of the entry removes the pin.
     byText(host, "#launcher [role=option]", "Echo").querySelector<HTMLButtonElement>(".launcher-pin")!.click();
     await settle();
-    expect([sections(), titles()]).toEqual([["Most used", "All apps"], ["Terminal", "About farglass", "Bookmarks", "Echo", "Settings"]]);
+    expect([sections(), titles()]).toEqual([["Most used", "All apps"], ["Terminal", "About farglass", "Bookmarks", "Echo", "Network check", "Settings"]]);
   });
 
   test("a calculation and a unit conversion are the first result, and Enter copies the value", async () => {

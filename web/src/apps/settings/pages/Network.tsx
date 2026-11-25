@@ -78,7 +78,7 @@ export function addresses(data: unknown): string[] {
 const NO_OBJECT = "/";
 
 /** The network devices of the host, from NetworkManager. The page only shows: a change of the network can stop this connection. */
-export function NetworkPage(props: { dbus: DbusClient }) {
+export function NetworkPage(props: { dbus: DbusClient; openApp?: (appId: string) => void }) {
   const [devices, setDevices] = createSignal<readonly Device[] | null>(null);
   const [overall, setOverall] = createSignal("");
   const [error, setError] = createSignal<string | null>(null);
@@ -194,6 +194,16 @@ export function NetworkPage(props: { dbus: DbusClient }) {
                   )}
                 </For>
               </ul>
+              <Show when={props.openApp}>
+                {(openApp) => (
+                  <div class="settings-buttons settings-buttons-start">
+                    <button type="button" onClick={() => openApp()("netcheck")}>
+                      Check connections
+                    </button>
+                    <span class="settings-note">Opens Network check: the internet, DNS, and the hosts and ports that you need.</span>
+                  </div>
+                )}
+              </Show>
               <p class="settings-note">
                 The page shows the network and does not change it: a change can stop the connection of this desktop. Use nmcli in a terminal to change it.
               </p>

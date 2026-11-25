@@ -16,6 +16,7 @@ pub mod desktop;
 pub mod launch;
 pub mod link;
 pub mod logind;
+pub mod netcheck;
 pub mod notify;
 pub mod polkit;
 pub mod redirect;

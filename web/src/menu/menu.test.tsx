@@ -173,7 +173,7 @@ describe("context menus of the shell", () => {
     const host = await mountDesktop(emptyDesktop());
     expect(rightClick(host.querySelector(".wm-surface")!)).toBe(true);
     await settle();
-    expect(items(host)).toEqual(["Open About farglass", "Open Bookmarks", "Open Echo", "Open Settings", "Open Terminal", "Tile the windows"]);
+    expect(items(host)).toEqual(["Open About farglass", "Open Bookmarks", "Open Echo", "Open Network check", "Open Settings", "Open Terminal", "Tile the windows"]);
     choose(host, "Open Echo");
     await settle();
     expect(host.querySelector(".wm-window")?.getAttribute("aria-label")).toBe("Echo");

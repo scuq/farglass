@@ -96,7 +96,7 @@ export default function Settings(props: { context: AppContext }) {
       case "system":
         return <SystemPage dbus={dbus} />;
       case "network":
-        return <NetworkPage dbus={dbus} />;
+        return <NetworkPage dbus={dbus} openApp={(id) => props.context.openApp(id)} />;
       case "passkeys":
         return <PasskeysPage context={props.context} />;
       case "users":

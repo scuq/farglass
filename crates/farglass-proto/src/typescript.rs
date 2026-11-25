@@ -11,12 +11,13 @@ use crate::login::{LocalSession, LoginEvent, LoginReply};
 use crate::message::{
     AppsEvent, AppsRequest, AudioEvent, Bookmark, BookmarkBrowser, BookmarkFile, BookmarkProblem,
     BookmarksEvent, BookmarksRequest, Bus, ClipboardMessage, ClipboardMime, Close, CloseReason,
-    ConnectionMessage, DbusEvent, DbusRequest, HostApp, HostUsage, MAX_CLIPBOARD_LEN, Notification,
-    NotifyAction, NotifyEvent, NotifyReply, Open, PasskeyEvent, PasskeyInfo, PasskeyRequest,
-    PolkitEvent, PolkitReply, PtyEvent, PtyRequest, PtyStart, Ready, RedirectEvent, RedirectRect,
-    RedirectRequest, StateEvent, StateRequest, StatsEvent, SurfaceAck, SurfaceEvent, SurfaceInput,
-    SurfaceRect, SurfaceRequest, TrayEvent, TrayItem, TrayMenuItem, TrayRequest, TrayStatus,
-    TrayToggle, Urgency, Usage, WindowUsage,
+    ConnectionMessage, DbusEvent, DbusRequest, HostApp, HostUsage, MAX_CLIPBOARD_LEN,
+    NetcheckCheck, NetcheckEvent, NetcheckGroup, NetcheckItem, NetcheckKind, NetcheckProblem,
+    NetcheckRequest, NetcheckState, Notification, NotifyAction, NotifyEvent, NotifyReply, Open,
+    PasskeyEvent, PasskeyInfo, PasskeyRequest, PolkitEvent, PolkitReply, PtyEvent, PtyRequest,
+    PtyStart, Ready, RedirectEvent, RedirectRect, RedirectRequest, StateEvent, StateRequest,
+    StatsEvent, SurfaceAck, SurfaceEvent, SurfaceInput, SurfaceRect, SurfaceRequest, TrayEvent,
+    TrayItem, TrayMenuItem, TrayRequest, TrayStatus, TrayToggle, Urgency, Usage, WindowUsage,
 };
 use crate::{
     ChannelId, FrameError, FrameType, HEADER_LEN, MAX_PAYLOAD_LEN, PROTOCOL_VERSION,
@@ -128,6 +129,14 @@ fn messages() -> String {
     declare::<BookmarkProblem>(&cfg, &mut out);
     declare::<BookmarksRequest>(&cfg, &mut out);
     declare::<BookmarksEvent>(&cfg, &mut out);
+    declare::<NetcheckKind>(&cfg, &mut out);
+    declare::<NetcheckCheck>(&cfg, &mut out);
+    declare::<NetcheckGroup>(&cfg, &mut out);
+    declare::<NetcheckItem>(&cfg, &mut out);
+    declare::<NetcheckProblem>(&cfg, &mut out);
+    declare::<NetcheckState>(&cfg, &mut out);
+    declare::<NetcheckRequest>(&cfg, &mut out);
+    declare::<NetcheckEvent>(&cfg, &mut out);
     declare::<TrayStatus>(&cfg, &mut out);
     declare::<TrayItem>(&cfg, &mut out);
     declare::<TrayToggle>(&cfg, &mut out);

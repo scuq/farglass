@@ -23,6 +23,7 @@
     "clipboard": "node clipboard.mjs",
     "launcher": "node launcher.mjs",
     "bookmarks": "node bookmarks.mjs",
+    "netcheck": "node netcheck.mjs",
     "video": "node video.mjs",
     "sound": "node sound.mjs",
     "redirect": "node redirect.mjs",

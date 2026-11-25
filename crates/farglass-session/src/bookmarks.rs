@@ -38,9 +38,9 @@ use crate::launch::Launcher;
 /// The largest bookmarks file in bytes.
 const MAX_FILE: u64 = 1 << 20;
 
-/// Returns the path of the bookmarks file: `$XDG_CONFIG_HOME/farglass/bookmarks.toml`, or `~/.config/farglass/bookmarks.toml`.
+/// Returns the configuration folder of farglass: `$XDG_CONFIG_HOME/farglass`, or `~/.config/farglass`.
 #[must_use]
-pub fn default_path() -> PathBuf {
+pub fn config_dir() -> PathBuf {
     let config = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .filter(|path| path.is_absolute())
@@ -49,7 +49,13 @@ pub fn default_path() -> PathBuf {
                 .map_or_else(|| PathBuf::from("/"), PathBuf::from)
                 .join(".config")
         });
-    config.join("farglass").join("bookmarks.toml")
+    config.join("farglass")
+}
+
+/// Returns the path of the bookmarks file: `$XDG_CONFIG_HOME/farglass/bookmarks.toml`, or `~/.config/farglass/bookmarks.toml`.
+#[must_use]
+pub fn default_path() -> PathBuf {
+    config_dir().join("bookmarks.toml")
 }
 
 /// The browser value of a bookmark that opens in a terminal window of the shell (F110).
@@ -393,7 +399,7 @@ impl Bookmarks {
 }
 
 /// Writes `bytes` to a new file next to `path` and renames it to `path`.
-fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let dir = path.parent().unwrap_or_else(|| Path::new("."));
     std::fs::create_dir_all(dir)?;
     let name = path
