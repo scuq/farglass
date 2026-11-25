@@ -6,7 +6,7 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ---
 
-## Unreleased
+## v0.2.2 — 25 November 2026 — Network check app
 
 ### Added
 - The Network check app shows at a glance if the host reaches the internet and DNS. It also shows if the hosts and ports that you need are available or blocked.
