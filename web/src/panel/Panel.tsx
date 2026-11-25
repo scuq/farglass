@@ -185,6 +185,8 @@ export function Panel(props: { controller: DesktopController; user: string; onlo
           aria-pressed={String(camera()?.state() === "armed" || camera()?.state() === "on") as "true" | "false"}
           aria-disabled={camera()?.state() === "blocked" ? "true" : undefined}
           data-state={camera()?.state()}
+          data-bitrate={camera()?.rate().bitrate}
+          data-fps={camera()?.rate().frameRate}
           title={camera()?.state() === "blocked" ? camera()?.message() : CAMERA_BUTTON[camera()?.state() ?? "off"].title}
           onClick={() => camera()?.toggle()}
         >

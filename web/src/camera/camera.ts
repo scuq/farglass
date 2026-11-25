@@ -1,37 +1,43 @@
 /**
- * The camera of this computer for the apps of the host (F116, ADR-056, ADR-057).
+ * The camera of this computer for the apps of the host (F116, F118, ADR-056, ADR-057, ADR-058).
  *
  * The camera keeps a camera channel open while the desktop shows, and stays
  * off until the user arms it in the panel. While it is armed, the shell
  * captures only when the agent says that an app of the host reads the camera,
  * thus the camera light of this computer is on only while an app uses it.
  *
- * The shell crops each picture to the aspect of the format, and WebCodecs
- * scales it and encodes it as H.264 in real time. Each data frame holds one
- * picture: a flags byte (bit 0 is a key frame), then the access unit in
- * Annex B form. A late picture is dropped, not queued: while the send buffer
- * is above a limit, the pictures wait for the next key frame.
+ * The camera must not delay the desktop. It encodes in a Worker where the
+ * browser has MediaStreamTrackProcessor, else on the main thread. The agent
+ * acks each picture, and a new picture goes to the encoder only after the
+ * ack (see encoder.ts and rate.ts). Each data frame holds one picture: a
+ * flags byte (bit 0 is a key frame), then the access unit in Annex B form.
  */
 
 import { createSignal } from "solid-js";
 import type { CameraEvent, CameraRequest, Channel, Connection } from "../proto";
+import { CameraEncoder, encoderConfig, type EncodedPicture } from "./encoder";
+import type { FromWorker, ToWorker } from "./worker";
 
 /** The state of the camera: off, armed, on (an app of the host gets the pictures), refused by the browser, or blocked by the host. */
 export type CameraState = "off" | "armed" | "on" | "refused" | "blocked";
 
 type Format = Extract<CameraEvent, { type: "ready" }>;
 
-/** The bit rate of the pictures: good quality for a video conference. */
-const BITRATE = 1_500_000;
+/** The bytes that can wait in the transport before a new picture: on a WebSocket, for all channels. */
+const ROOM_LIMIT = 16 * 1024;
 
-/** H.264 Constrained Baseline, level 3.1: 1280x720 at 30 pictures each second. */
-const CODEC = "avc1.42001f";
-
-/** The bytes that can wait to go out. Above it, the shell drops pictures, so the camera does not delay the input. */
+/** The bytes that can wait when a picture goes out. Above it, the picture goes, so the camera does not delay the input. */
 const SEND_LIMIT = 256 * 1024;
 
-/** The pictures that can wait in the encoder. Above it, a picture is late and goes. */
-const ENCODE_QUEUE = 2;
+/** The time between two checks of the room of the transport for the worker, in ms. */
+const ROOM_CHECK_MS = 20;
+
+type Processor = new (init: { track: MediaStreamTrack }) => { readable: ReadableStream<VideoFrame> };
+
+/** Returns MediaStreamTrackProcessor, if this browser has it. */
+function trackProcessor(): Processor | undefined {
+  return (globalThis as { MediaStreamTrackProcessor?: Processor }).MediaStreamTrackProcessor;
+}
 
 /** Reports whether this browser can capture and encode the camera. */
 export function cameraSupported(): boolean {
@@ -44,28 +50,19 @@ export function cameraSupported(): boolean {
   );
 }
 
-/** Returns the part of a picture of `width`x`height` with the aspect of `format`, centered, with even values. */
-export function cropRect(width: number, height: number, format: { width: number; height: number }): DOMRectInit {
-  const even = (value: number) => Math.floor(value / 2) * 2;
-  if (width * format.height > height * format.width) {
-    const cropped = even((height * format.width) / format.height);
-    return { x: even((width - cropped) / 2), y: 0, width: cropped, height: even(height) };
-  }
-  const cropped = even((width * format.height) / format.width);
-  return { x: 0, y: even((height - cropped) / 2), width: even(width), height: cropped };
-}
+export { cropRect } from "./encoder";
 
 export class Camera {
   readonly #channel: Channel;
   #format: Format | null = null;
   #stream: MediaStream | null = null;
+  /** The main thread path: the video element and the encoder. */
   #video: HTMLVideoElement | null = null;
-  #encoder: VideoEncoder | null = null;
-  /** The next picture must be a key frame. */
-  #needKey = true;
-  /** The shell dropped a picture: the pictures after it wait for a key frame. */
-  #waitKey = false;
-  #lastFrame = 0;
+  #encoder: CameraEncoder | null = null;
+  /** The Worker path, and the check of the room of the transport for it. */
+  #worker: Worker | null = null;
+  #roomCheck: ReturnType<typeof setInterval> | undefined;
+  readonly #rate = createSignal({ bitrate: 0, frameRate: 0 });
   // Each capture and each stop counts up: a capture that a stop overtook releases its device.
   #generation = 0;
   readonly #available = createSignal(false);
@@ -94,6 +91,11 @@ export class Camera {
 
   state(): CameraState {
     return this.#state[0]();
+  }
+
+  /** The bit rate and the frame rate of the camera now, for the panel and the tests. */
+  rate(): { bitrate: number; frameRate: number } {
+    return this.#rate[0]();
   }
 
   /** The cause that the host gave for a block. */
@@ -163,7 +165,13 @@ export class Camera {
         }
         break;
       case "key-frame":
-        this.#needKey = true;
+        this.#encoder?.keyFrame();
+        this.#post({ type: "key-frame" });
+        break;
+      case "ack":
+        this.#encoder?.ack();
+        if (this.#encoder) this.#rate[1](this.#encoder.rate);
+        this.#post({ type: "ack" });
         break;
       case "taken":
         // A different tab or computer of the user armed the camera.
@@ -195,22 +203,64 @@ export class Camera {
     const release = () => {
       for (const track of stream.getTracks()) track.stop();
     };
-    const config: VideoEncoderConfig = {
-      codec: CODEC,
-      width: format.width,
-      height: format.height,
-      bitrate: BITRATE,
-      framerate: format.frame_rate,
-      latencyMode: "realtime",
-      avc: { format: "annexb" },
-    };
-    const support = await VideoEncoder.isConfigSupported(config).catch(() => ({ supported: false }));
-    if (!support.supported) {
+    const chosen = await encoderConfig(format);
+    if (!chosen) {
       console.warn("This browser cannot encode the camera as H.264.");
       release();
       if (current()) this.disarm();
       return;
     }
+    const Processor = trackProcessor();
+    const track = Processor ? stream.getVideoTracks()[0] : undefined;
+    if (Processor && track) {
+      if (!current()) {
+        release();
+        return;
+      }
+      this.#startWorker(new Processor({ track }).readable, chosen.config, chosen.software, format);
+    } else if (!(await this.#startMainThread(stream, chosen.config, chosen.software, format, current))) {
+      release();
+      return;
+    }
+    this.#stream = stream;
+    this.#channel.control({ type: "format", codec: format.codec, width: format.width, height: format.height } satisfies CameraRequest);
+    this.#state[1]("on");
+    // An unplugged device, or a block in the site settings, ends the track.
+    for (const each of stream.getTracks()) {
+      each.addEventListener("ended", () => {
+        if (this.#stream === stream) this.disarm();
+      });
+    }
+  }
+
+  /** Reports whether the transport has room for a new picture. */
+  #room(): boolean {
+    return this.#channel.buffered < ROOM_LIMIT;
+  }
+
+  /** Encodes in a Worker: the main thread only sends the pictures. */
+  #startWorker(readable: ReadableStream<VideoFrame>, config: VideoEncoderConfig, software: boolean, format: Format): void {
+    const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
+    worker.onmessage = (event: MessageEvent<FromWorker>) => {
+      if (this.#worker !== worker) return;
+      const message = event.data;
+      if (message.type === "picture") this.#send(message);
+      else this.#rate[1]({ bitrate: message.bitrate, frameRate: message.frameRate });
+    };
+    this.#worker = worker;
+    this.#post({ type: "start", readable, config, software, format }, [readable as unknown as Transferable]);
+    let room = true;
+    this.#roomCheck = setInterval(() => {
+      const now = this.#room();
+      if (now !== room) {
+        room = now;
+        this.#post({ type: "sendable", value: now });
+      }
+    }, ROOM_CHECK_MS);
+  }
+
+  /** Encodes on the main thread, for a browser with no MediaStreamTrackProcessor. Returns false if the capture stopped. */
+  async #startMainThread(stream: MediaStream, config: VideoEncoderConfig, software: boolean, format: Format, current: () => boolean): Promise<boolean> {
     const video = document.createElement("video");
     video.muted = true;
     video.playsInline = true;
@@ -219,82 +269,54 @@ export class Camera {
       await video.play();
     } catch (error) {
       console.error("camera", error);
-      release();
       if (current()) this.disarm();
-      return;
+      return false;
     }
-    if (!current()) {
-      release();
-      return;
-    }
-    const encoder = new VideoEncoder({ output: (chunk) => this.#send(chunk), error: (error) => console.error("camera", error) });
-    encoder.configure(config);
-    this.#stream = stream;
+    if (!current()) return false;
+    const encoder = new CameraEncoder(config, software, format, (picture) => this.#send(picture));
     this.#video = video;
     this.#encoder = encoder;
-    this.#needKey = true;
-    this.#waitKey = false;
-    this.#lastFrame = 0;
-    this.#channel.control({ type: "format", codec: format.codec, width: format.width, height: format.height } satisfies CameraRequest);
-    this.#state[1]("on");
-    // An unplugged device, or a block in the site settings, ends the track.
-    for (const track of stream.getTracks()) {
-      track.addEventListener("ended", () => {
-        if (this.#stream === stream) this.disarm();
-      });
-    }
+    this.#rate[1](encoder.rate);
     const step = (now: number) => {
       if (this.#video !== video) return;
-      this.#encode(video, format, now);
+      encoder.offer(video, video.videoWidth, video.videoHeight, this.#room(), now);
       video.requestVideoFrameCallback(step);
     };
     video.requestVideoFrameCallback(step);
+    return true;
   }
 
-  /** Encodes the picture that `video` shows now, unless it is too early or the encoder is late. */
-  #encode(video: HTMLVideoElement, format: Format, now: number): void {
-    const encoder = this.#encoder;
-    if (!encoder || encoder.state !== "configured" || !video.videoWidth || !video.videoHeight) return;
-    // A camera that gives more pictures than the format: keep the frame rate (2 ms for the jitter of the callbacks).
-    if (this.#lastFrame && now - this.#lastFrame < 1000 / format.frame_rate - 2) return;
-    if (encoder.encodeQueueSize > ENCODE_QUEUE) {
-      this.#needKey = true;
-      return;
-    }
-    this.#lastFrame = now;
-    const frame = new VideoFrame(video, {
-      timestamp: Math.round(now * 1000),
-      visibleRect: cropRect(video.videoWidth, video.videoHeight, format),
-    });
-    encoder.encode(frame, { keyFrame: this.#needKey });
-    this.#needKey = false;
-    frame.close();
+  #post(message: ToWorker, transfer: Transferable[] = []): void {
+    this.#worker?.postMessage(message, transfer);
   }
 
-  #send(chunk: EncodedVideoChunk): void {
-    const key = chunk.type === "key";
-    if (this.#waitKey && !key) return;
+  #send(picture: EncodedPicture): void {
     if (this.#channel.buffered > SEND_LIMIT) {
-      // A late picture: drop it, and the pictures after it until a key frame.
-      this.#waitKey = true;
-      this.#needKey = true;
+      // The transport is far behind: the picture goes, and the next one is a key frame.
+      this.#encoder?.dropped();
+      this.#post({ type: "dropped" });
       return;
     }
-    this.#waitKey = false;
-    const bytes = new Uint8Array(1 + chunk.byteLength);
-    bytes[0] = key ? 1 : 0;
-    chunk.copyTo(bytes.subarray(1));
+    const bytes = new Uint8Array(1 + picture.data.byteLength);
+    bytes[0] = picture.key ? 1 : 0;
+    bytes.set(new Uint8Array(picture.data), 1);
     this.#channel.send(bytes);
   }
 
   #stopCapture(): void {
     this.#generation++;
     for (const track of this.#stream?.getTracks() ?? []) track.stop();
-    if (this.#encoder && this.#encoder.state !== "closed") this.#encoder.close();
+    this.#encoder?.close();
     if (this.#video) this.#video.srcObject = null;
+    if (this.#worker) {
+      this.#post({ type: "stop" });
+      this.#worker.terminate();
+    }
+    clearInterval(this.#roomCheck);
     this.#stream = null;
     this.#video = null;
     this.#encoder = null;
+    this.#worker = null;
   }
 }
 

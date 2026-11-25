@@ -9,6 +9,7 @@
  */
 
 import { Connection, connect, endpointUrl, type Transport } from "./connection";
+import { decodeFrame, parseJson } from "./frame";
 import { FrameType, HEADER_LEN } from "./generated/wire";
 
 /** The time for the WebTransport session to open. After it, the shell uses the WebSocket. */
@@ -16,6 +17,29 @@ export const WEBTRANSPORT_TIMEOUT_MS = 3000;
 
 /** After a failure, the shell uses the WebSocket for this time before it tries WebTransport again. */
 export const WEBTRANSPORT_RETRY_MS = 5 * 60_000;
+
+/**
+ * The send order of the stream of each channel kind: a higher number goes first (F118, ADR-058).
+ * The input and the pictures of the desktop go before all other data, and the camera goes last.
+ */
+const SEND_ORDER: Readonly<Record<string, number>> = {
+  "surface-input": 100,
+  surface: 90,
+  surfaces: 80,
+  mic: -10,
+  camera: -100,
+};
+
+/** Returns the send order for the first frame of a stream: an open frame names the kind of its channel. */
+export function sendOrder(first: Uint8Array<ArrayBuffer>): number {
+  if (first[4] !== FrameType.Open) return 0;
+  try {
+    const open = parseJson<{ kind?: string }>(decodeFrame(first));
+    return SEND_ORDER[open.kind ?? ""] ?? 0;
+  } catch {
+    return 0;
+  }
+}
 
 /** The answer of `POST /transport`. */
 export interface TransportOffer {
@@ -77,7 +101,7 @@ export class WebTransportTransport implements Transport {
     }
     const channel = new DataView(message.buffer, message.byteOffset, message.byteLength).getUint32(0, true);
     const type = message[4];
-    const before = this.#queues.get(channel) ?? this.#open();
+    const before = this.#queues.get(channel) ?? this.#open(sendOrder(message));
     this.#pending.set(channel, (this.#pending.get(channel) ?? 0) + message.byteLength);
     const after = before.then(async (writer) => {
       if (!writer) {
@@ -114,9 +138,9 @@ export class WebTransportTransport implements Transport {
     }
   }
 
-  /** Opens the stream of a new channel and reads its frames. */
-  async #open(): Promise<WritableStreamDefaultWriter<Uint8Array>> {
-    const stream = await this.#session.createBidirectionalStream();
+  /** Opens the stream of a new channel with the send order `order`, and reads its frames. A browser with no send order ignores it. */
+  async #open(order: number): Promise<WritableStreamDefaultWriter<Uint8Array>> {
+    const stream = await this.#session.createBidirectionalStream({ sendOrder: order });
     void this.#read(stream.readable);
     return stream.writable.getWriter();
   }

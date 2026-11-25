@@ -88,6 +88,7 @@ Controls:
 - The state store accepts at most 8 MiB, with keys of at most 256 bytes. The clipboard has a size limit.
 - The microphone stays off until the user clicks the Mic button, and the browser asks the user first. The agent accepts at most 50 packets each second after a burst of 3 s, and logs each start and stop in the security log. `microphone = false` turns it off for all users (F114).
 - The camera stays off until the user clicks the Camera button, and the browser asks the user first. The browser opens the camera only while an app of the host reads the camera node. The agent gives each camera connection of a host app the permissions on its own node only. Thus host apps do not see the cameras of the host. The agent accepts at most 30 pictures each second after a burst of 2 s, and only pictures of 1280x720. It logs each arm, start, stop, and disarm in the security log. `camera = false` turns it off for all users (F116).
+- The camera cannot fill the queues of the desktop. The agent decodes the camera on a thread with nice 10. It closes the channel with `resource-limit` when a picture comes while 2 pictures wait for their ack (F118).
 - The D-Bus channel permits a list of bus names. It is not a security boundary while the terminal exists (ADR-044).
 
 ### Video redirection

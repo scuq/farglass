@@ -42,6 +42,16 @@
       }
     },
     {
+      "name": "camera ack",
+      "frame": "01000000040e00007b2274797065223a2261636b227d",
+      "channel": 1,
+      "type": 4,
+      "payload": "7b2274797065223a2261636b227d",
+      "json": {
+        "type": "ack"
+      }
+    },
+    {
       "name": "ready",
       "frame": "01000000020200007b7d",
       "channel": 1,

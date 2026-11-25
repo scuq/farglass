@@ -683,8 +683,23 @@ Click Cam off in the panel to arm the camera, and the panel shows Cam ready.
 The browser opens the camera only while an app of the host reads `farglass-camera`, and asks you first.
 Thus the camera light of your computer is on only while an app uses the camera.
 Cam on in the panel shows that an app gets the pictures. Click it to turn the camera off.
-The browser crops the picture to 16:9 and encodes it as H.264 at 1.5 Mbit/s in real time.
+The browser crops the picture to 16:9 and encodes it as H.264 in real time, at most at 1.5 Mbit/s.
 The agent decodes it with openh264. On a VM with two arm64 cores, the decode takes less than 3 % of one core.
+
+The camera must not delay the desktop (ADR-058):
+
+- The browser encodes in a Worker, where the browser has `MediaStreamTrackProcessor`, so the page stays free for your keys and clicks.
+- The agent decodes on a thread of its own with nice 10, not in the loop that takes your input.
+- The agent acks each picture, and the browser sends a new picture only after the ack. Thus at most two camera pictures wait in front of a key press.
+- The browser measures the uplink from the acks. The camera uses at most half of it, and less when the round trip shows a queue.
+- On WebTransport, the camera has the lowest send order. On a WebSocket, a picture waits while 16 KiB of other data wait.
+
+On a slow line, the camera gets less quality and fewer pictures, and the desktop keeps its speed.
+`npm --prefix spikes/e2e run camera-load` measures the echo with the camera off and on, and checks that the camera adds at most 30 ms to the 95th percentile.
+On a VM with two arm64 cores, the camera added 1 ms on WebTransport and on a WebSocket.
+On a WebSocket with an uplink of 1 Mbit/s, it added 7 ms.
+There, the camera used 125 kbit/s at 15 pictures each second.
+A browser with a software H.264 encoder sends at most 15 pictures each second.
 With no stream, the source gives black pictures.
 Cam blocked shows that the browser refused the camera: allow it in the site settings of the browser, then click again.
 Cam disabled shows that the camera switch of the privacy settings of the host is off, for example in GNOME Settings, Privacy, Camera.

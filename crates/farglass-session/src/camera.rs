@@ -14,12 +14,18 @@
 //! reads the node. The agent decodes them with openh264, and the node gives
 //! the newest picture. With no stream, the node gives black pictures.
 //!
+//! The camera must not delay the desktop (F118, ADR-058). The link loop only
+//! checks a picture and puts it in a queue: a thread of its own with nice 10
+//! decodes it. The agent acks each picture, and the shell sends the next one
+//! only after the ack. Thus each queue holds at most [`MAX_UNACKED`] pictures.
+//!
 //! One channel holds the camera at a time. The channel that arms last gets
 //! it, and the agent tells the channel before it with
 //! [`CameraEvent::Taken`].
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::mpsc::{Receiver, SyncSender, TrySendError};
+use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::thread::JoinHandle;
 use std::time::Instant;
 
@@ -53,6 +59,12 @@ const BURST: f64 = 60.0;
 /// The bit of the flags byte for a key frame.
 const KEY_FRAME: u8 = 1;
 
+/// The pictures that can wait for their ack. The shell waits for each ack, and the first picture of a stream can overlap.
+pub const MAX_UNACKED: usize = 2;
+
+/// The nice value of the threads of the camera: the desktop goes first.
+const NICE: i32 = 10;
+
 /// A message or a data frame that the agent refuses. The channel closes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum PictureError {
@@ -68,6 +80,9 @@ pub enum PictureError {
     /// More pictures than the frame rate gives.
     #[error("The camera channel sent more pictures than its frame rate gives.")]
     TooFast,
+    /// More pictures with no ack than [`MAX_UNACKED`].
+    #[error("The camera channel sent pictures before their acks.")]
+    Unacked,
 }
 
 impl PictureError {
@@ -76,7 +91,7 @@ impl PictureError {
     pub const fn reason(self) -> CloseReason {
         match self {
             Self::NotArmed | Self::Format | Self::Size => CloseReason::ProtocolError,
-            Self::TooFast => CloseReason::ResourceLimit,
+            Self::TooFast | Self::Unacked => CloseReason::ResourceLimit,
         }
     }
 
@@ -86,6 +101,7 @@ impl PictureError {
             Self::Format => "format",
             Self::Size => "size",
             Self::TooFast => "too-fast",
+            Self::Unacked => "unacked",
         }
     }
 }
@@ -98,22 +114,37 @@ struct Holder {
     events: Events,
 }
 
-/// The state of the holder and of the decoder.
+/// The state of the holder and of its stream.
 struct State {
     holder: Option<Holder>,
-    decoder: Option<openh264::decoder::Decoder>,
     /// Reports whether a stream of the holder runs: a format came, and no idle since.
     streaming: bool,
-    /// Reports whether the decoder waits for a key frame.
-    need_key: bool,
+    /// The number of the stream. Each format, arm, disarm, and idle counts up, and the decode thread drops older pictures.
+    generation: u64,
+    /// The pictures of the stream that wait for their ack.
+    unacked: usize,
+    /// Reports whether the decoder got a picture of a different size: the next picture closes the channel.
+    wrong_size: bool,
     /// The pictures that can come now, for the rate limit.
     tokens: f64,
     last: Instant,
 }
 
+/// A picture for the decode thread.
+struct Job {
+    generation: u64,
+    key: bool,
+    data: Vec<u8>,
+}
+
 /// The camera channels and the camera node of the session.
 pub struct Camera {
+    me: Weak<Camera>,
     state: Mutex<State>,
+    /// The queue of the decode thread. The thread starts with the first stream.
+    decode: Mutex<Option<SyncSender<Job>>>,
+    /// The pictures in the queue or in the decoder.
+    busy: AtomicUsize,
     /// The newest picture in I420, for the node.
     picture: Mutex<Vec<u8>>,
     next: AtomicU64,
@@ -168,6 +199,18 @@ fn security(result: &str, reason: &str) {
     }
 }
 
+/// Gives the thread that calls it the nice value [`NICE`], so the threads of the desktop go first.
+#[allow(unsafe_code)]
+fn lower_priority() {
+    // SAFETY: setpriority and gettid take plain integers and touch no memory of the program.
+    // With the id of this thread, setpriority changes only this thread.
+    let result =
+        unsafe { nix::libc::setpriority(nix::libc::PRIO_PROCESS, nix::libc::gettid() as _, NICE) };
+    if result != 0 {
+        tracing::debug!("the camera thread keeps its priority");
+    }
+}
+
 /// Returns a black picture in I420.
 fn black() -> Vec<u8> {
     let mut picture = vec![16; PICTURE_BYTES];
@@ -194,15 +237,19 @@ impl Camera {
     /// Returns the camera of a session with no node yet.
     #[must_use]
     pub fn new() -> Arc<Self> {
-        Arc::new(Self {
+        Arc::new_cyclic(|me| Self {
+            me: me.clone(),
             state: Mutex::new(State {
                 holder: None,
-                decoder: None,
                 streaming: false,
-                need_key: true,
+                generation: 0,
+                unacked: 0,
+                wrong_size: false,
                 tokens: BURST,
                 last: Instant::now(),
             }),
+            decode: Mutex::new(None),
+            busy: AtomicUsize::new(0),
             picture: Mutex::new(black()),
             next: AtomicU64::new(1),
             running: AtomicBool::new(false),
@@ -237,8 +284,7 @@ impl Camera {
             let mut state = self.lock();
             let stopped = !reading && state.streaming;
             if !reading {
-                state.streaming = false;
-                state.decoder = None;
+                state.end_stream();
             }
             (
                 state.holder.as_ref().map(|holder| holder.events.clone()),
@@ -280,6 +326,18 @@ impl Camera {
         self.lock().holder.is_some()
     }
 
+    /// Returns the pictures in the queue of the decode thread or in its decoder, for a test that waits for the decode.
+    #[must_use]
+    pub fn decoding(&self) -> usize {
+        self.busy.load(Ordering::Acquire)
+    }
+
+    /// Returns the pictures of the stream that wait for their ack.
+    #[must_use]
+    pub fn unacked(&self) -> usize {
+        self.lock().unacked
+    }
+
     /// Returns a copy of the picture that the node gives now, in I420.
     #[must_use]
     pub fn picture(&self) -> Vec<u8> {
@@ -303,9 +361,7 @@ impl Camera {
                 id,
                 events: events.clone(),
             });
-            state.decoder = None;
-            state.streaming = false;
-            state.need_key = true;
+            state.end_stream();
             before.map(|before| (before, stopped))
         }
         .map_or((None, false), |(before, stopped)| (Some(before), stopped));
@@ -330,8 +386,7 @@ impl Camera {
             if state.holder.as_ref().is_some_and(|holder| holder.id == id) {
                 let stopped = state.streaming;
                 state.holder = None;
-                state.decoder = None;
-                state.streaming = false;
+                state.end_stream();
                 (true, stopped)
             } else {
                 (false, false)
@@ -363,15 +418,8 @@ impl Camera {
             // A format that was on the way when a different channel took the camera.
             return Ok(());
         }
-        match openh264::decoder::Decoder::new() {
-            Ok(decoder) => state.decoder = Some(decoder),
-            Err(error) => {
-                tracing::warn!(%error, "no H.264 decoder for the camera");
-                return Ok(());
-            }
-        }
+        state.end_stream();
         state.streaming = true;
-        state.need_key = true;
         state.tokens = BURST;
         state.last = now;
         drop(state);
@@ -379,7 +427,7 @@ impl Camera {
         Ok(())
     }
 
-    /// Takes the payload of a data frame of channel `id` at the time `now`.
+    /// Takes the payload of a data frame of channel `id` at the time `now`, and gives it to the decode thread.
     fn frame(&self, id: u64, payload: &[u8], now: Instant) -> Result<(), PictureError> {
         if payload.len() < 2 || payload.len() > MAX_PICTURE {
             return Err(PictureError::Size);
@@ -389,46 +437,166 @@ impl Camera {
             // A picture that was on the way when a different channel took the camera, or when the host app stopped.
             return Ok(());
         }
+        if state.wrong_size {
+            return Err(PictureError::Format);
+        }
         let elapsed = now.saturating_duration_since(state.last).as_secs_f64();
         state.last = now;
         state.tokens = (state.tokens + elapsed * f64::from(FRAME_RATE)).min(BURST);
         if state.tokens < 1.0 {
             return Err(PictureError::TooFast);
         }
+        if state.unacked >= MAX_UNACKED {
+            return Err(PictureError::Unacked);
+        }
         state.tokens -= 1.0;
-        let key = payload[0] & KEY_FRAME != 0;
-        if state.need_key && !key {
-            return Ok(());
-        }
-        let Some(decoder) = state.decoder.as_mut() else {
+        let job = Job {
+            generation: state.generation,
+            key: payload[0] & KEY_FRAME != 0,
+            data: payload[1..].to_vec(),
+        };
+        let Some(queue) = self.decode_queue() else {
             return Ok(());
         };
-        let decoded = match decoder.decode(&payload[1..]) {
-            Ok(Some(yuv)) if yuv.dimensions() != (WIDTH, HEIGHT) => {
-                return Err(PictureError::Format);
+        match queue.try_send(job) {
+            Ok(()) => {
+                state.unacked += 1;
+                self.busy.fetch_add(1, Ordering::AcqRel);
+                Ok(())
             }
-            Ok(Some(yuv)) => {
-                let mut picture = self.picture_lock();
-                copy_i420(&yuv, &mut picture);
-                true
-            }
-            Ok(None) => true,
-            Err(error) => {
-                tracing::debug!(%error, "a camera picture did not decode");
-                false
-            }
-        };
-        if decoded {
-            state.need_key = false;
-            return Ok(());
+            Err(TrySendError::Full(_)) => Err(PictureError::Unacked),
+            Err(TrySendError::Disconnected(_)) => Ok(()),
         }
-        state.need_key = true;
-        let events = state.holder.as_ref().map(|holder| holder.events.clone());
-        drop(state);
+    }
+
+    /// Returns the queue of the decode thread, and starts the thread the first time.
+    fn decode_queue(&self) -> Option<SyncSender<Job>> {
+        let mut decode = self.decode.lock().unwrap_or_else(PoisonError::into_inner);
+        if decode.is_none() {
+            let (queue, jobs) = std::sync::mpsc::sync_channel(MAX_UNACKED);
+            let camera = self.me.clone();
+            let started = std::thread::Builder::new()
+                .name("farglass-camera-decode".to_owned())
+                .spawn(move || decode_loop(&camera, &jobs));
+            match started {
+                Ok(_) => *decode = Some(queue),
+                Err(error) => tracing::warn!(%error, "no decode thread for the camera"),
+            }
+        }
+        decode.clone()
+    }
+
+    /// Acks a picture of stream `generation` when the decode thread takes it from the queue.
+    ///
+    /// The ack comes before the decode: the time of the decode grows with the size of the picture, and the shell
+    /// takes its round trip for the time of the link. The decode thread takes the next picture only after the decode,
+    /// thus a slow decode still lowers the frame rate. A picture of an old stream gets no ack.
+    fn taken(&self, generation: u64) {
+        let events = {
+            let mut state = self.lock();
+            if state.generation != generation {
+                return;
+            }
+            state.unacked = state.unacked.saturating_sub(1);
+            state.holder.as_ref().map(|holder| holder.events.clone())
+        };
         if let Some(events) = events {
+            events(CameraEvent::Ack);
+        }
+    }
+
+    /// Ends the work of the decode thread on a picture of stream `generation`, and asks for a key frame if `key_frame`.
+    /// `picture` is the decoded picture, if any. A picture of an old stream changes nothing.
+    fn done(&self, generation: u64, picture: Decoded<'_>, key_frame: bool) {
+        // The decoder is free after this call, also for a picture of an old stream.
+        struct Free<'a>(&'a AtomicUsize);
+        impl Drop for Free<'_> {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, Ordering::AcqRel);
+            }
+        }
+        let _free = Free(&self.busy);
+        let events = {
+            let mut state = self.lock();
+            if state.generation != generation {
+                return;
+            }
+            match picture {
+                Decoded::Picture(yuv) => copy_i420(yuv, &mut self.picture_lock()),
+                Decoded::WrongSize => state.wrong_size = true,
+                Decoded::Nothing => {}
+            }
+            state.holder.as_ref().map(|holder| holder.events.clone())
+        };
+        if key_frame && let Some(events) = events {
             events(CameraEvent::KeyFrame);
         }
-        Ok(())
+    }
+}
+
+impl State {
+    /// Ends the stream: the decode thread drops its pictures, and no ack is due.
+    fn end_stream(&mut self) {
+        self.streaming = false;
+        self.generation += 1;
+        self.unacked = 0;
+        self.wrong_size = false;
+    }
+}
+
+/// What the decode thread got from one picture.
+enum Decoded<'a> {
+    /// A picture of [`WIDTH`]x[`HEIGHT`].
+    Picture(&'a openh264::decoder::DecodedYUV<'a>),
+    /// A picture of a different size.
+    WrongSize,
+    /// No picture: the decoder needs more data, or dropped the data.
+    Nothing,
+}
+
+/// Decodes the pictures of `jobs` until the camera goes. A new stream gets a new decoder.
+fn decode_loop(camera: &Weak<Camera>, jobs: &Receiver<Job>) {
+    lower_priority();
+    let mut decoder: Option<openh264::decoder::Decoder> = None;
+    let mut generation = u64::MAX;
+    let mut need_key = true;
+    while let Ok(job) = jobs.recv() {
+        let Some(camera) = camera.upgrade() else {
+            return;
+        };
+        camera.taken(job.generation);
+        if job.generation != generation {
+            generation = job.generation;
+            need_key = true;
+            decoder = openh264::decoder::Decoder::new()
+                .map_err(|error| tracing::warn!(%error, "no H.264 decoder for the camera"))
+                .ok();
+        }
+        if need_key && !job.key {
+            // The pictures of a stream before its first key frame do not decode.
+            camera.done(job.generation, Decoded::Nothing, false);
+            continue;
+        }
+        let Some(decoder) = decoder.as_mut() else {
+            camera.done(job.generation, Decoded::Nothing, false);
+            continue;
+        };
+        match decoder.decode(&job.data) {
+            Ok(Some(yuv)) if yuv.dimensions() == (WIDTH, HEIGHT) => {
+                need_key = false;
+                camera.done(job.generation, Decoded::Picture(&yuv), false);
+            }
+            Ok(Some(_)) => camera.done(job.generation, Decoded::WrongSize, false),
+            Ok(None) => {
+                need_key = false;
+                camera.done(job.generation, Decoded::Nothing, false);
+            }
+            Err(error) => {
+                tracing::debug!(%error, "a camera picture did not decode");
+                need_key = true;
+                camera.done(job.generation, Decoded::Nothing, true);
+            }
+        }
     }
 }
 
@@ -520,6 +688,7 @@ impl Camera {
         let thread = std::thread::Builder::new()
             .name("farglass-camera".to_owned())
             .spawn(move || {
+                lower_priority();
                 if let Err(error) = node::run(&camera, quit_rx, &ready_tx) {
                     let _ = ready_tx.send(Err(error));
                 }
@@ -878,13 +1047,38 @@ mod tests {
             .collect()
     }
 
-    fn events() -> (
-        Arc<StdMutex<Vec<CameraEvent>>>,
-        impl Fn(CameraEvent) + Send + Sync + 'static,
-    ) {
+    type Seen = Arc<StdMutex<Vec<CameraEvent>>>;
+
+    fn events() -> (Seen, impl Fn(CameraEvent) + Send + Sync + 'static) {
         let seen = Arc::new(StdMutex::new(Vec::new()));
         let store = seen.clone();
         (seen, move |event| store.lock().unwrap().push(event))
+    }
+
+    /// Returns the events with no ack.
+    fn without_acks(seen: &Seen) -> Vec<CameraEvent> {
+        let all = seen.lock().unwrap();
+        all.iter()
+            .filter(|e| **e != CameraEvent::Ack)
+            .cloned()
+            .collect()
+    }
+
+    /// Waits until the decode thread acked and decoded each picture.
+    fn settle(camera: &Camera) {
+        let end = Instant::now() + Duration::from_secs(10);
+        while camera.unacked() > 0 || camera.decoding() > 0 {
+            assert!(Instant::now() < end, "the decode thread did not ack");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    /// Sends `payload` as the shell does: after the ack of the picture before it.
+    fn send(camera: &Camera, channel: &CameraGuard, payload: &[u8]) -> Result<(), PictureError> {
+        settle(camera);
+        let result = channel.frame(payload);
+        settle(camera);
+        result
     }
 
     fn luma(camera: &Camera, x: usize, y: usize) -> u8 {
@@ -905,8 +1099,17 @@ mod tests {
         assert_eq!(channel.format("h264", 640, 480), Err(PictureError::Format));
         channel.format("h264", 1280, 720).unwrap();
         for picture in pictures(3) {
-            channel.frame(&picture).unwrap();
+            send(&camera, &channel, &picture).unwrap();
         }
+        assert_eq!(
+            seen.lock()
+                .unwrap()
+                .iter()
+                .filter(|e| **e == CameraEvent::Ack)
+                .count(),
+            3,
+            "one ack for each picture"
+        );
         assert!(
             (80..100).contains(&luma(&camera, 10, 10)),
             "the gray of the picture"
@@ -926,6 +1129,48 @@ mod tests {
     }
 
     #[test]
+    fn the_link_loop_does_not_wait_for_the_decode() {
+        let camera = Camera::new();
+        let channel = camera.add_channel(|_| {});
+        channel.arm();
+        camera.set_reading(true);
+        channel.format("h264", 1280, 720).unwrap();
+        let pictures = pictures(2);
+        // The first picture starts the thread. The second one goes in the queue while the first decodes.
+        send(&camera, &channel, &pictures[0]).unwrap();
+        let start = Instant::now();
+        channel.frame(&pictures[1]).unwrap();
+        let took = start.elapsed();
+        assert!(took < Duration::from_millis(5), "frame took {took:?}");
+        settle(&camera);
+    }
+
+    #[test]
+    fn the_shell_waits_for_the_ack_of_each_picture() {
+        let camera = Camera::new();
+        let channel = camera.add_channel(|_| {});
+        channel.arm();
+        camera.set_reading(true);
+        channel.format("h264", 1280, 720).unwrap();
+        // Pictures that are slow to decode: the queue of the thread is full.
+        let pictures = pictures(MAX_UNACKED + 1);
+        let mut result = Ok(());
+        for picture in &pictures {
+            result = channel.frame(picture);
+            if result.is_err() {
+                break;
+            }
+        }
+        if camera.unacked() < MAX_UNACKED {
+            // The decode thread was faster than this loop. The window holds then too.
+            settle(&camera);
+            return;
+        }
+        assert_eq!(result, Err(PictureError::Unacked));
+        assert_eq!(PictureError::Unacked.reason(), CloseReason::ResourceLimit);
+    }
+
+    #[test]
     fn the_decoder_waits_for_a_key_frame() {
         let camera = Camera::new();
         let channel = camera.add_channel(|_| {});
@@ -933,10 +1178,10 @@ mod tests {
         camera.set_reading(true);
         channel.format("h264", 1280, 720).unwrap();
         let pictures = pictures(3);
-        channel.frame(&pictures[1]).unwrap();
-        channel.frame(&pictures[2]).unwrap();
+        send(&camera, &channel, &pictures[1]).unwrap();
+        send(&camera, &channel, &pictures[2]).unwrap();
         assert_eq!(luma(&camera, 10, 10), 16, "no picture before the key frame");
-        channel.frame(&pictures[0]).unwrap();
+        send(&camera, &channel, &pictures[0]).unwrap();
         assert!((80..100).contains(&luma(&camera, 10, 10)));
     }
 
@@ -948,10 +1193,18 @@ mod tests {
         channel.arm();
         camera.set_reading(true);
         channel.format("h264", 1280, 720).unwrap();
-        channel
-            .frame(&[KEY_FRAME, 0, 0, 0, 1, 0x65, 0xff, 0x00])
-            .unwrap();
-        assert_eq!(seen.lock().unwrap().last(), Some(&CameraEvent::KeyFrame));
+        send(
+            &camera,
+            &channel,
+            &[KEY_FRAME, 0, 0, 0, 1, 0x65, 0xff, 0x00],
+        )
+        .unwrap();
+        let seen = seen.lock().unwrap();
+        // The ack comes when the decode thread takes the picture, the request for a key frame after the decode.
+        assert_eq!(
+            seen[seen.len() - 2..],
+            [CameraEvent::Ack, CameraEvent::KeyFrame]
+        );
     }
 
     #[test]
@@ -972,8 +1225,9 @@ mod tests {
         assert_eq!(*second_seen.lock().unwrap(), [CameraEvent::Reading]);
         // The pictures of the first channel go nowhere.
         first.format("h264", 1280, 720).unwrap();
-        first.frame(&pictures(1)[0]).unwrap();
+        send(&camera, &first, &pictures(1)[0]).unwrap();
         assert_eq!(luma(&camera, 10, 10), 16);
+        assert_eq!(without_acks(&second_seen), [CameraEvent::Reading]);
         drop(first);
         assert!(
             camera.in_use(),
@@ -997,23 +1251,23 @@ mod tests {
         );
         let start = Instant::now();
         let picture = [0_u8, 0, 0, 0, 1, 9, 0x10];
+        let at = |time| {
+            settle(&camera);
+            let result = channel.frame_at(&picture, time);
+            settle(&camera);
+            result
+        };
         for _ in 0..60 {
-            channel.frame_at(&picture, start).unwrap();
+            at(start).unwrap();
         }
-        assert_eq!(
-            channel.frame_at(&picture, start),
-            Err(PictureError::TooFast)
-        );
+        assert_eq!(at(start), Err(PictureError::TooFast));
         assert_eq!(PictureError::TooFast.reason(), CloseReason::ResourceLimit);
         // After 1 s, 30 more pictures can come.
         let later = start + Duration::from_secs(1);
         for _ in 0..30 {
-            channel.frame_at(&picture, later).unwrap();
+            at(later).unwrap();
         }
-        assert_eq!(
-            channel.frame_at(&picture, later),
-            Err(PictureError::TooFast)
-        );
+        assert_eq!(at(later), Err(PictureError::TooFast));
     }
 
     #[test]

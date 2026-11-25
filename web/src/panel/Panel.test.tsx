@@ -392,23 +392,43 @@ describe("camera for the apps", () => {
       await settle();
       await settle();
       expect(media).toHaveBeenCalledWith({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } } });
-      expect(encoders[0]!.config).toEqual({ codec: "avc1.42001f", width: 1280, height: 720, bitrate: 1_500_000, framerate: 30, latencyMode: "realtime", avc: { format: "annexb" } });
+      expect(encoders[0]!.config).toEqual({
+        codec: "avc1.42001f",
+        width: 1280,
+        height: 720,
+        bitrate: 500_000,
+        framerate: 30,
+        latencyMode: "realtime",
+        avc: { format: "annexb" },
+        hardwareAcceleration: "prefer-hardware",
+      });
       expect(sent().map((f) => parseJson(f))).toEqual([{ type: "format", codec: "h264", width: 1280, height: 720 }]);
       expect(button.textContent).toBe("Cam on");
       expect(button.dataset.state).toBe("on");
+      const chunk = (type: string) => ({ type, byteLength: 3, copyTo: (to: ArrayBuffer) => new Uint8Array(to).set([0, 0, 1]) });
+      const ack = async () => {
+        server.push(encodeJsonFrame(cam, FrameType.Control, { type: "ack" }));
+        await settle();
+      };
       // A picture of 640x480 loses its top and bottom for 16:9. The first one is a key frame.
       callbacks.shift()!(1000);
+      expect(encoded.map((e) => e.options.keyFrame)).toEqual([true]);
+      expect(encoded[0]!.frame.init.visibleRect).toEqual({ x: 0, y: 60, width: 640, height: 360 });
+      encoders[0]!.output(chunk("key"));
+      await ack();
+      // Not faster than the frame rate.
       callbacks.shift()!(1010);
+      expect(encoded).toHaveLength(1);
       callbacks.shift()!(1040);
       expect(encoded.map((e) => e.options.keyFrame)).toEqual([true, false]);
-      expect(encoded[0]!.frame.init.visibleRect).toEqual({ x: 0, y: 60, width: 640, height: 360 });
-      server.push(encodeJsonFrame(cam, FrameType.Control, { type: "key-frame" }));
-      await settle();
+      // No new picture before the ack of the one before it: the camera does not fill the queues of the desktop.
       callbacks.shift()!(1080);
-      expect(encoded.map((e) => e.options.keyFrame)).toEqual([true, false, true]);
-      const chunk = (type: string) => ({ type, byteLength: 3, copyTo: (to: Uint8Array) => to.set([0, 0, 1]) });
-      encoders[0]!.output(chunk("key"));
+      expect(encoded).toHaveLength(2);
       encoders[0]!.output(chunk("delta"));
+      server.push(encodeJsonFrame(cam, FrameType.Control, { type: "key-frame" }));
+      await ack();
+      callbacks.shift()!(1120);
+      expect(encoded.map((e) => e.options.keyFrame)).toEqual([true, false, true]);
       const pictures = sent();
       expect(pictures.map((f) => f.type)).toEqual([FrameType.Data, FrameType.Data]);
       expect([...pictures[0]!.payload]).toEqual([1, 0, 0, 1]);

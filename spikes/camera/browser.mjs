@@ -5,7 +5,8 @@
 // The script opens a page on http://localhost, lists the cameras, and opens
 // the camera with the label LABEL. It prints the labels, the size of the
 // track, the frame rate that the page counts, and the mean of the pixels.
-// The browser gets the extra launch arguments ARGS.
+// The browser gets the extra launch arguments ARGS. With KEEP_MS, the page
+// keeps the camera open for that time after the measurement.
 //
 // Exit status: 0 if the page gets frames from LABEL, 1 if not.
 
@@ -38,8 +39,9 @@ try {
   if (engine !== "firefox") await context.grantPermissions(["camera"], { origin: url });
   const page = await context.newPage();
   page.on("console", (msg) => console.log(`page: ${msg.text()}`));
+  console.log(`browser: started at ${new Date().toISOString()}`);
   await page.goto(url);
-  const result = await page.evaluate(async (label) => {
+  const result = await page.evaluate(async ([label, keep]) => {
     // A first getUserMedia gives the labels to enumerateDevices.
     const probe = await navigator.mediaDevices.getUserMedia({ video: true });
     probe.getTracks().forEach((t) => t.stop());
@@ -71,9 +73,11 @@ try {
     let sum = 0;
     for (let i = 0; i < pixels.length; i += 4) sum += pixels[i] + pixels[i + 1] + pixels[i + 2];
     const settings = stream.getVideoTracks()[0].getSettings();
+    console.log(`measured fps ${fps.toFixed(1)}`);
+    await new Promise((resolve) => setTimeout(resolve, keep));
     stream.getTracks().forEach((t) => t.stop());
     return { labels, width: settings.width, height: settings.height, fps, mean: sum / (pixels.length / 4) / 3 };
-  }, label);
+  }, [label, Number(process.env.KEEP_MS ?? 0)]);
   console.log(JSON.stringify(result));
   // HOLD_MS keeps the browser open, so pw-dump can show its PipeWire client.
   await new Promise((resolve) => setTimeout(resolve, Number(process.env.HOLD_MS ?? 0)));

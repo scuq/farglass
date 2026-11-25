@@ -713,7 +713,7 @@ message: string, } | { "type": "blocked",
 /**
  * The cause, and the setting that changes it.
  */
-message: string, } | { "type": "reading" } | { "type": "idle" } | { "type": "key-frame" } | { "type": "taken" };
+message: string, } | { "type": "reading" } | { "type": "idle" } | { "type": "key-frame" } | { "type": "ack" } | { "type": "taken" };
 
 /**
  * A control message of the shell on a camera channel (F116).

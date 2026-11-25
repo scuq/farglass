@@ -31,6 +31,30 @@ const children = [];
 let browser;
 let failed = false;
 
+/** Stops `child` and all processes of its group: portal.sh stops its private bus and portal then. */
+function stopGroup(child, signal = "SIGTERM") {
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    // The child leads no group of its own, or the group ended.
+  }
+  child.kill(signal);
+}
+
+/** Returns the number of PipeWire nodes with the name farglass-camera: the camera node of each running agent. */
+function cameraNodes() {
+  const nodes = JSON.parse(execFileSync("pw-dump", { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }));
+  return nodes.filter((o) => o.type === "PipeWire:Interface:Node" && o.info?.props?.["node.name"] === "farglass-camera").length;
+}
+
+// An interrupted run stops its children too: a camera node that stays confuses the next run.
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    for (const child of children) stopGroup(child, "SIGKILL");
+    process.exit(1);
+  });
+}
+
 function check(condition, text) {
   if (!condition) {
     throw new Error(text);
@@ -44,7 +68,7 @@ function hostChromium() {
     const child = spawn(
       "../camera/portal.sh",
       ["farglass", "node", "../camera/browser.mjs", "chromium", "farglass browser camera", "--enable-features=WebRtcPipeWireCamera"],
-      { cwd: import.meta.dirname, env: { ...process.env, GRANT: "yes" }, stdio: ["ignore", "pipe", "ignore"] },
+      { cwd: import.meta.dirname, env: { ...process.env, GRANT: "yes" }, stdio: ["ignore", "pipe", "ignore"], detached: true },
     );
     children.push(child);
     let out = "";
@@ -67,6 +91,9 @@ try {
   if (!existsSync("/usr/libexec/xdg-desktop-portal")) {
     console.log("SKIP: no xdg-desktop-portal");
     process.exit(0);
+  }
+  if (cameraNodes() > 0) {
+    throw new Error("A different agent has a farglass-camera node: stop it first, else the host Chromium can read that node.");
   }
   buildAll();
   const socket = join(state, "agent.sock");
@@ -135,7 +162,7 @@ try {
   console.error(`FAIL: ${error.message}`);
 } finally {
   await browser?.close();
-  for (const child of children) child.kill("SIGKILL");
+  for (const child of children) stopGroup(child, "SIGKILL");
   rmSync(state, { recursive: true, force: true });
 }
 

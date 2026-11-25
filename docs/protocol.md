@@ -462,12 +462,21 @@ After an arm, the agent sends these messages to the channel that holds the camer
 | `{"type":"reading"}` | An app of the host reads the node. The shell opens the camera and sends a format. |
 | `{"type":"idle"}` | No app of the host reads the node. The shell closes the camera, and the camera stays armed. |
 | `{"type":"key-frame"}` | A picture did not decode. The next picture must be a key frame. |
+| `{"type":"ack"}` | The decode thread of the agent took one picture of the stream from its queue. |
 | `{"type":"taken"}` | A different channel of the user armed the camera. The agent ignores the pictures of this channel until its next arm. |
 
 Each data frame holds one picture: a flags byte, then one H.264 access unit in Annex B form.
 Bit 0 of the flags byte marks a key frame.
 The agent ignores the pictures of a stream before its first key frame.
-The shell drops a picture while the send buffer of the channel holds more than 256 KiB, and then waits for a key frame.
+
+The camera must not delay the desktop (F118, ADR-058):
+
+- The agent decodes on a thread of its own with nice 10, not in the loop of the link.
+- The agent acks each picture when its decode thread takes the picture, before the decode. The shell sends a new picture only after the ack of the picture before it. On a fast link, two pictures can wait for their ack.
+- The shell skips a picture before the encode, thus a skipped picture breaks no reference of the stream.
+- The shell sends a new picture only while less than 16 KiB wait in the transport. On a WebSocket, that count is for all channels.
+- The shell measures the uplink and the round trip from the acks. The camera uses at most half of the uplink, and less when the round trip shows a queue.
+- On WebTransport, the stream of the camera has the lowest `sendOrder`. The streams of `surface-input`, `surface`, and `surfaces` have the highest.
 
 The agent closes the channel in these cases:
 
@@ -475,6 +484,7 @@ The agent closes the channel in these cases:
 - A format, or a decoded picture, with a different size than the ready message: `protocol-error`.
 - A data frame with less than 2 bytes, or with more than 512 KiB: `protocol-error`.
 - More pictures than 30 each second, after a burst of 60 pictures: `resource-limit`.
+- A picture while 2 pictures wait for their ack: `resource-limit`.
 
 ## WebTransport
 

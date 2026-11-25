@@ -134,10 +134,18 @@ async fn the_channel_gets_the_format_and_its_pictures_reach_the_node() {
         height: 720,
     };
     link.send(control(second, &format)).await.unwrap();
+    // As the shell does: each picture after the ack of the one before it.
     for picture in pictures(3) {
         link.send(Frame::data(second, picture).unwrap())
             .await
             .unwrap();
+        assert_eq!(
+            next(&mut link, second)
+                .await
+                .parse::<CameraEvent>()
+                .unwrap(),
+            CameraEvent::Ack
+        );
     }
     let end = Instant::now() + Duration::from_secs(10);
     while camera.picture()[200 * WIDTH + 300] < 200 {
@@ -165,6 +173,87 @@ async fn the_channel_gets_the_format_and_its_pictures_reach_the_node() {
         CloseReason::ProtocolError
     );
     assert!(!camera.in_use());
+}
+
+/// While the agent decodes 30 pictures each second, the link loop answers an echo frame at once (F118).
+/// Before F118, the loop decoded each picture itself, and the echo waited for the decode.
+#[tokio::test]
+async fn the_camera_does_not_delay_other_channels() {
+    let camera = Camera::new();
+    camera.set_available(true);
+    let (ours, theirs) = tokio::net::UnixStream::pair().unwrap();
+    let session_camera = camera.clone();
+    tokio::spawn(async move {
+        let mut session = Session {
+            camera: session_camera,
+            ..Session::default()
+        };
+        let _ = farglass_session::link::serve_with(theirs, &mut session).await;
+    });
+    let mut link = Framed::new(ours, FrameCodec);
+    link.next().await.unwrap().unwrap();
+    let hello = LinkMessage::Hello {
+        version: PROTOCOL_VERSION,
+    };
+    link.send(Frame::json(ChannelId::CONNECTION, FrameType::Control, &hello).unwrap())
+        .await
+        .unwrap();
+    let cam = ChannelId::new(1);
+    let echo = ChannelId::new(3);
+    link.send(Frame::open(cam, &Open::Camera).unwrap())
+        .await
+        .unwrap();
+    link.send(Frame::open(echo, &Open::Echo).unwrap())
+        .await
+        .unwrap();
+    for _ in 0..3 {
+        let frame = link.next().await.unwrap().unwrap();
+        if frame.channel() == cam
+            && matches!(
+                frame.parse::<CameraEvent>(),
+                Ok(CameraEvent::Blocked { .. })
+            )
+        {
+            eprintln!("SKIP: the privacy settings of this host block the camera");
+            return;
+        }
+    }
+    let control = |request: &CameraRequest| Frame::json(cam, FrameType::Control, request).unwrap();
+    link.send(control(&CameraRequest::Arm)).await.unwrap();
+    camera.set_reading(true);
+    let format = CameraRequest::Format {
+        codec: "h264".into(),
+        width: 1280,
+        height: 720,
+    };
+    link.send(control(&format)).await.unwrap();
+    let pictures = pictures(30);
+    let mut slowest = Duration::ZERO;
+    let mut acks = 0;
+    for picture in pictures {
+        // One picture goes to the decode thread, and an echo right behind it.
+        link.send(Frame::data(cam, picture).unwrap()).await.unwrap();
+        let sent = Instant::now();
+        link.send(Frame::data(echo, b"ping".to_vec()).unwrap())
+            .await
+            .unwrap();
+        loop {
+            let frame = link.next().await.unwrap().unwrap();
+            if frame.channel() == echo {
+                slowest = slowest.max(sent.elapsed());
+            } else if frame.channel() == cam
+                && frame.parse::<CameraEvent>().ok() == Some(CameraEvent::Ack)
+            {
+                acks += 1;
+                break;
+            }
+        }
+    }
+    assert_eq!(acks, 30);
+    assert!(
+        slowest < Duration::from_millis(15),
+        "the slowest echo took {slowest:?} while the camera decoded"
+    );
 }
 
 /// A PipeWire stream reads the node, as a host app does: the agent sees the reader, and the reader gets the pictures.
@@ -200,6 +289,10 @@ fn an_app_reads_the_pictures_from_the_node() {
     channel.format("h264", 1280, 720).unwrap();
     let start = Instant::now();
     for (n, picture) in pictures(60).iter().enumerate() {
+        // As the shell does: each picture after the ack of the one before it.
+        while camera.unacked() > 0 {
+            std::thread::sleep(Duration::from_millis(1));
+        }
         channel.frame(picture).unwrap();
         let due = start + Duration::from_millis(33 * (n as u64 + 1));
         std::thread::sleep(due.saturating_duration_since(Instant::now()));

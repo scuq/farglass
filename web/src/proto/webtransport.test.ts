@@ -1,16 +1,16 @@
 import { describe, expect, test } from "vitest";
 import { closeFrame, decodeFrame, encodeJsonFrame, FrameType, helloFrame, openFrame } from ".";
-import { frameReader, WebTransportTransport, webTransportUrl } from "./webtransport";
+import { frameReader, sendOrder, WebTransportTransport, webTransportUrl } from "./webtransport";
 
 /** A WebTransport session in memory: each stream records what the shell writes. */
 class FakeSession {
-  readonly streams: { written: Uint8Array[]; closed: boolean; push: (bytes: Uint8Array) => void }[] = [];
+  readonly streams: { written: Uint8Array[]; closed: boolean; order: number | undefined; push: (bytes: Uint8Array) => void }[] = [];
   #closed!: (info: { closeCode: number; reason: string }) => void;
   readonly closed = new Promise<{ closeCode: number; reason: string }>((resolve) => (this.#closed = resolve));
   readonly ready = Promise.resolve();
 
-  async createBidirectionalStream() {
-    const record = { written: [] as Uint8Array[], closed: false, push: (_: Uint8Array) => {} };
+  async createBidirectionalStream(options?: { sendOrder?: number }) {
+    const record = { written: [] as Uint8Array[], closed: false, order: options?.sendOrder, push: (_: Uint8Array) => {} };
     this.streams.push(record);
     const readable = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -86,6 +86,19 @@ describe("WebTransport transport", () => {
     expect(transport.buffered(7)).toBe(0);
     await settle();
     expect(transport.buffered(5)).toBe(0);
+  });
+
+  test("the input of the desktop goes first, and the camera goes last", async () => {
+    expect(sendOrder(openFrame(1, { kind: "surface-input" }))).toBeGreaterThan(sendOrder(openFrame(3, { kind: "echo" })));
+    expect(sendOrder(openFrame(3, { kind: "echo" }))).toBe(0);
+    expect(sendOrder(openFrame(5, { kind: "camera" }))).toBeLessThan(sendOrder(openFrame(7, { kind: "mic" })));
+    expect(sendOrder(helloFrame())).toBe(0);
+    const session = new FakeSession();
+    const transport = new WebTransportTransport(session as unknown as WebTransport);
+    transport.send(openFrame(1, { kind: "surface-input" }));
+    transport.send(openFrame(3, { kind: "camera" }));
+    await settle();
+    expect(session.streams.map((stream) => stream.order)).toEqual([100, -100]);
   });
 
   test("the end of the session reports its reason one time", async () => {

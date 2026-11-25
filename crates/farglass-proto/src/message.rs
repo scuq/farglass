@@ -821,6 +821,8 @@ pub enum CameraEvent {
     Idle,
     /// The next picture must be a key frame, for example after a picture that did not decode.
     KeyFrame,
+    /// The decode thread of the agent took one picture of the stream from its queue. The shell sends a new picture only after the ack of the one before it (ADR-058).
+    Ack,
     /// A different connection of the user armed the camera. The agent ignores the pictures of this channel until it arms again.
     Taken,
 }
