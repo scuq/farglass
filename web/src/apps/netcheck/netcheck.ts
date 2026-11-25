@@ -42,6 +42,8 @@ export interface NetcheckState {
   readonly items: readonly NetcheckItem[];
   readonly problems: readonly NetcheckProblem[];
   readonly proxy?: string | undefined;
+  /** The own IP address of the host, from `~/.outgoingip`, if the file exists. */
+  readonly outgoingIp?: string | undefined;
   /** Why the file of the user is not valid TOML. The agent does not save over it. */
   readonly error?: string | undefined;
 }
@@ -136,7 +138,7 @@ export class NetcheckClient {
     switch (event.type) {
       case "loaded": {
         const saved = this.#saves.shift();
-        this.#state[1]({ path: event.path, adminPath: event.admin_path, user: event.user, items: event.items, problems: event.problems, proxy: event.proxy, error: event.error });
+        this.#state[1]({ path: event.path, adminPath: event.admin_path, user: event.user, items: event.items, problems: event.problems, proxy: event.proxy, outgoingIp: event.outgoing_ip, error: event.error });
         // The ids of the checks of a file are positions: after a change of a file, the old results are not valid.
         this.#results[1]((results) => Object.fromEntries(Object.entries(results).filter(([id]) => !id.startsWith("user:") && !id.startsWith("admin:"))));
         if (this.#runAfterLoad) {

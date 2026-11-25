@@ -138,6 +138,10 @@ describe("app", () => {
     expect(row("admin:0")?.textContent).toContain("Checking");
     expect(element.querySelector('[role="alert"]')?.textContent).toContain("Name resolution fails");
     expect(element.querySelector('[data-field="checks-count"]')?.textContent).toContain("0 of 2 available");
+    expect(element.querySelector('[data-field="outgoing-ip"]'), "with no file, the page shows no address").toBeNull();
+    agent.emit({ ...loaded(), outgoing_ip: "203.0.113.7" } as NetcheckEvent);
+    flush();
+    expect(element.querySelector('[data-field="outgoing-ip"]')?.textContent).toBe("203.0.113.7");
     (element.querySelector('[aria-label="Check git again"]') as HTMLButtonElement).click();
     flush();
     expect(agent.sent.at(-1)).toEqual({ type: "run", ids: ["user:0"] });

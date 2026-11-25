@@ -1128,6 +1128,10 @@ problems: Array<NetcheckProblem>,
  */
 proxy?: string, 
 /**
+ * The own IP address of the host, from the first line of `~/.outgoingip`, if the file exists (F112).
+ */
+outgoing_ip?: string, 
+/**
  * Why the file of the user is not valid TOML. The agent then does not save over it.
  */
 error?: string, } | { "type": "result", 

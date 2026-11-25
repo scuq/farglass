@@ -818,6 +818,8 @@ The agent runs each check on the host, as your user.
 Thus a result shows the path of the host, not the path of the computer that shows farglass.
 
 All checks run when the window opens.
+If your home folder has the file `.outgoingip`, the top of the window shows its first line as the own IP address.
+With no file, the window shows no address.
 Check again reads the files again and runs all checks.
 Check on a row runs only that check.
 A result older than 5 minutes shows its age and is dim.

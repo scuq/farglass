@@ -405,6 +405,8 @@ pub struct Netcheck {
     path: PathBuf,
     admin_path: PathBuf,
     proxy: Option<Proxy>,
+    /// The file with the own IP address of the host: `~/.outgoingip`.
+    outgoing_ip: PathBuf,
     /// The CA certificates of the system, read at the first HTTPS check.
     tls: OnceLock<Result<Arc<rustls::ClientConfig>, String>>,
     /// Only one save at a time.
@@ -420,13 +422,30 @@ struct FileChecks {
 
 impl Netcheck {
     /// Returns the checks of the file of the user `path` and of the file of the administrator `admin_path`.
-    /// The HTTPS checks also go through `proxy`.
+    /// The HTTPS checks also go through `proxy`. The own IP address comes from `~/.outgoingip`.
     #[must_use]
     pub fn new(path: PathBuf, admin_path: PathBuf, proxy: Option<Proxy>) -> Arc<Self> {
+        Self::with_outgoing_ip(
+            path,
+            admin_path,
+            crate::terminal::home_dir().join(".outgoingip"),
+            proxy,
+        )
+    }
+
+    /// Returns the checks as [`Netcheck::new`], with the own IP address from the file `outgoing_ip`.
+    #[must_use]
+    pub fn with_outgoing_ip(
+        path: PathBuf,
+        admin_path: PathBuf,
+        outgoing_ip: PathBuf,
+        proxy: Option<Proxy>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             path,
             admin_path,
             proxy,
+            outgoing_ip,
             tls: OnceLock::new(),
             lock: Mutex::new(()),
         })
@@ -621,6 +640,7 @@ impl Netcheck {
             items: jobs.into_iter().map(|(item, _)| item).collect(),
             problems,
             proxy: self.proxy.as_ref().map(Proxy::display),
+            outgoing_ip: read_outgoing_ip(&self.outgoing_ip),
             error: user.error,
         }
     }
@@ -742,6 +762,24 @@ fn read(path: &Path) -> Result<Option<String>, String> {
     std::fs::read_to_string(path)
         .map(Some)
         .map_err(|error| format!("farglass cannot read the file: {error}."))
+}
+
+/// The longest own IP address that the page shows.
+const MAX_OUTGOING_IP: usize = 100;
+
+/// Returns the first line of the file `path` with no spaces at its ends: the own IP address of the host.
+/// Returns none if the file does not exist, cannot be read, or has no text.
+fn read_outgoing_ip(path: &Path) -> Option<String> {
+    use std::io::Read as _;
+    let mut text = String::new();
+    std::fs::File::open(path)
+        .ok()?
+        .take(4096)
+        .read_to_string(&mut text)
+        .ok()?;
+    let line = text.lines().next()?.trim();
+    let line: String = line.chars().take(MAX_OUTGOING_IP).collect();
+    (!line.is_empty()).then_some(line)
 }
 
 /// Returns a TLS configuration with the CA certificates of the system.
@@ -1197,6 +1235,29 @@ mod tests {
             (problems[0].group, problems[0].index),
             (NetcheckGroup::Admin, 1)
         );
+    }
+
+    #[test]
+    fn the_own_ip_address_is_the_first_line_of_the_file_or_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join(".outgoingip");
+        let netcheck = Netcheck::with_outgoing_ip(
+            dir.path().join("user.toml"),
+            dir.path().join("admin.toml"),
+            file.clone(),
+            None,
+        );
+        let ip = || {
+            let NetcheckEvent::Loaded { outgoing_ip, .. } = netcheck.load() else {
+                panic!("a load answers with the checks");
+            };
+            outgoing_ip
+        };
+        assert_eq!(ip(), None, "no file gives no address");
+        std::fs::write(&file, "  203.0.113.7 \nsecond line\n").unwrap();
+        assert_eq!(ip().as_deref(), Some("203.0.113.7"));
+        std::fs::write(&file, "\n").unwrap();
+        assert_eq!(ip(), None, "an empty file gives no address");
     }
 
     #[test]

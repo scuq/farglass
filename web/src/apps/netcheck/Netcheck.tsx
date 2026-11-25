@@ -160,6 +160,14 @@ export default function NetcheckApp(props: { context: AppContext }) {
     <section class="netcheck">
       <header class="netcheck-bar netcheck-top">
         <dl class="netcheck-summary" aria-label="Summary" aria-live="polite">
+          <Show when={state()?.outgoingIp}>
+            {(ip) => (
+              <div>
+                <dt>Own IP address</dt>
+                <dd data-field="outgoing-ip">{ip()}</dd>
+              </div>
+            )}
+          </Show>
           <div>
             <dt>Internet</dt>
             <dd>

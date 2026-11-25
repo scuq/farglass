@@ -1037,6 +1037,10 @@ pub enum NetcheckEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         proxy: Option<String>,
+        /// The own IP address of the host, from the first line of `~/.outgoingip`, if the file exists (F112).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        outgoing_ip: Option<String>,
         /// Why the file of the user is not valid TOML. The agent then does not save over it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
