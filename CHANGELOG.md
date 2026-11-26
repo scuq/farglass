@@ -6,7 +6,7 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ---
 
-## Unreleased
+## v0.4.0 — 27 November 2026 — Desktop client with tabs and host app themes
 
 ### Added
 - On a Linux client, you can use the farglass desktop client in place of a browser. At the start, it shows your list of farglass servers. Each connection opens in a tab, thus you can use more hosts in one window. A tray icon shows and hides the window, and a close of the window hides it in the tray while the sessions stay connected. At the first connection, it shows the key of the server, and after that it connects only to a server with the same key. Each release has the client for amd64 and arm64 as an AppImage and as a deb package.
