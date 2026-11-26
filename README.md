@@ -123,6 +123,7 @@ It also installs itself as `/usr/local/sbin/farglassctl`.
 Open `https://HOST:8443` in a browser, where HOST is the hostname or the address of the host.
 farglass makes a self-signed certificate, thus the browser shows a warning the first time.
 Log in with the username and the password of the Linux user.
+On a Linux client, you can use the desktop client in place of a browser: see [Desktop client](#desktop-client).
 
 To let more users log in, or to see who can:
 
@@ -440,6 +441,70 @@ The passkey test runs in Chromium only, because only Chromium has a virtual auth
 In each browser, it logs in, uses the echo channel, a terminal, a window drag, a setting, gnome-calculator, and an animation as H.264 video, and logs out.
 Install the browsers first with `npx --prefix spikes/e2e playwright install firefox webkit`.
 `BROWSERS=webkit` runs one browser only.
+
+## Desktop client
+
+The desktop client is a farglass window for Linux, with no browser around it.
+At the start, it shows a list of farglass servers.
+It loads the shell from farglassd, thus the shell always has the version of the host.
+The client is built on Electron, and it has the engine of Chromium.
+
+Each release has the client for amd64 and arm64, as an AppImage and as a deb package.
+`SHA256SUMS` of the release lists the two files.
+Download one of them. On arm64, replace `amd64` with `arm64`, and set the version of the release:
+
+```sh
+curl -fLO https://github.com/scuq/farglass/releases/latest/download/farglass-client-0.4.0-linux-amd64.deb
+sudo apt install ./farglass-client-0.4.0-linux-amd64.deb
+```
+
+To use the AppImage, make it executable and start it:
+
+```sh
+chmod +x farglass-client-0.4.0-linux-amd64.AppImage
+./farglass-client-0.4.0-linux-amd64.AppImage
+```
+
+To add a server, type the address in **Address**, for example `desk.cyberdyne.example`, and click **Add**.
+An address with no port gets the port 8443.
+To connect, double-click the server, or click **Connect**.
+Each server has its own login and its own cookies.
+In a farglass window, Ctrl+Shift+F12 shows the server list again.
+
+At the first connection to a server with the self-signed certificate, the client shows the SHA-256 of the public key of the server.
+To compare it, run this command on the host. It must print the same text:
+
+```sh
+sudo openssl x509 -in /var/lib/farglass/tls/self-signed-cert.pem -noout -pubkey | openssl pkey -pubin -outform der | sha256sum
+```
+
+If you click **Trust and connect**, the client keeps the key and does not ask again.
+farglassd keeps the key when it makes a new self-signed certificate, thus the key stays the same after 30 days.
+If the key of the server changes, the client does not connect and shows the two keys.
+If the administrator made a new key, click **Edit** for the server, and then click **Forget the key**.
+The client does not ask for a certificate that Chromium accepts, for example your own certificate from a public certificate authority.
+
+The farglass window lets the shell use the microphone, the camera, the clipboard, notifications, full screen, and Keyboard Lock.
+It gives no other permission, and only to the address of the server.
+A link to another address opens in the browser of your desktop.
+The client has no menu, thus the keys Ctrl+W, Ctrl+R, and Ctrl+Q go to the shell.
+
+The client has these limits:
+
+- It is for Linux only.
+- The video redirection extension does not work in it, because Electron has no native messaging.
+- It uses the default icon of Electron.
+
+To build the client from the source:
+
+```sh
+npm --prefix client ci
+npm --prefix client test
+npm --prefix client run dist
+```
+
+The packages are in `client/release`.
+`npm --prefix client start` starts the client from the source.
 
 ## Browser security
 
@@ -1334,6 +1399,7 @@ With no certificate in the configuration, farglassd makes a self-signed certific
 It keeps the certificate and the key in the directory `tls` of the state directory.
 The certificate is valid for 30 days.
 farglassd makes a new one when the old one expires in less than one day.
+The new certificate keeps the key of the old one, thus the [desktop client](#desktop-client) accepts it.
 The certificate has the hostname, `localhost`, `127.0.0.1`, and `::1`.
 To add names, set `names` in the `[tls]` section of the configuration file.
 At each start, farglassd writes the SHA-256 fingerprint of the certificate to the log.

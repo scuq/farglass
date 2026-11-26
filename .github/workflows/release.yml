@@ -12,6 +12,7 @@
 # One release has, for amd64 and arm64:
 #   farglass-VERSION-linux-ARCH.tar.gz   the host programs, the web files, units, PAM files
 #   farglassctl-linux-ARCH               the static manager
+#   farglass-client-X.Y.Z-linux-ARCH.AppImage and .deb   the desktop client (F121)
 # and SHA256SUMS with its cosign bundle SHA256SUMS.sigstore.json.
 #
 # The host programs are built in a Rocky Linux 9 container: glibc 2.34 is the
@@ -126,6 +127,43 @@ jobs:
           path: dist/*
           retention-days: 1
 
+  # The desktop client gets the version of the tag, also if client/package.json has a different one.
+  client:
+    needs: meta
+    strategy:
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: client/.nvmrc
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm --prefix client ci
+      - run: npm --prefix client test
+      - name: Build the AppImage and the deb package
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          set -eu
+          npm --prefix client version "${VERSION#v}" --no-git-tag-version --allow-same-version
+          npm --prefix client run dist
+          # electron-builder calls amd64 "x64". The release files say amd64, as the other files.
+          for f in client/release/farglass-client-*-linux-x64.*; do
+            if [ -e "$f" ]; then mv "$f" "$(echo "$f" | sed 's/-linux-x64\./-linux-amd64./')"; fi
+          done
+          ls -l client/release/farglass-client-*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client-${{ matrix.runner }}
+          path: |
+            client/release/farglass-client-*.AppImage
+            client/release/farglass-client-*.deb
+          retention-days: 1
+
   # The programs must find their libraries and start on the oldest supported release of each distribution.
   smoke:
     needs: [host]
@@ -159,7 +197,7 @@ jobs:
           ./farglass-login --version
 
   release:
-    needs: [meta, host, farglassctl, smoke]
+    needs: [meta, host, farglassctl, client, smoke]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -184,6 +222,8 @@ jobs:
           {
             echo
             echo "Install: download farglassctl-linux-ARCH, then run: \`sudo ./farglassctl-linux-ARCH install --user YOURNAME\`"
+            echo
+            echo "Desktop client for Linux: farglass-client-${VERSION#v}-linux-ARCH.AppImage or .deb"
           } >> notes.md
           cat notes.md
       - uses: actions/download-artifact@v4
@@ -194,8 +234,8 @@ jobs:
         run: |
           set -eu
           mkdir dist
-          mv artifacts/farglass-*.tar.gz artifacts/farglassctl-linux-* dist/
-          cd dist && sha256sum farglass-*.tar.gz farglassctl-linux-* > SHA256SUMS
+          mv artifacts/farglass-*.tar.gz artifacts/farglassctl-linux-* artifacts/farglass-client-* dist/
+          cd dist && sha256sum farglass-*.tar.gz farglassctl-linux-* farglass-client-* > SHA256SUMS
           cat SHA256SUMS
       # The same version and SHA-256 that farglassctl embeds
       # (COSIGN_VERSION and COSIGN_SHA256 in crates/farglassctl/src/release.rs).

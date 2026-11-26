@@ -1,0 +1,45 @@
+/* The server list of the desktop client: the colors of the LCARS theme of the shell. */
+:root {
+  --amber: #e6a446;
+  --lilac: #c198d6;
+  --blue: #9cb5ec;
+  --red: #e05a4f;
+  --text: #f2e6d0;
+  --muted: #9a8f7c;
+  --bg: #000;
+  --field: #15120d;
+  color-scheme: dark;
+  font-family: "Antonio", "Oswald", "Arial Narrow", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; background: var(--bg); color: var(--text); }
+header { display: flex; align-items: center; gap: 12px; padding: 16px 20px 8px; }
+header .cap { width: 48px; height: 28px; border-radius: 14px 0 0 14px; background: var(--amber); }
+header h1 { margin: 0; font-size: 24px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); }
+header .bar { flex: 1; height: 12px; border-radius: 0 6px 6px 0; background: var(--lilac); }
+header .version { color: var(--muted); font-size: 13px; }
+main { flex: 1; padding: 8px 20px; overflow: auto; }
+.servers { list-style: none; padding: 0; margin: 0 0 20px; display: grid; gap: 6px; }
+.server { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; padding: 10px 14px;
+  border-left: 12px solid var(--blue); border-radius: 0 18px 18px 0; background: var(--field); cursor: pointer; }
+.server:focus-visible, .server:hover { outline: 2px solid var(--amber); outline-offset: -2px; }
+.server .name { font-size: 18px; letter-spacing: 0.05em; }
+.server .url { color: var(--muted); font-size: 13px; font-family: ui-monospace, monospace; }
+.server .actions { display: flex; gap: 6px; }
+button { font: inherit; letter-spacing: 0.08em; text-transform: uppercase; border: 0; border-radius: 14px;
+  padding: 6px 14px; background: var(--amber); color: #000; cursor: pointer; }
+button.secondary { background: var(--lilac); }
+button.danger { background: var(--red); }
+button:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+.form { display: grid; gap: 10px; max-width: 520px; padding: 14px; border-top: 4px solid var(--lilac); }
+.form h2 { margin: 0; font-size: 16px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--lilac); }
+label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+input { font: 15px ui-monospace, monospace; padding: 8px 10px; border: 1px solid var(--muted); border-radius: 4px;
+  background: var(--field); color: var(--text); }
+input:focus { outline: 2px solid var(--amber); border-color: transparent; }
+.buttons { display: flex; gap: 8px; }
+.pin { margin: 0; font: 12px ui-monospace, monospace; color: var(--muted); word-break: break-all; }
+.error { margin: 0; color: var(--red); }
+.message { margin: 0 0 12px; padding: 8px 12px; border-left: 8px solid var(--amber); background: var(--field); }
+.empty { color: var(--muted); }
+footer { padding: 8px 20px 14px; color: var(--muted); font-size: 12px; }

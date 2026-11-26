@@ -1,0 +1,19 @@
+# electron-builder.yml - the Linux packages of the desktop client (F121, ADR-060)
+appId: at.farglass.client
+productName: farglass
+directories:
+  output: release
+files:
+  - dist/**
+  - static/**
+  - package.json
+artifactName: farglass-client-${version}-linux-${arch}.${ext}
+linux:
+  target: [AppImage, deb]
+  category: Network
+  executableName: farglass-client
+  syncDesktopName: true
+  maintainer: farglass <scuq@users.noreply.github.com>
+  synopsis: Desktop client of farglass
+deb:
+  depends: [libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0, libuuid1, libsecret-1-0]

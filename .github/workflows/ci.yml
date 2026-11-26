@@ -2,6 +2,7 @@
 #
 # Rust: format, clippy, the tests, and cargo audit (ADR-045).
 # Shell: the type check, the unit tests, npm audit, and the build.
+# Desktop client: the type check, the unit tests, npm audit, and an unpacked Linux build.
 # farglassctl: the static musl build.
 
 name: ci
@@ -53,6 +54,22 @@ jobs:
       - run: npm --prefix web test
       - run: npm --prefix web audit --omit=dev
       - run: npm --prefix web run build
+
+  client:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: client/.nvmrc
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm --prefix client ci
+      - run: npm --prefix client run typecheck
+      - run: npm --prefix client test
+      - run: npm --prefix client audit --omit=dev
+      - run: npm --prefix client run pack
 
   farglassctl:
     runs-on: ubuntu-24.04

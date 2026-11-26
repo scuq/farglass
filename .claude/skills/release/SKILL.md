@@ -1,18 +1,19 @@
 ---
 name: release
-description: Cut a farglass release. Rename the CHANGELOG `## Unreleased` block to a version heading, set the version in Cargo.toml and web/package.json, check the README quick start, commit, and print the push and tag commands for the user to run. Use when asked to release, cut a version, or tag vX.Y.Z.
+description: Cut a farglass release. Rename the CHANGELOG `## Unreleased` block to a version heading, set the version in Cargo.toml, web/package.json, and client/package.json, check the README quick start, commit, and print the push and tag commands for the user to run. Use when asked to release, cut a version, or tag vX.Y.Z.
 ---
 
 A farglass release is a changelog heading, a version number in the source, and a tag.
 The tag `vX.Y.Z` starts `.github/workflows/release.yml`.
-The workflow builds the tarballs and `farglassctl` for amd64 and arm64, signs `SHA256SUMS` with cosign, and publishes the GitHub release.
+The workflow builds the tarballs, `farglassctl`, and the desktop client for amd64 and arm64, signs `SHA256SUMS` with cosign, and publishes the GitHub release.
 The notes of the GitHub release are the `## vX.Y.Z` section of `CHANGELOG.md`.
 If the section is missing, the workflow publishes nothing.
 
-The version is in two places, and the two must agree with the tag:
+The version is in three places, and all must agree with the tag:
 
 - `farglassctl` takes its version from the tag (`FARGLASS_VERSION` in `packaging/release.sh`).
 - `farglassd`, `farglass-login`, and `farglass-session` take it from `version` in `[workspace.package]` of `Cargo.toml`.
+- The desktop client takes it from `client/package.json`. The release workflow also sets it from the tag.
 
 You make the release commit.
 Never run `git push`, `git tag`, or `gh workflow run`. Print the commands, and the user runs them.
@@ -48,6 +49,7 @@ The tag publishes a signed release that each host can install, and you cannot ta
    - Set `version = "X.Y.Z"` in `[workspace.package]` of `Cargo.toml`.
    - Run `cargo check --workspace` to write `Cargo.lock`.
    - Run `npm --prefix web version X.Y.Z --no-git-tag-version` to write `web/package.json` and `web/package-lock.json`.
+   - Run `npm --prefix client version X.Y.Z --no-git-tag-version` to write `client/package.json` and `client/package-lock.json`.
 
 5. Check the README quick start against the source.
    Compare each command, option, path, and port in `## Quick start` of `README.md` with:
@@ -72,6 +74,8 @@ The tag publishes a signed release that each host can install, and you cannot ta
    npm --prefix web run build
    cargo audit
    npm --prefix web audit --omit=dev
+   npm --prefix client test
+   npm --prefix client audit --omit=dev
    python3 .project/pmm check
    ```
 
@@ -80,7 +84,7 @@ The tag publishes a signed release that each host can install, and you cannot ta
 7. Commit. Add only the files of the release:
 
    ```sh
-   git add CHANGELOG.md README.md Cargo.toml Cargo.lock web/package.json web/package-lock.json
+   git add CHANGELOG.md README.md Cargo.toml Cargo.lock web/package.json web/package-lock.json client/package.json client/package-lock.json
    git commit -m "release vX.Y.Z: <theme, lowercase>"
    ```
 

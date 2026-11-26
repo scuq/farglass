@@ -458,7 +458,14 @@ fn generate(dir: &Path, names: &[String], now: OffsetDateTime) -> Result<(), Tls
     params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
 
     // ECDSA P-256. All browsers accept it, and WebTransport needs it for a pinned certificate.
-    let key = KeyPair::generate()?;
+    // A new certificate keeps the key of the old one: the desktop client pins the public key (ADR-060).
+    let key = match fs::read_to_string(dir.join(SELF_SIGNED_KEY)) {
+        Ok(pem) => match KeyPair::from_pem(&pem) {
+            Ok(key) if key.is_compatible(&rcgen::PKCS_ECDSA_P256_SHA256) => key,
+            _ => KeyPair::generate()?,
+        },
+        Err(_) => KeyPair::generate()?,
+    };
     let cert = params.self_signed(&key)?;
 
     let io_error = |path: &Path| {
@@ -588,6 +595,28 @@ mod tests {
         let second = CertStore::open_at(self_signed(dir.path(), &[]), later).unwrap();
         assert_ne!(first.info().fingerprint, second.info().fingerprint);
         assert_eq!(second.info().not_after, later + Duration::days(30));
+    }
+
+    #[test]
+    fn new_certificate_keeps_the_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let now = now();
+        CertStore::open_at(self_signed(dir.path(), &[]), now).unwrap();
+        let key = fs::read_to_string(dir.path().join(SELF_SIGNED_KEY)).unwrap();
+        let cert = fs::read_to_string(dir.path().join(SELF_SIGNED_CERT)).unwrap();
+        CertStore::open_at(
+            self_signed(dir.path(), &[]),
+            now + Duration::days(29) + Duration::hours(1),
+        )
+        .unwrap();
+        assert_eq!(
+            key,
+            fs::read_to_string(dir.path().join(SELF_SIGNED_KEY)).unwrap()
+        );
+        assert_ne!(
+            cert,
+            fs::read_to_string(dir.path().join(SELF_SIGNED_CERT)).unwrap()
+        );
     }
 
     #[test]

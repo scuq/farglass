@@ -9,7 +9,11 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 ## Unreleased
 
 ### Added
+- On a Linux client, you can use the farglass desktop client in place of a browser. At the start, it shows your list of farglass servers. At the first connection, it shows the key of the server, and after that it connects only to a server with the same key. Each release has the client for amd64 and arm64 as an AppImage and as a deb package.
 - The GTK and KDE apps of the host follow the dark or light theme of farglass, and change at once. At the end of the web session, your own theme of the local desktop comes back.
+
+### Changed
+- farglassd keeps the key of its self-signed certificate when it makes a new certificate after 30 days. Thus the desktop client connects with no new question.
 
 ## v0.3.0 — 26 November 2026 — Microphone and camera for host apps
 

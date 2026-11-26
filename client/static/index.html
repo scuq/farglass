@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'" />
+    <title>farglass</title>
+    <link rel="stylesheet" href="picker.css" />
+  </head>
+  <body>
+    <header>
+      <div class="cap"></div>
+      <h1>farglass</h1>
+      <span class="bar"></span>
+      <span id="version" class="version"></span>
+    </header>
+    <main>
+      <p id="message" class="message" role="status" hidden></p>
+      <ul id="servers" class="servers" aria-label="Servers"></ul>
+      <p id="empty" class="empty" hidden>No servers yet. Add the address of a farglass host.</p>
+      <form id="form" class="form" autocomplete="off">
+        <h2 id="form-title">Add a server</h2>
+        <label>Name <input id="name" name="name" placeholder="Desk" /></label>
+        <label>Address <input id="url" name="url" placeholder="desk.example.com:8443" required /></label>
+        <p id="pin" class="pin" hidden></p>
+        <p id="error" class="error" role="alert" hidden></p>
+        <div class="buttons">
+          <button type="submit" id="save">Add</button>
+          <button type="button" id="forget" hidden>Forget the key</button>
+          <button type="button" id="cancel" hidden>Cancel</button>
+        </div>
+      </form>
+    </main>
+    <footer>Ctrl+Shift+F12 in a farglass window shows this list.</footer>
+    <script src="../dist/picker/picker.js"></script>
+  </body>
+</html>
