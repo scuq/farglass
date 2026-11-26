@@ -1,0 +1,23 @@
+/* The tab strip of the desktop client: the colors of the LCARS theme of the shell. */
+:root {
+  --amber: #e6a446;
+  --lilac: #c198d6;
+  --blue: #9cb5ec;
+  --text: #f2e6d0;
+  --field: #15120d;
+  color-scheme: dark;
+  font-family: "Antonio", "Oswald", "Arial Narrow", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 36px; overflow: hidden; background: #000; user-select: none; }
+.strip { display: flex; align-items: center; gap: 4px; height: 36px; padding: 4px 8px; }
+.tab { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 260px; height: 28px; padding: 0 6px 0 14px;
+  border: 0; border-radius: 0 14px 14px 0; background: var(--field); color: var(--text);
+  font: inherit; font-size: 14px; letter-spacing: 0.06em; cursor: pointer; }
+.tab.servers { border-radius: 14px 0 0 14px; padding: 0 14px; background: var(--lilac); color: #000; text-transform: uppercase; }
+.tab[aria-selected="true"] { background: var(--amber); color: #000; }
+.tab:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
+.tab .label { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tab .close { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 10px; font-size: 14px; line-height: 1; }
+.tab .close:hover { background: rgba(0, 0, 0, 0.3); }
+.fill { flex: 1; height: 12px; border-radius: 0 6px 6px 0; background: var(--blue); opacity: 0.6; }

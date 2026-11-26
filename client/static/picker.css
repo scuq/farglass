@@ -42,4 +42,6 @@ input:focus { outline: 2px solid var(--amber); border-color: transparent; }
 .error { margin: 0; color: var(--red); }
 .message { margin: 0 0 12px; padding: 8px 12px; border-left: 8px solid var(--amber); background: var(--field); }
 .empty { color: var(--muted); }
-footer { padding: 8px 20px 14px; color: var(--muted); font-size: 12px; }
+footer { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; padding: 8px 20px 14px; color: var(--muted); font-size: 12px; }
+.check { display: flex; flex-direction: row; align-items: center; gap: 6px; font-size: 13px; color: var(--text); }
+.check input { accent-color: var(--amber); }

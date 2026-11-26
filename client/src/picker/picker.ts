@@ -21,6 +21,8 @@ interface PickerApi {
   forgetPin(id: string): Promise<void>;
   connect(id: string): Promise<void>;
   version(): Promise<string>;
+  settings(): Promise<{ closeToTray: boolean }>;
+  setCloseToTray(value: boolean): Promise<void>;
   onChanged(listener: (message: string | null) => void): void;
 }
 
@@ -160,10 +162,19 @@ interface PickerApi {
     });
   });
 
+  const closeToTray = byId<HTMLInputElement>("close-to-tray");
+  const loadSettings = () =>
+    api.settings().then((s) => {
+      closeToTray.checked = s.closeToTray;
+    });
+  closeToTray.addEventListener("change", () => void api.setCloseToTray(closeToTray.checked));
+
   api.onChanged((text) => {
     if (text) show(message, text);
     void refresh();
+    void loadSettings();
   });
+  void loadSettings();
   void api.version().then((v) => {
     byId<HTMLSpanElement>("version").textContent = `v${v}`;
   });

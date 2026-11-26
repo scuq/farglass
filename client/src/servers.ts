@@ -80,32 +80,39 @@ const isServer = (value: unknown): value is Server => {
 export class ServerStore {
   readonly #path: string;
   #servers: Server[];
+  #closeToTray: boolean;
 
   constructor(path: string) {
     this.#path = path;
-    this.#servers = ServerStore.#read(path);
+    const data = ServerStore.#read(path);
+    this.#servers = Array.isArray(data.servers) ? data.servers.filter(isServer) : [];
+    this.#closeToTray = typeof data.closeToTray === "boolean" ? data.closeToTray : true;
   }
 
-  static #read(path: string): Server[] {
-    let text: string;
+  static #read(path: string): { servers?: unknown; closeToTray?: unknown } {
     try {
-      text = readFileSync(path, "utf8");
+      const data: unknown = JSON.parse(readFileSync(path, "utf8"));
+      return typeof data === "object" && data !== null ? data : {};
     } catch {
-      return [];
+      // No file or a damaged file gives an empty list. The next save replaces it.
+      return {};
     }
-    try {
-      const data = JSON.parse(text) as { servers?: unknown };
-      return Array.isArray(data.servers) ? data.servers.filter(isServer) : [];
-    } catch {
-      // A damaged file gives an empty list. The next save replaces it.
-      return [];
-    }
+  }
+
+  /** Reports if a close of the window hides it in the tray. The default is true. */
+  get closeToTray(): boolean {
+    return this.#closeToTray;
+  }
+
+  set closeToTray(value: boolean) {
+    this.#closeToTray = value;
+    this.#save();
   }
 
   #save(): void {
     mkdirSync(dirname(this.#path), { recursive: true, mode: 0o700 });
     const tmp = `${this.#path}.tmp`;
-    writeFileSync(tmp, JSON.stringify({ servers: this.#servers }, null, 2), { mode: 0o600 });
+    writeFileSync(tmp, JSON.stringify({ servers: this.#servers, closeToTray: this.#closeToTray }, null, 2), { mode: 0o600 });
     renameSync(tmp, this.#path);
   }
 

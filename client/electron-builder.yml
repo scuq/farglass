@@ -11,6 +11,7 @@ artifactName: farglass-client-${version}-linux-${arch}.${ext}
 linux:
   target: [AppImage, deb]
   category: Network
+  icon: build/icons
   executableName: farglass-client
   syncDesktopName: true
   maintainer: farglass <scuq@users.noreply.github.com>

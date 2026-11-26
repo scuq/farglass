@@ -446,8 +446,9 @@ Install the browsers first with `npx --prefix spikes/e2e playwright install fire
 
 The desktop client is a farglass window for Linux, with no browser around it.
 At the start, it shows a list of farglass servers.
+Each connection opens in a tab of the same window, thus you can use the desktops of more hosts at the same time.
 It loads the shell from farglassd, thus the shell always has the version of the host.
-The client is built on Electron, and it has the engine of Chromium.
+The client uses Electron, thus it has the engine of Chromium.
 
 Each release has the client for amd64 and arm64, as an AppImage and as a deb package.
 `SHA256SUMS` of the release lists the two files.
@@ -468,8 +469,32 @@ chmod +x farglass-client-0.4.0-linux-amd64.AppImage
 To add a server, type the address in **Address**, for example `desk.cyberdyne.example`, and click **Add**.
 An address with no port gets the port 8443.
 To connect, double-click the server, or click **Connect**.
+The client opens a tab for the server, or selects its tab if it is open.
 Each server has its own login and its own cookies.
-In a farglass window, Ctrl+Shift+F12 shows the server list again.
+
+The first tab, **Servers**, is the server list.
+To select a tab, click it.
+To close a tab, click its ×, or click it with the middle button.
+The session continues on the host after you close its tab.
+
+The client has these shortcuts:
+
+| Keys | Action |
+|---|---|
+| Ctrl+Shift+F12 | Show the server list |
+| Ctrl+Shift+F10 | Select the tab before |
+| Ctrl+Shift+F11 | Select the tab after |
+
+In full screen, the active tab fills the screen, and the tab strip is hidden.
+
+The client shows the farglass icon in the tray of the desktop.
+Click the icon to show or hide the window.
+The menu of the icon shows the open tabs, the server list, the setting **Close to the tray**, and **Quit farglass**.
+With **Close to the tray** set, a close of the window hides it, and the sessions stay connected.
+The setting is on by default. You can also change it at the bottom of the server list.
+With the setting off, a close of the window quits the client after a question.
+To get a hidden window back, click the icon, or start the client again.
+GNOME shows a tray icon only with an extension for AppIndicator icons, for example the one of Ubuntu.
 
 At the first connection to a server with the self-signed certificate, the client shows the SHA-256 of the public key of the server.
 To compare it, run this command on the host. It must print the same text:
@@ -484,16 +509,17 @@ If the key of the server changes, the client does not connect and shows the two 
 If the administrator made a new key, click **Edit** for the server, and then click **Forget the key**.
 The client does not ask for a certificate that Chromium accepts, for example your own certificate from a public certificate authority.
 
-The farglass window lets the shell use the microphone, the camera, the clipboard, notifications, full screen, and Keyboard Lock.
+A tab lets the shell use the microphone, the camera, the clipboard, notifications, full screen, and Keyboard Lock.
 It gives no other permission, and only to the address of the server.
 A link to another address opens in the browser of your desktop.
 The client has no menu, thus the keys Ctrl+W, Ctrl+R, and Ctrl+Q go to the shell.
+The tabs have the sandbox of Chromium, and the shell in a tab cannot call the client.
 
 The client has these limits:
 
 - It is for Linux only.
 - The video redirection extension does not work in it, because Electron has no native messaging.
-- It uses the default icon of Electron.
+- A server has one tab at a time.
 
 To build the client from the source:
 

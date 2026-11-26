@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld("farglass", {
   forgetPin: (id: string) => call("servers:forget-pin", id),
   connect: (id: string) => call("servers:connect", id),
   version: () => call("app:version"),
+  settings: () => call("settings:get"),
+  setCloseToTray: (value: boolean) => call("settings:close-to-tray", value),
   onChanged: (listener: (message: string | null) => void) => {
     ipcRenderer.on("servers:changed", (_event, message: string | null) => listener(message));
   },

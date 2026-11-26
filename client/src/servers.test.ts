@@ -60,6 +60,13 @@ describe("ServerStore", () => {
     writeFileSync(path, JSON.stringify({ servers: [{ id: "1", name: "A", url: "https://a:8443" }, { id: 2 }] }));
     expect(new ServerStore(path).list().map((s) => s.id)).toEqual(["1"]);
   });
+  it("keeps the close to tray setting, true by default", () => {
+    const path = file();
+    const store = new ServerStore(path);
+    expect(store.closeToTray).toBe(true);
+    store.closeToTray = false;
+    expect(new ServerStore(path).closeToTray).toBe(false);
+  });
   it("removes a server", () => {
     const path = file();
     const store = new ServerStore(path);
