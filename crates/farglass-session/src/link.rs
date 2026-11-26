@@ -13,7 +13,7 @@ use farglass_proto::message::{
     CameraRequest, ClipboardMessage, ClipboardMime, Close, CloseReason, DbusEvent, DbusRequest,
     LinkMessage, MAX_CLIPBOARD_LEN, MicEvent, MicRequest, NetcheckEvent, NetcheckRequest,
     NotifyReply, Open, PolkitReply, PtyEvent, PtyRequest, Ready, RedirectRequest, StateEvent,
-    StateRequest, SurfaceAck, SurfaceInput, SurfaceRequest, TrayRequest,
+    StateRequest, SurfaceAck, SurfaceInput, SurfaceRequest, ThemeRequest, TrayRequest,
 };
 use farglass_proto::{ChannelId, Frame, FrameError, FrameType, PROTOCOL_VERSION, Side};
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -39,6 +39,7 @@ use crate::surfaces::{self, Surfaces};
 use crate::terminal::{
     AttachError, Output, Sink, TerminalLink, TerminalOptions, Terminals, ViewerId,
 };
+use crate::theme::Theme;
 use crate::tray::{self, Tray};
 
 /// farglassd must send its hello message in this time.
@@ -99,6 +100,8 @@ pub struct Session {
     pub mic: Arc<Mic>,
     /// The camera of the client for the apps (F116).
     pub camera: Arc<Camera>,
+    /// The dark or light theme of the apps (F120).
+    pub theme: Arc<Theme>,
     /// The video players of the host browsers.
     pub redirect: Arc<Redirect>,
     /// The use of the host by the windows and by farglass.
@@ -143,6 +146,7 @@ impl Default for Session {
             audio: Audio::new(),
             mic: Mic::new(),
             camera: Camera::new(),
+            theme: Theme::new(),
             redirect,
         }
     }
@@ -570,6 +574,21 @@ where
                         .err()
                         .map(|error| (error.reason(), error.to_string())),
                     Kind::Camera { camera: None } => None,
+                    Kind::Theme if frame.frame_type() == FrameType::Control => {
+                        match frame.parse::<ThemeRequest>() {
+                            Ok(ThemeRequest::ColorScheme { dark }) => {
+                                // gsettings and the files: not on the loop of the link.
+                                let theme = session.theme.clone();
+                                tokio::task::spawn_blocking(move || theme.apply(dark));
+                                None
+                            }
+                            Err(error) => Some((
+                                CloseReason::ProtocolError,
+                                format!("The theme request is not valid: {error}"),
+                            )),
+                        }
+                    }
+                    Kind::Theme => None,
                     Kind::Clipboard { incoming, .. } => match clipboard_frame(incoming, &frame) {
                         Ok(Some(clip)) => {
                             session.surfaces.set_clipboard(clip);
@@ -1092,6 +1111,8 @@ enum Kind {
         /// `None` if the session has no microphone source.
         mic: Option<mic::MicGuard>,
     },
+    /// Gives the theme of the shell to the apps (F120).
+    Theme,
     /// Gives the camera of the client to the apps. Dropping the channel turns the camera off.
     Camera {
         /// `None` if the session has no camera node, or a setting of the host blocks the camera.
@@ -1235,6 +1256,7 @@ fn open(
             });
             accept(Kind::Mic { mic: guard })
         }
+        Ok(Open::Theme) => accept(Kind::Theme),
         Ok(Open::Camera) if !crate::desktop::camera_allowed() => refuse(
             CloseReason::AccessDenied,
             "The administrator turned the camera off.".to_owned(),

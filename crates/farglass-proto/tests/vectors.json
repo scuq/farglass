@@ -52,6 +52,16 @@
       }
     },
     {
+      "name": "open a theme channel",
+      "frame": "01000000011000007b226b696e64223a227468656d65227d",
+      "channel": 1,
+      "type": 1,
+      "payload": "7b226b696e64223a227468656d65227d",
+      "json": {
+        "kind": "theme"
+      }
+    },
+    {
       "name": "ready",
       "frame": "01000000020200007b7d",
       "channel": 1,

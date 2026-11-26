@@ -68,7 +68,7 @@ id: number,
 /**
  * Reports whether the shell decodes the video messages (F037). A shell before this field sends none and gets tiles only.
  */
-video?: boolean, } | { "kind": "surface-input" } | { "kind": "clipboard" } | { "kind": "audio" } | { "kind": "mic" } | { "kind": "camera" } | { "kind": "redirect" } | { "kind": "stats" } | { "kind": "apps" } | { "kind": "bookmarks" } | { "kind": "netcheck" } | { "kind": "tray" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" } | { "kind": "passkeys" };
+video?: boolean, } | { "kind": "surface-input" } | { "kind": "clipboard" } | { "kind": "audio" } | { "kind": "mic" } | { "kind": "camera" } | { "kind": "theme" } | { "kind": "redirect" } | { "kind": "stats" } | { "kind": "apps" } | { "kind": "bookmarks" } | { "kind": "netcheck" } | { "kind": "tray" } | { "kind": "polkit" } | { "kind": "state" } | { "kind": "login" } | { "kind": "passkeys" };
 
 /**
  * The payload of a ready frame. The receiver of the open frame accepts the channel.
@@ -731,6 +731,15 @@ width: number,
  * The height in pixels.
  */
 height: number, };
+
+/**
+ * A control message of the shell on a theme channel (F120).
+ */
+export type ThemeRequest = { "type": "color-scheme", 
+/**
+ * `true` for a dark theme.
+ */
+dark: boolean, };
 
 /**
  * A rectangle of a redirected video.

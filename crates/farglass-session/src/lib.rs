@@ -28,6 +28,7 @@ pub mod stats;
 pub mod surface_stream;
 pub mod surfaces;
 pub mod terminal;
+pub mod theme;
 pub mod tray;
 
 /// The agent socket that the agent connects to when the environment names no other socket.

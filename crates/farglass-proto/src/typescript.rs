@@ -17,8 +17,8 @@ use crate::message::{
     Notification, NotifyAction, NotifyEvent, NotifyReply, Open, PasskeyEvent, PasskeyInfo,
     PasskeyRequest, PolkitEvent, PolkitReply, PtyEvent, PtyRequest, PtyStart, Ready, RedirectEvent,
     RedirectRect, RedirectRequest, StateEvent, StateRequest, StatsEvent, SurfaceAck, SurfaceEvent,
-    SurfaceInput, SurfaceRect, SurfaceRequest, TrayEvent, TrayItem, TrayMenuItem, TrayRequest,
-    TrayStatus, TrayToggle, Urgency, Usage, WindowUsage,
+    SurfaceInput, SurfaceRect, SurfaceRequest, ThemeRequest, TrayEvent, TrayItem, TrayMenuItem,
+    TrayRequest, TrayStatus, TrayToggle, Urgency, Usage, WindowUsage,
 };
 use crate::{
     ChannelId, FrameError, FrameType, HEADER_LEN, MAX_PAYLOAD_LEN, PROTOCOL_VERSION,
@@ -122,6 +122,7 @@ fn messages() -> String {
     declare::<MicRequest>(&cfg, &mut out);
     declare::<CameraEvent>(&cfg, &mut out);
     declare::<CameraRequest>(&cfg, &mut out);
+    declare::<ThemeRequest>(&cfg, &mut out);
     declare::<RedirectRect>(&cfg, &mut out);
     declare::<RedirectEvent>(&cfg, &mut out);
     declare::<RedirectRequest>(&cfg, &mut out);

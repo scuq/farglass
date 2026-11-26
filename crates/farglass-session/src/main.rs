@@ -50,6 +50,17 @@ fn main() {
     agent();
 }
 
+/// Lets the theme of the apps follow the shell in a web session (`web`), and puts back values that a crash left.
+/// `FARGLASS_FOLLOW_THEME` overrides `web`.
+fn follow_theme(theme: &std::sync::Arc<farglass_session::theme::Theme>, web: bool) {
+    let follow = farglass_session::theme::forced_by_env().unwrap_or(web);
+    theme.set_enabled(follow);
+    if !follow {
+        let theme = theme.clone();
+        std::thread::spawn(move || theme.restore());
+    }
+}
+
 /// The link broker of the session worker, in a web session (F057).
 static BROKER: std::sync::OnceLock<farglass_session::broker::Broker> = std::sync::OnceLock::new();
 
@@ -216,13 +227,26 @@ async fn agent() {
                 if std::env::var_os("XDG_SESSION_ID").is_some() {
                     let buses = session.buses.clone();
                     let socket = socket.clone();
+                    let theme = session.theme.clone();
                     tokio::spawn(async move {
-                        match farglass_session::desktop::announce(&buses, &socket).await {
-                            Ok(true) => tracing::info!("the user manager and D-Bus activation have the farglass desktop"),
-                            Ok(false) => tracing::info!("the user manager has a display already, the agent keeps it"),
-                            Err(error) => tracing::warn!(%error, "the desktop variables did not go to the user manager"),
-                        }
+                        let web = match farglass_session::desktop::announce(&buses, &socket).await {
+                            Ok(true) => {
+                                tracing::info!("the user manager and D-Bus activation have the farglass desktop");
+                                true
+                            }
+                            Ok(false) => {
+                                tracing::info!("the user manager has a display already, the agent keeps it");
+                                false
+                            }
+                            Err(error) => {
+                                tracing::warn!(%error, "the desktop variables did not go to the user manager");
+                                false
+                            }
+                        };
+                        follow_theme(&theme, web);
                     });
+                } else {
+                    follow_theme(&session.theme, false);
                 }
                 Some(compositor)
             }
@@ -231,6 +255,26 @@ async fn agent() {
                 None
             }
         }
+    });
+    // At the end of the web session, the theme of the user comes back (F120, ADR-059).
+    let theme = session.theme.clone();
+    tokio::spawn(async move {
+        use tokio::signal::unix::{SignalKind, signal};
+        let (Ok(mut term), Ok(mut hangup), Ok(mut interrupt)) = (
+            signal(SignalKind::terminate()),
+            signal(SignalKind::hangup()),
+            signal(SignalKind::interrupt()),
+        ) else {
+            tracing::warn!("the agent cannot restore the theme of the user at its end");
+            return;
+        };
+        tokio::select! {
+            _ = term.recv() => {}
+            _ = hangup.recv() => {}
+            _ = interrupt.recv() => {}
+        }
+        let _ = tokio::task::spawn_blocking(move || theme.restore()).await;
+        std::process::exit(0);
     });
     let mut wait = RETRY_MIN;
     loop {

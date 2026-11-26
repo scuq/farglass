@@ -807,6 +807,28 @@ A request of an X11 app to maximize, minimize, or go to full screen has no effec
 A test that needs a program that is not installed does nothing.
 `FARGLASS_XWAYLAND=1` or `0` in the environment of the agent overrides `x11_apps`, for tests.
 
+## Theme of the Linux apps
+
+The GTK and KDE apps of the web session use the dark or light theme of the shell.
+LCARS and Dark give dark apps. Same as this computer gives the setting of the browser.
+The apps change at once, also the apps that run.
+
+The apps read the theme from the settings of the user, and the local desktop of the user reads the same settings (ADR-059).
+Thus the agent saves the values of the user before its first change, in `~/.local/state/farglass/theme-restore.json`.
+At the end of the web session, it puts the values back, and the local desktop looks as before.
+After a crash of the agent, the values come back at the end of the next web session.
+A theme that you select in an app during the web session also goes back at the end.
+
+The agent sets these values:
+
+- GSettings `org.gnome.desktop.interface color-scheme`: `prefer-dark` or `prefer-light`. GTK4, libadwaita, and through the desktop portal Qt 6, Firefox, and Chromium follow it.
+- GSettings `gtk-theme`: `Adwaita-dark` or `Adwaita`, for GTK3 apps, only if your theme is Adwaita. A different theme stays.
+- The Breeze Dark or Breeze Light colors in `~/.config/kdeglobals`, for KDE apps, only if the host has the Breeze color schemes.
+
+The agent changes these values only in a web session, not when it runs in a local desktop.
+`FARGLASS_FOLLOW_THEME=1` or `0` in the environment of the agent overrides it, for tests.
+`npm --prefix spikes/e2e run theme` tests it with GSettings in a temporary keyfile, and changes no setting of the user.
+
 ## Settings
 
 The settings app has these pages:
@@ -816,6 +838,7 @@ The settings app has these pages:
   The motion follows the reduced motion setting of your computer, or Full, or Reduced. Reduced has no movement, no pulse, and no blinking cursor in the terminal. A change applies at once, with no reload.
   The panel is the bar at the top, or a dock on the left.
   Videos in the host browser play in this browser (video redirection), or on the host.
+  The GTK and KDE apps of the host follow the theme. See [Theme of the Linux apps](#theme-of-the-linux-apps).
 - Keyboard: the shortcut scheme, the hints, the list of shortcuts, the tour, and the layout of the Linux apps.
 - Focus: the rules of focus protection, each on or off. See [Focus protection](#focus-protection).
 - Date and time: the hour format and the crockford timestamp of the clock in the panel, the time of the host, the timezone, and the network time (timedate1).

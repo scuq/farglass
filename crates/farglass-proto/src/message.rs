@@ -180,6 +180,11 @@ pub enum Open {
     /// The shell sends [`CameraRequest`]. After [`CameraRequest::Format`], each data frame holds
     /// one encoded picture: a flags byte (bit 0 is a key frame), then one H.264 access unit in Annex B form.
     Camera,
+    /// The dark or light theme of the shell, for the apps of the session (F120).
+    ///
+    /// The shell sends [`ThemeRequest`] control messages, at the start and after each change.
+    /// The agent sends nothing.
+    Theme,
     /// The video players of the host browser, for video redirection (F040).
     ///
     /// The agent sends [`RedirectEvent`] control messages. An [`RedirectEvent::Append`]
@@ -788,6 +793,17 @@ pub enum MicRequest {
     Start,
     /// The microphone is off.
     Stop,
+}
+
+/// A control message of the shell on a theme channel (F120).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum ThemeRequest {
+    /// The shell shows a dark theme (Dark, LCARS, or System in a dark browser), or a light one.
+    ColorScheme {
+        /// `true` for a dark theme.
+        dark: bool,
+    },
 }
 
 /// A control message of the agent on a camera channel (F116).

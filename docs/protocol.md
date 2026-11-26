@@ -486,6 +486,20 @@ The agent closes the channel in these cases:
 - More pictures than 30 each second, after a burst of 60 pictures: `resource-limit`.
 - A picture while 2 pictures wait for their ack: `resource-limit`.
 
+## Theme channel
+
+A channel `{"kind":"theme"}` gives the theme of the shell to the apps of the session (F120, ADR-059).
+The shell keeps it open while the desktop shows.
+It sends this message at the start and after each change of the theme:
+
+| Message | Meaning |
+|---|---|
+| `{"type":"color-scheme","dark":true}` | The shell shows a dark theme: LCARS, Dark, or the setting of a dark browser. `false` is a light theme. |
+
+The agent sends nothing on the channel.
+In a web session, the agent sets the GTK and KDE theme of the user.
+At the end of the session, it puts back the values of the user.
+
 ## WebTransport
 
 farglassd serves WebTransport on HTTP/3 at `/wt`, on the UDP port with the number of the TCP port.

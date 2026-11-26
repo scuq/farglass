@@ -29,6 +29,7 @@
     "mic": "node mic.mjs",
     "camera": "node camera.mjs",
     "camera-load": "node camera-load.mjs",
+    "theme": "node theme.mjs",
     "redirect": "node redirect.mjs",
     "popups": "node popups.mjs",
     "border": "node border.mjs",

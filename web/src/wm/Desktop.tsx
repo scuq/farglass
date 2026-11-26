@@ -3,6 +3,7 @@ import { APPEARANCE_KEY, applyAppearance, parseAppearance } from "../appearance"
 import { Notifications } from "../notify/Notifications";
 import { startMicrophone } from "../audio/mic";
 import { startCamera } from "../camera/camera";
+import { startHostTheme } from "../hostTheme";
 import { startSound } from "../audio/player";
 import { startBookmarks } from "../launcher/bookmarks";
 import { startHostApps } from "../launcher/hostApps";
@@ -100,6 +101,7 @@ export function Desktop(props: { connection: Connection; user: string; onlogout:
   // The microphone of this computer for the apps (F114). It stays off until the user turns it on.
   onCleanup(startMicrophone(props.connection));
   onCleanup(startCamera(props.connection));
+  onCleanup(startHostTheme(props.connection));
   // The appearance from the settings app, also when a different tab changes it.
   onCleanup(controller.state.watch(APPEARANCE_KEY, (value) => applyAppearance(parseAppearance(value))));
   return (

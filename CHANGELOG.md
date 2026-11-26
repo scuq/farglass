@@ -6,6 +6,11 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ---
 
+## Unreleased
+
+### Added
+- The GTK and KDE apps of the host follow the dark or light theme of farglass, and change at once. At the end of the web session, your own theme of the local desktop comes back.
+
 ## v0.3.0 — 26 November 2026 — Microphone and camera for host apps
 
 ### Added
