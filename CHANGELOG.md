@@ -6,6 +6,14 @@ One `vX.Y.Z` tag builds the release tarballs and the `farglassctl` binary of tha
 
 ---
 
+## Unreleased
+
+### Added
+- The desktop client is also an rpm package for amd64 and arm64, for Fedora 44 and later, and for RHEL 10, Rocky Linux 10, and AlmaLinux 10. Install it with `sudo dnf install ./farglass-client-VERSION-linux-amd64.rpm`.
+
+### Fixed
+- The deb package of the desktop client installs the sound library. Before, on a Debian or Ubuntu system with no sound library, the client did not start.
+
 ## v0.4.0 — 27 November 2026 — Desktop client with tabs and host app themes
 
 ### Added

@@ -450,20 +450,35 @@ Each connection opens in a tab of the same window, thus you can use the desktops
 It loads the shell from farglassd, thus the shell always has the version of the host.
 The client uses Electron, thus it has the engine of Chromium.
 
-Each release has the client for amd64 and arm64, as an AppImage and as a deb package.
-`SHA256SUMS` of the release lists the two files.
-Download one of them. On arm64, replace `amd64` with `arm64`, and set the version of the release:
+Each release has the client for amd64 and arm64 in three formats:
+
+| File | For |
+|---|---|
+| `farglass-client-VERSION-linux-ARCH.deb` | Debian 12 and later, Ubuntu 24.04 LTS and later |
+| `farglass-client-VERSION-linux-ARCH.rpm` | Fedora 44 and later, RHEL, Rocky Linux, and AlmaLinux 10 and later |
+| `farglass-client-VERSION-linux-ARCH.AppImage` | Other distributions |
+
+`SHA256SUMS` of the release lists the files.
+Download one of them. On arm64, replace `amd64` with `arm64`, and set the version of the release.
+On Debian or Ubuntu:
 
 ```sh
-curl -fLO https://github.com/scuq/farglass/releases/latest/download/farglass-client-0.4.0-linux-amd64.deb
-sudo apt install ./farglass-client-0.4.0-linux-amd64.deb
+curl -fLO https://github.com/scuq/farglass/releases/latest/download/farglass-client-0.5.0-linux-amd64.deb
+sudo apt install ./farglass-client-0.5.0-linux-amd64.deb
+```
+
+On Fedora, RHEL, Rocky Linux, or AlmaLinux:
+
+```sh
+curl -fLO https://github.com/scuq/farglass/releases/latest/download/farglass-client-0.5.0-linux-amd64.rpm
+sudo dnf install ./farglass-client-0.5.0-linux-amd64.rpm
 ```
 
 To use the AppImage, make it executable and start it:
 
 ```sh
-chmod +x farglass-client-0.4.0-linux-amd64.AppImage
-./farglass-client-0.4.0-linux-amd64.AppImage
+chmod +x farglass-client-0.5.0-linux-amd64.AppImage
+./farglass-client-0.5.0-linux-amd64.AppImage
 ```
 
 To add a server, type the address in **Address**, for example `desk.cyberdyne.example`, and click **Add**.
@@ -530,6 +545,7 @@ npm --prefix client run dist
 ```
 
 The packages are in `client/release`.
+The rpm package needs `rpmbuild`, on Debian and Ubuntu from the package `rpm`.
 `npm --prefix client start` starts the client from the source.
 
 ## Browser security

@@ -12,7 +12,7 @@
 # One release has, for amd64 and arm64:
 #   farglass-VERSION-linux-ARCH.tar.gz   the host programs, the web files, units, PAM files
 #   farglassctl-linux-ARCH               the static manager
-#   farglass-client-X.Y.Z-linux-ARCH.AppImage and .deb   the desktop client (F121)
+#   farglass-client-X.Y.Z-linux-ARCH.AppImage, .deb, and .rpm   the desktop client (F121, F123)
 # and SHA256SUMS with its cosign bundle SHA256SUMS.sigstore.json.
 #
 # The host programs are built in a Rocky Linux 9 container: glibc 2.34 is the
@@ -142,18 +142,22 @@ jobs:
           node-version-file: client/.nvmrc
           cache: npm
           cache-dependency-path: client/package-lock.json
+      - name: Install rpmbuild
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends rpm
       - run: npm --prefix client ci
       - run: npm --prefix client test
-      - name: Build the AppImage and the deb package
+      - name: Build the AppImage, the deb package, and the rpm package
         env:
           VERSION: ${{ needs.meta.outputs.version }}
         run: |
           set -eu
           npm --prefix client version "${VERSION#v}" --no-git-tag-version --allow-same-version
           npm --prefix client run dist
-          # electron-builder calls amd64 "x64". The release files say amd64, as the other files.
-          for f in client/release/farglass-client-*-linux-x64.*; do
-            if [ -e "$f" ]; then mv "$f" "$(echo "$f" | sed 's/-linux-x64\./-linux-amd64./')"; fi
+          # electron-builder calls amd64 "x64", and the rpm "x86_64" or "aarch64".
+          # The release files say amd64 and arm64, as the other files.
+          for f in client/release/farglass-client-*-linux-*; do
+            to=$(echo "$f" | sed -E 's/-linux-(x64|x86_64)\./-linux-amd64./; s/-linux-aarch64\./-linux-arm64./')
+            if [ "$f" != "$to" ]; then mv "$f" "$to"; fi
           done
           ls -l client/release/farglass-client-*
       - uses: actions/upload-artifact@v4
@@ -162,7 +166,38 @@ jobs:
           path: |
             client/release/farglass-client-*.AppImage
             client/release/farglass-client-*.deb
+            client/release/farglass-client-*.rpm
           retention-days: 1
+
+  # The packages of the desktop client must install, and the client must find its libraries.
+  client-smoke:
+    needs: [client]
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        image: ["debian:12", "ubuntu:24.04", "fedora:44", "almalinux:10"]
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.image }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: client-${{ matrix.runner }}
+          path: dist
+      - name: Install the package
+        run: |
+          set -eu
+          if command -v apt-get >/dev/null; then
+            apt-get update && apt-get install -y ./dist/farglass-client-*.deb
+          else
+            dnf install -y ./dist/farglass-client-*.rpm
+          fi
+      - name: Find the libraries
+        run: |
+          set -eu
+          if ldd /opt/farglass/farglass-client | grep "not found"; then exit 1; fi
+          test -x /usr/bin/farglass-client
 
   # The programs must find their libraries and start on the oldest supported release of each distribution.
   smoke:
@@ -197,7 +232,7 @@ jobs:
           ./farglass-login --version
 
   release:
-    needs: [meta, host, farglassctl, client, smoke]
+    needs: [meta, host, farglassctl, client, client-smoke, smoke]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -223,7 +258,7 @@ jobs:
             echo
             echo "Install: download farglassctl-linux-ARCH, then run: \`sudo ./farglassctl-linux-ARCH install --user YOURNAME\`"
             echo
-            echo "Desktop client for Linux: farglass-client-${VERSION#v}-linux-ARCH.AppImage or .deb"
+            echo "Desktop client for Linux: farglass-client-${VERSION#v}-linux-ARCH.AppImage, .deb, or .rpm"
           } >> notes.md
           cat notes.md
       - uses: actions/download-artifact@v4

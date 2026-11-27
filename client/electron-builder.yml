@@ -1,4 +1,4 @@
-# electron-builder.yml - the Linux packages of the desktop client (F121, ADR-060)
+# electron-builder.yml - the Linux packages of the desktop client (F121, F123, ADR-060)
 appId: at.farglass.client
 productName: farglass
 directories:
@@ -9,7 +9,7 @@ files:
   - package.json
 artifactName: farglass-client-${version}-linux-${arch}.${ext}
 linux:
-  target: [AppImage, deb]
+  target: [AppImage, deb, rpm]
   category: Network
   icon: build/icons
   executableName: farglass-client
@@ -17,4 +17,11 @@ linux:
   maintainer: farglass <scuq@users.noreply.github.com>
   synopsis: Desktop client of farglass
 deb:
-  depends: [libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0, libuuid1, libsecret-1-0]
+  # Ubuntu 24.04 renamed libasound2 to libasound2t64.
+  depends: [libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0, libuuid1, libsecret-1-0, libgbm1, "libasound2 | libasound2t64"]
+# Fedora 44 and later, RHEL 10 and its rebuilds. rpmbuild must be installed.
+rpm:
+  depends: [gtk3, libnotify, nss, libXtst, xdg-utils, at-spi2-core, libuuid, libsecret, mesa-libgbm, alsa-lib]
+  fpm:
+    # Each Electron app has the same build ids. Without this, two Electron rpm packages conflict.
+    - --rpm-rpmbuild-define=_build_id_links none

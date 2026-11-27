@@ -16,7 +16,7 @@
     "typecheck": "tsc -p . --noEmit",
     "test": "vitest run",
     "start": "npm run build && electron .",
-    "dist": "npm run build && electron-builder --linux AppImage deb --publish never",
+    "dist": "npm run build && electron-builder --linux AppImage deb rpm --publish never",
     "pack": "npm run build && electron-builder --linux dir --publish never"
   },
   "devDependencies": {
