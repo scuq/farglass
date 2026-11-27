@@ -463,22 +463,22 @@ Download one of them. On arm64, replace `amd64` with `arm64`, and set the versio
 On Debian or Ubuntu:
 
 ```sh
-curl -fLO https://github.com/scuq/farglass/releases/latest/download/farglass-client-0.5.0-linux-amd64.deb
-sudo apt install ./farglass-client-0.5.0-linux-amd64.deb
+curl -fLO https://github.com/scuq/farglass/releases/latest/download/farglass-client-0.4.1-linux-amd64.deb
+sudo apt install ./farglass-client-0.4.1-linux-amd64.deb
 ```
 
 On Fedora, RHEL, Rocky Linux, or AlmaLinux:
 
 ```sh
-curl -fLO https://github.com/scuq/farglass/releases/latest/download/farglass-client-0.5.0-linux-amd64.rpm
-sudo dnf install ./farglass-client-0.5.0-linux-amd64.rpm
+curl -fLO https://github.com/scuq/farglass/releases/latest/download/farglass-client-0.4.1-linux-amd64.rpm
+sudo dnf install ./farglass-client-0.4.1-linux-amd64.rpm
 ```
 
 To use the AppImage, make it executable and start it:
 
 ```sh
-chmod +x farglass-client-0.5.0-linux-amd64.AppImage
-./farglass-client-0.5.0-linux-amd64.AppImage
+chmod +x farglass-client-0.4.1-linux-amd64.AppImage
+./farglass-client-0.4.1-linux-amd64.AppImage
 ```
 
 To add a server, type the address in **Address**, for example `desk.cyberdyne.example`, and click **Add**.
